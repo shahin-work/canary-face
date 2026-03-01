@@ -45,12 +45,16 @@ function isWeekend(dateStr: string): boolean {
   return false;
 }
 
+// in prod
 // function isFuture(dateStr: string): boolean {
 //   return dateStr > toDateStr(new Date());
-// }
-function isFuture(dateStr: string): boolean {
-  return false; // remove this line in production
+// } 
+ 
+function isFuture(_dateStr: string): boolean {
+  return false; // always allow in development
 }
+
+
 
 function calcHours(sessions: Session[], forDate?: string): number {
   let mins = 0;
