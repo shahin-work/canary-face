@@ -377,13 +377,31 @@ export default function Attendance() {
           }
 
           const todayHours = todayDay?.totalHours || 0;
-          const overtimeHours = todayHours > 9 ? Math.round((todayHours - 9) * 10) / 10 : 0;
+          // const overtimeHours = todayHours > 9 ? Math.round((todayHours - 9) * 10) / 10 : 0;
+
+
+          const overtimeHours = weekDays.reduce((sum, d) => {
+          if (d.status === "present" && (d.totalHours ?? 0) > 9) {
+            return sum + ((d.totalHours ?? 0) - 9);
+          }
+          return sum;
+        }, 0);
+
+        const roundedOT = Math.round(overtimeHours * 10) / 10;
 
           return {
-            emp_id: emp.emp_id, name: emp.name, department: emp.department, type: emp.type,
+            emp_id: emp.emp_id,
+            name: emp.name,
+            department: emp.department,
+            type: emp.type,
             profile_image: emp.profile_image,
-            weekDays, presentDays, totalHours: Math.round(totalHours * 10) / 10,
-            attendancePercent, todayStatus, overtimeHours, currentlyIn: isCurrentlyIn,
+            weekDays,
+            presentDays,
+            totalHours: Math.round(totalHours * 10) / 10,
+            attendancePercent,
+            todayStatus,
+            overtimeHours: roundedOT,
+            currentlyIn: isCurrentlyIn,
           };
         })
       );
