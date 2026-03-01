@@ -184,7 +184,11 @@ function TimelineRow({ day, attendanceMap, today, hoveredDay, onHover }: {
   const isHovered = hoveredDay === day;
 
   const state: "present"|"weekend"|"holiday"|"absent"|"future" =
-    isFutureDay ? "future" : hasSess ? "present" : holiday ? "holiday" : weekend ? "weekend" : "absent";
+    hasSess ? "present" :
+    holiday ? "holiday" :
+    weekend ? "weekend" :
+    isFutureDay ? "future" :
+    "absent";
 
   const nowObj  = new Date();
   const nowStr  = `${String(nowObj.getHours()).padStart(2,"0")}:${String(nowObj.getMinutes()).padStart(2,"0")}`;
@@ -209,9 +213,9 @@ function TimelineRow({ day, attendanceMap, today, hoveredDay, onHover }: {
           : isToday
             ? "linear-gradient(90deg,rgba(255,215,0,0.04) 0%,transparent 60%)"
             : holiday
-            ? "linear-gradient(90deg,rgba(168,85,247,0.03) 0%,transparent 60%)"
+            ? "linear-gradient(90deg,rgba(168,85,247,0.04) 0%,transparent 60%)"
             : "transparent",
-        borderLeft: isToday ? `2.5px solid ${C.yellow}` : holiday ? `2.5px solid rgba(168,85,247,0.4)` : "2.5px solid transparent",
+        borderLeft: isToday ? `2.5px solid ${C.yellow}` : holiday ? `2.5px solid rgba(168,85,247,${isFutureDay ? "0.2" : "0.4"})` : "2.5px solid transparent",
         borderBottom: `1px solid ${C.bord2}`,
         minHeight: 58,
         transition:"background 0.12s",
@@ -234,7 +238,7 @@ function TimelineRow({ day, attendanceMap, today, hoveredDay, onHover }: {
         }}>
           <span style={{
             fontSize:12, fontWeight:800, lineHeight:1,
-            color: isToday ? C.bg : isHovered ? C.text : (isFutureDay || state==="weekend" || state==="holiday") ? C.dim : C.text,
+            color: isToday ? C.bg : isHovered ? C.text : (state==="weekend" || state==="holiday" || state==="future") ? C.dim : C.text,
             transition:"color 0.12s",
           }}>{dayNum}</span>
         </div>
@@ -249,26 +253,27 @@ function TimelineRow({ day, attendanceMap, today, hoveredDay, onHover }: {
           top:"50%", transform:"translateY(-50%)",
           height:3, borderRadius:2,
           background:
-            isFutureDay  ? "rgba(99,102,241,0.04)" :
             holiday   ? "rgba(168,85,247,0.08)" :
             weekend   ? "rgba(99,102,241,0.08)" :
+            isFutureDay  ? "rgba(99,102,241,0.04)" :
             !hasSess  ? "rgba(239,68,68,0.08)" :
             "rgba(99,102,241,0.10)",
         }}/>
 
         {/* Non-working label */}
-        {(weekend || isFutureDay || !hasSess) && (
+        {(weekend || (!hasSess && !isFutureDay) || (isFutureDay && (weekend || holiday))) && (
           <span style={{
             position:"absolute", left:"50%", transform:"translateX(-50%)",
             fontSize:9, fontWeight:700, letterSpacing:1, textTransform:"uppercase",
             color:
-              holiday      ? "rgba(168,85,247,0.5)" :
-              weekend      ? "rgba(99,102,241,0.3)" :
-              isFutureDay  ? "rgba(99,102,241,0.12)" :
+              holiday && !isFutureDay ? "rgba(168,85,247,0.5)" :
+              holiday && isFutureDay  ? "rgba(168,85,247,0.25)" :
+              weekend && !isFutureDay ? "rgba(99,102,241,0.3)" :
+              weekend && isFutureDay  ? "rgba(99,102,241,0.18)" :
               "rgba(239,68,68,0.28)",
             userSelect:"none",
           }}>
-            {isFutureDay ? "" : (weekend ? getNonWorkingLabel(day) : "Absent")}
+            {weekend ? getNonWorkingLabel(day) : "Absent"}
           </span>
         )}
 
@@ -353,7 +358,6 @@ function TimelineRow({ day, attendanceMap, today, hoveredDay, onHover }: {
                   top:"50%", transform:"translateY(-50%)",
                   height: isHovered ? 4 : 3, borderRadius:2,
                   background:`linear-gradient(10deg,${C.red},${C.red})`,
-                  opacity:0.35,
                   zIndex:1,
                   transition:"height 0.12s",
                 }}/>
@@ -487,6 +491,7 @@ export default function EmployeeDetails() {
   const [loading,     setLoading]     = useState(true);
   const [error,       setError]       = useState("");
   const [hoveredDay,  setHoveredDay]  = useState<string | null>(null);
+  const [toast,       setToast]       = useState("");
 
   // Allowed range: March 2026 (offset 0) → December 2026 (offset 9)
   const RANGE_YEAR  = 2026;
@@ -585,6 +590,7 @@ export default function EmployeeDetails() {
           50%{box-shadow:0 0 22px ${C.yellow};transform:translateY(-50%) scale(1.4)}
         }
         @keyframes fadeSlide{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:translateY(0)}}
+        @keyframes toastIn{from{opacity:0;transform:translateY(-12px)}to{opacity:1;transform:translateY(0)}}
         .trow:hover{background:rgba(99,102,241,0.05)!important}
         .nbtn{transition:background 0.15s,color 0.15s;}
         .nbtn:hover:not(:disabled){background:rgba(255,215,0,0.14)!important;color:${C.yellow}!important}
@@ -631,18 +637,18 @@ export default function EmployeeDetails() {
           {/* Status pill */}
           <div style={{
             padding:"8px 10px",borderRadius:10,
-            background:isCurrentlyIn?"rgba(250,204,21,0.05)":todayAtt?"rgba(34,197,94,0.05)":"rgba(239,68,68,0.05)",
-            border:`1px solid ${isCurrentlyIn?"#FACC1528":todayAtt?`${C.green}28`:`${C.red}28`}`,
+            background:isCurrentlyIn?`${C.green}08`:todayAtt?`${C.red}08`:"rgba(239,68,68,0.05)",
+            border:`1px solid ${isCurrentlyIn?`${C.green}28`:todayAtt?`${C.red}28`:`${C.red}18`}`,
             display:"flex",alignItems:"center",gap:7,
             boxShadow:neu(true),
           }}>
             <div style={{
               width:6,height:6,borderRadius:"50%",flexShrink:0,
-              background:isCurrentlyIn?"#FACC15":todayAtt?C.green:C.red,
-              boxShadow:`0 0 6px ${isCurrentlyIn?"#FACC15":todayAtt?C.green:C.red}`,
+              background:isCurrentlyIn?C.green:C.red,
+              boxShadow:`0 0 6px ${isCurrentlyIn?C.green:C.red}`,
             }}/>
             <div>
-              <div style={{fontSize:9.5,fontWeight:700,color:isCurrentlyIn?"#FACC15":todayAtt?C.green:C.red}}>
+              <div style={{fontSize:9.5,fontWeight:700,color:isCurrentlyIn?C.green:C.red}}>
                 {isCurrentlyIn?"Currently In":todayAtt?"Checked Out":"Not In Today"}
               </div>
               {isCurrentlyIn&&<div style={{fontSize:8,color:C.dim,marginTop:1}}>{todayHours}h elapsed</div>}
@@ -691,11 +697,18 @@ export default function EmployeeDetails() {
             background:C.surf2,border:`1px solid ${C.border}`,
             borderRadius:11,padding:"3px 4px",boxShadow:neu(),
           }}>
-            <button className="nbtn" onClick={()=>setMonthOffset(o=>o-1)} disabled={atStart} style={{
+            <button className="nbtn" onClick={()=>{
+              if(atStart){
+                setToast("Attendance data is available from 1 March 2026 onwards. No earlier records exist.");
+                setTimeout(()=>setToast(""),3500);
+              } else {
+                setMonthOffset(o=>o-1);
+              }
+            }} style={{
               width:26,height:26,borderRadius:7,border:"none",
               background:"transparent",color:C.yellow,fontSize:16,fontWeight:800,
-              cursor:atStart?"not-allowed":"pointer",
-              opacity:atStart?0.2:1,
+              cursor:atStart?"default":"pointer",
+              opacity:atStart?0.4:1,
               display:"flex",alignItems:"center",justifyContent:"center",
               fontFamily:"'Sora',sans-serif",
             }}>‹</button>
@@ -729,7 +742,6 @@ export default function EmployeeDetails() {
             {rulerHours.map(h => {
               const pct = ((h*60 - DAY_START) / DAY_SPAN) * 100;
               if (pct < 0 || pct > 100) return null;
-
               // Display as 12-hour without AM/PM
               const label = h <= 12 ? `${h}` : `${h - 12}`;
               return (
@@ -767,6 +779,27 @@ export default function EmployeeDetails() {
           <div style={{height:48}}/>
         </div>
       </div>
+      {/* ══ TOAST ══════════════════════════════════════════════════════════ */}
+      {toast && (
+        <div style={{
+          position:"fixed", top:20, right:24, transform:"none",
+          zIndex:9999,
+          background:C.surf2,
+          border:`1px solid ${C.yellow}33`,
+          borderRadius:12,
+          padding:"11px 18px",
+          display:"flex", alignItems:"center", gap:10,
+          boxShadow:`0 4px 32px rgba(0,0,0,0.6), 0 0 0 1px ${C.yellow}18`,
+          animation:"toastIn 0.22s cubic-bezier(0.34,1.56,0.64,1)",
+          maxWidth:420,
+        }}>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" style={{flexShrink:0}}>
+            <circle cx="12" cy="12" r="9" stroke={C.yellow} strokeWidth="1.8"/>
+            <path d="M12 8v4M12 16h.01" stroke={C.yellow} strokeWidth="2" strokeLinecap="round"/>
+          </svg>
+          <span style={{fontSize:11, fontWeight:600, color:C.text, lineHeight:1.4}}>{toast}</span>
+        </div>
+      )}
     </div>
   );
 }
