@@ -141,7 +141,7 @@ export default function EmployeeCard({ data, viewMode, onClick }: Props) {
           </span>
         )}
         {isAbsent && (
-          <span style={{ color: "rgba(248,80,80,0.55)", fontSize: 9, fontWeight: 700 }}>✕</span>
+          <span style={{ color: "rgba(248,80,80,0.55)", fontSize: 9, fontWeight: 700 }}></span>
         )}
         {isHoliday && (
           <span style={{ color: "rgba(251,191,36,0.7)", fontSize: 7.5, fontWeight: 700 }}>★</span>

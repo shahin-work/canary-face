@@ -7,7 +7,7 @@ import type { EmployeeCardData, DayStatus, Session } from "../components/Employe
 
 // ─── constants ───────────────────────────────────────────────────────────────
 
-const DATA_START = "2026-03-01";
+const DATA_START = "2026-03-02";
 
 const HOLIDAYS_2026 = new Set([
   "2026-02-15",
@@ -375,10 +375,6 @@ export default function Attendance() {
             if (!last.check_out) { todayStatus = "checked-in"; isCurrentlyIn = true; }
             else todayStatus = "present";
           }
-
-          const todayHours = todayDay?.totalHours || 0;
-          // const overtimeHours = todayHours > 9 ? Math.round((todayHours - 9) * 10) / 10 : 0;
-
 
           const overtimeHours = weekDays.reduce((sum, d) => {
           if (d.status === "present" && (d.totalHours ?? 0) > 9) {
