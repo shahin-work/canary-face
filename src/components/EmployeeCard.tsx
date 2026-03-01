@@ -322,19 +322,15 @@ export default function EmployeeCard({ data, viewMode, onClick }: Props) {
       <div style={{
         display: "flex", alignItems: "center", justifyContent: "center",
         borderTop: "1px solid rgba(99,102,241,0.1)",
-        paddingTop: 7, gap: 10,
+        paddingTop: 1, gap: 140,
       }}>
         <div style={{ display: "flex", alignItems: "baseline", gap: 3 }}>
-          <span style={{ color: "#FFD700", fontWeight: 800, fontSize: 13, lineHeight: 1 }}>{data.presentDays}</span>
-          <span style={{ color: "#8090C0", fontSize: 9.5 }}>days present</span>
+          <span style={{ color: "#FFD700", fontWeight: 600, fontSize: 12, lineHeight: 1 }}>{data.presentDays}</span>
+          <span style={{ color: "#8090C0", fontSize: 9 }}>days present</span>
         </div>
-        <div style={{ width: 3, height: 3, borderRadius: "50%", background: "rgba(99,102,241,0.4)" }} />
         <div style={{ display: "flex", alignItems: "baseline", gap: 3 }}>
-          <span style={{ color: "#FFD700", fontWeight: 800, fontSize: 13, lineHeight: 1 }}>{data.totalHours}</span>
-          <span style={{ color: "#8090C0", fontSize: 9.5 }}>hrs</span>
-          {data.overtimeHours > 0 && (
-            <span style={{ fontSize: 8.5, color: "#93C5FD", fontWeight: 700, marginLeft: 2 }}>+{data.overtimeHours} OT</span>
-          )}
+          <span style={{ color: "#FFD700", fontWeight: 600, fontSize: 12, lineHeight: 1 }}>{data.totalHours}</span>
+          <span style={{ color: "#8090C0", fontSize: 9 }}>hrs</span>
         </div>
       </div>
     </div>

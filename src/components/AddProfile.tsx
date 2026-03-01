@@ -3,9 +3,11 @@ import { collection, getDocs, doc, updateDoc } from "firebase/firestore";
 import { db } from "../firebase";
 
 interface Employee {
+  id: string;           // Firestore document ID
   emp_id: string;
   name: string;
   department: string;
+  profile_image?: string;
 }
 
 export default function AddProfile() {
@@ -38,9 +40,18 @@ export default function AddProfile() {
 
   const fetchEmployees = async () => {
     const snap = await getDocs(collection(db, "employees"));
-    const data = snap.docs.map((d) => d.data() as Employee);
+
+    const data = snap.docs.map((d) => ({
+      id: d.id,                // ✅ use Firestore document ID
+      ...d.data(),
+    })) as Employee[];
+
     setEmployees(data);
   };
+
+  const selectedEmployee = employees.find(
+    (e) => e.id === selectedId   // ✅ match by document ID
+  );
 
   const handleFileChange = (file: File) => {
     const reader = new FileReader();
@@ -61,43 +72,39 @@ export default function AddProfile() {
 
     try {
       setLoading(true);
+
       await updateDoc(doc(db, "employees", selectedId), {
         profile_image: imageBase64,
       });
+
       setSuccess(true);
       setTimeout(() => setSuccess(false), 3000);
+
       setImageBase64(null);
-      setSelectedId("");
     } catch (err) {
-      console.error(err);
+      console.error("Update error:", err);
     } finally {
       setLoading(false);
     }
   };
 
-  const selectedEmployee = employees.find(
-    (e) => e.emp_id === selectedId
-  );
-
   return (
     <div className="min-h-screen bg-[#071536] text-white flex items-center justify-center px-4">
       <div className="w-full max-w-xl bg-[#0d2247] rounded-3xl p-8 border border-[#1e3a6e] shadow-2xl relative">
 
-        {/* Header */}
         <h2 className="text-2xl font-bold text-[#ffd700] mb-8">
-          Add Employee Profile
+          Add / Change Employee Profile
         </h2>
 
-        {/* Dropdown Section */}
+        {/* Dropdown */}
         <div className="relative mb-8" ref={dropdownRef}>
           <label className="block text-sm text-gray-400 mb-2">
             Select Employee
           </label>
 
-          {/* Selected Field */}
           <div
             onClick={() => setOpen(!open)}
-            className="w-full bg-[#071536] border border-[#1e3a6e] rounded-xl px-4 py-3 flex items-center justify-between cursor-pointer hover:border-[#ffd700] transition"
+            className="w-full bg-[#071536] border border-[#1e3a6e] rounded-xl px-4 py-3 flex items-center justify-between cursor-pointer hover:border-[#ffd700]"
           >
             <span className="text-sm">
               {selectedEmployee
@@ -105,7 +112,6 @@ export default function AddProfile() {
                 : "Choose employee"}
             </span>
 
-            {/* Chevron */}
             <svg
               className={`w-4 h-4 transition-transform ${open ? "rotate-180" : ""}`}
               fill="none"
@@ -117,11 +123,9 @@ export default function AddProfile() {
             </svg>
           </div>
 
-          {/* Dropdown List */}
           {open && (
             <div className="absolute left-0 right-0 mt-2 bg-[#0f2a5e] border border-[#1e3a6e] rounded-xl shadow-xl z-50">
 
-              {/* Search */}
               <div className="p-3 border-b border-[#1e3a6e]">
                 <input
                   type="text"
@@ -132,17 +136,16 @@ export default function AddProfile() {
                 />
               </div>
 
-              {/* Scrollable List */}
-              <div className="max-h-64 overflow-y-auto custom-scroll">
+              <div className="max-h-64 overflow-y-auto">
                 {filteredEmployees.map((emp) => (
                   <div
-                    key={emp.emp_id}
+                    key={emp.id}
                     onClick={() => {
-                      setSelectedId(emp.emp_id);
+                      setSelectedId(emp.id);   // ✅ use document ID
                       setOpen(false);
                       setSearch("");
                     }}
-                    className="px-4 py-3 hover:bg-[#1e3a6e] cursor-pointer text-sm transition"
+                    className="px-4 py-3 hover:bg-[#1e3a6e] cursor-pointer text-sm"
                   >
                     <span className="text-[#ffd700] font-semibold">
                       {emp.emp_id}
@@ -163,10 +166,26 @@ export default function AddProfile() {
           )}
         </div>
 
-        {/* Upload Section */}
+        {/* Existing Image Preview */}
+        {selectedEmployee?.profile_image && !imageBase64 && (
+          <div className="mb-6 flex flex-col items-center">
+            <img
+              src={selectedEmployee.profile_image}
+              alt="Current"
+              className="w-40 h-40 object-cover rounded-xl border-2 border-[#ffd700]"
+            />
+            <p className="text-xs text-gray-400 mt-2">
+              Current Profile Image
+            </p>
+          </div>
+        )}
+
+        {/* Upload */}
         <div className="mb-6">
           <label className="block text-sm text-gray-400 mb-2">
-            Upload Profile Image
+            {selectedEmployee?.profile_image
+              ? "Change Profile Image"
+              : "Upload Profile Image"}
           </label>
 
           <input
@@ -175,11 +194,11 @@ export default function AddProfile() {
             onChange={(e) =>
               e.target.files && handleFileChange(e.target.files[0])
             }
-            className="w-full bg-[#071536] border border-[#1e3a6e] rounded-xl px-4 py-3 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-[#ffd700] file:text-[#071536] file:font-semibold hover:border-[#ffd700]"
+            className="w-full bg-[#071536] border border-[#1e3a6e] rounded-xl px-4 py-3 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-[#ffd700] file:text-[#071536]"
           />
         </div>
 
-        {/* Preview */}
+        {/* New Preview */}
         {imageBase64 && (
           <div className="mb-6 flex flex-col items-center">
             <img
@@ -189,43 +208,27 @@ export default function AddProfile() {
             />
             <button
               onClick={() => setImageBase64(null)}
-              className="mt-2 text-sm text-red-400 hover:text-red-300"
+              className="mt-2 text-sm text-red-400"
             >
-              Remove Image
+              Remove Selected Image
             </button>
           </div>
         )}
 
-        {/* Save Button */}
         <button
           onClick={handleSave}
           disabled={loading}
-          className="w-full py-3 rounded-xl font-semibold bg-[#ffd700] text-[#071536] hover:opacity-90 transition"
+          className="w-full py-3 rounded-xl font-semibold bg-[#ffd700] text-[#071536]"
         >
           {loading ? "Saving..." : "Save Profile Image"}
         </button>
 
-        {/* Success */}
         {success && (
           <div className="mt-4 text-green-400 text-sm text-center">
             Profile image updated successfully ✓
           </div>
         )}
       </div>
-
-      {/* Custom Scroll Styling */}
-      <style>{`
-        .custom-scroll::-webkit-scrollbar {
-          width: 6px;
-        }
-        .custom-scroll::-webkit-scrollbar-thumb {
-          background: #ffd70055;
-          border-radius: 10px;
-        }
-        .custom-scroll::-webkit-scrollbar-track {
-          background: transparent;
-        }
-      `}</style>
     </div>
   );
 }
