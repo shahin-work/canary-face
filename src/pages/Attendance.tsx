@@ -4,6 +4,7 @@ import { collection, getDocs, doc, getDoc } from "firebase/firestore";
 import { db } from "../firebase";
 import EmployeeCard from "../components/EmployeeCard";
 import type { EmployeeCardData, DayStatus, Session } from "../components/EmployeeCard";
+import logo from "../assets/react.png";
 
 // ─── constants ───────────────────────────────────────────────────────────────
 
@@ -612,11 +613,14 @@ const [weekOffset, setWeekOffset] = useState(initialWeekOffset);
         <div style={{ maxWidth: 1300, margin: "0 auto", padding: "10px 24px", display: "flex", alignItems: "center", gap: 10 }}>
 
           {/* logo */}
-          <a href="https://www.canarysuite.in/tool/39eI96JB8MFWX8RKQiTK"
+          {/* <a href="https://www.canarysuite.in/tool/39eI96JB8MFWX8RKQiTK" */}
+          <a href="https://www.canarysuite.in/tool/canary-face"
             style={{ display: "flex", alignItems: "center", gap: 10, textDecoration: "none", flexShrink: 0 }}>
-            <img src="/src/assets/react.png" alt="Canary Face"
+            <img
+              src={logo}
+              alt="Canary Face"
               style={{ width: 33, height: 33, borderRadius: 8, objectFit: "contain", background: SURF }}
-              onError={e => { e.currentTarget.style.display = "none"; }} />
+            />
             <div>
               <p style={{ fontWeight: 700, fontSize: 14, color: TEXT, lineHeight: 1, margin: 0 }}>Canary Face</p>
               <p style={{ fontSize: 10, color: SUB, marginTop: 2 }}>Attendance · Software Team</p>
