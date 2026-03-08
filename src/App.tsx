@@ -5,7 +5,7 @@ import EmployeeDetails from "./pages/EmployeeDetails";
 import AddProfile from "./components/AddProfile";
 import AdminPanel from "./components/AdminPanel";
 
-const MOBILE_BLOCK_ENABLED = false; // toggle: set false to allow mobile
+const MOBILE_BLOCK_ENABLED = true; // toggle: set false to allow mobile
 
 // ── screen width hook ─────────────────────────────────────────────────────────
 function useWindowWidth() {
@@ -107,10 +107,12 @@ if (MOBILE_BLOCK_ENABLED && width < 640 && !isPhoneRoute) return <MobileBlock />
       <Routes>
         <Route path="/"               element={<Attendance />} />
         <Route path="/:empSlug"       element={<EmployeeDetails />} />
-        <Route path="/phone"          element={<Attendance />} />
-        <Route path="/phone/:empSlug" element={<EmployeeDetails />} />
         <Route path="/profile"        element={<AddProfile />} />
         <Route path="/admin"          element={<AdminPanel />} />
+        <Route path="/phone"          element={<Attendance />} />
+        <Route path="/phone/:empSlug" element={<EmployeeDetails />} />
+        <Route path="/phone/profile"  element={<AddProfile />} />
+        <Route path="/phone/admin"    element={<AdminPanel />} />
       </Routes>
 
       {!online && (
