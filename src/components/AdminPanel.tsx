@@ -37,7 +37,7 @@ const TEAL   = "#84fcfa";
 function isAuthed() {
   const ts = localStorage.getItem(SESS_KEY);
   if (!ts) return false;
-  return Date.now() - parseInt(ts) < SESSION_MINS * 60 * 1000;
+  return Date.now() - parseInt(ts) < SESSION_MINS * 10 * 1000;
 }
 
 // function isAuthed() {
