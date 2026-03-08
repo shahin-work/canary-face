@@ -1,5 +1,5 @@
 interface Session {
-  session: number;
+  session?: number;
   check_in: string;
   check_out?: string;
 }
@@ -48,22 +48,40 @@ function getInitials(name: string) {
   return name.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase();
 }
 
-// Granular green scale — darker for fewer hours, brighter for more
-// 0 = just checked in, 1h..10h+ progressive ramp
-function presentBarColor(hrs: number): string {
-  if (hrs === 0)       return "#0D300F"; // just checked in
-  if (hrs < 1)         return "#0D300F";
-  if (hrs < 2)         return "#0F3D12";
-  if (hrs < 3)         return "#115417";
-  if (hrs < 4)         return "#13661A";
-  if (hrs < 5)         return "#15731B";
-  if (hrs < 6)         return "#17841D";
-  if (hrs < 7)         return "#1A9720";
-  if (hrs < 8)         return "#1CAB23";
-  if (hrs < 9)         return "#12B31E";
-  if (hrs < 10)        return "#3ED95A";
-  return "#80FF8A";                      // 10h+
+
+// function presentBarColor(h: number): string {
+//   if (h === 0)       return "#0D300F"; // just checked in
+//   if (h < 1)         return "#0D300F";
+//   if (h < 2)         return "#0F3D12";
+//   if (h < 3)         return "#115417";
+//   if (h < 4)         return "#13661A";
+//   if (h < 5)         return "#15731B";
+//   if (h < 6)         return "#17841D";
+//   if (h < 7)         return "#1A9720";
+//   if (h < 8)         return "#1CAB23";
+//   if (h < 9)         return "#12B31E";
+//   if (h < 10)        return "#3ED95A";
+//   return "#80FF8A";                      // 10h+
+// }
+
+
+
+function presentBarColor(h: number): string {
+  if (h === 0)       return "#0D300F"; // just checked in
+  if (h < 1)         return "#0D300F";
+  if (h < 2)         return "#0F3D12";
+  if (h < 3)         return "#115417";
+  if (h < 4)         return "#13661A";
+  if (h < 5)         return "#15731B";
+  if (h < 6)         return "#17841D";
+  if (h < 7)         return "#1A9720";
+  if (h < 8)         return "#1ca323";
+  if (h < 9)         return "#12B31E";
+  if (h < 10)        return "#33ce4f";
+  return "#5bf367";                      // 10h+
 }
+
+
 
 // Mon-first week grid padding: (getDay()+6)%7 → 0=Mon…6=Sun
 function chunkIntoWeekRows(days: DayStatus[]): (DayStatus | null)[][] {
@@ -83,16 +101,16 @@ export default function EmployeeCard({ data, viewMode, onClick }: Props) {
 
   const statusCfg =
     data.todayStatus === "checked-in"
-      ? { color: "#FACC15", bg: "rgba(250,204,21,0.12)", border: "rgba(250,204,21,0.35)", dot: true,  text: "IN"  }
+      ? { color: "#89ff7c", bg: "rgba(250,204,21,0.12)", border: "rgba(125, 125, 125, 0.35)", dot: true,  text: "IN"  }
       : data.todayStatus === "present"
-      ? { color: "#4ADE80", bg: "rgba(74,222,128,0.1)",  border: "rgba(74,222,128,0.3)",  dot: false, text: "OUT" }
-      : { color: "#F87171", bg: "rgba(248,113,113,0.1)", border: "rgba(248,113,113,0.3)", dot: false, text: "ABS" };
+      ? { color: "#ff5858", bg: "rgba(74,222,128,0.1)",  border: "rgba(120, 120, 120, 0.3)",  dot: false, text: "OUT" }
+      : { color: "#ff0000", bg: "rgba(248,113,113,0.1)", border: "rgba(123, 123, 123, 0.3)", dot: false, text: "ABS" };
 
   const weekRows = viewMode === "month" ? chunkIntoWeekRows(data.weekDays) : null;
 
   // ── bar colour helper (used in both week and month) ──
   function barBg(day: DayStatus): string {
-    if (day.status === "present") return presentBarColor(day.totalHours ?? 0);
+    if (day.status === "present") return presentBarColor(Math.round(day.totalHours ?? 0));
     if (day.status === "absent")  return "rgba(239,68,68,0.5)";
     if (day.status === "holiday") return "rgba(251,191,36,0.25)";   // amber — brighter than weekend
     if (day.status === "weekend") return "rgba(99,102,241,0.13)";
@@ -107,17 +125,17 @@ export default function EmployeeCard({ data, viewMode, onClick }: Props) {
     const isAbsent  = day.status === "absent";
     const isHoliday = day.status === "holiday";
     const isFuture  = day.status === "future";
-    const hrs       = day.totalHours ?? 0;
+    const h       = day.totalHours ?? 0;
 
     // For currently-checked-in: use a mid-green so it's clearly visible
-    const bg = isCheckedIn && isPresent && hrs === 0
+    const bg = isCheckedIn && isPresent && h === 0
       ? "#15731B"   // 4h equiv green for "in progress"
       : barBg(day);
 
     const textColor = (() => {
       if (!isPresent) return "#001a00";
-      if (isCheckedIn && hrs === 0) return "rgba(150,255,150,0.9)";
-      return hrs < 5 ? "rgba(150,255,150,0.85)" : "#001a00";
+      if (isCheckedIn && h === 0) return "rgba(150,255,150,0.9)";
+      return h < 5 ? "rgba(150,255,150,0.85)" : "#001a00";
     })();
 
     return (
@@ -128,16 +146,16 @@ export default function EmployeeCard({ data, viewMode, onClick }: Props) {
         outlineOffset: 1,
         display: "flex", alignItems: "center", justifyContent: "center",
       }}>
-        {isPresent && (isCheckedIn && hrs === 0) && (
+        {isPresent && (isCheckedIn && h === 0) && (
           <span style={{ color: "rgba(150,255,150,0.9)", fontSize: 8, fontWeight: 800, letterSpacing: 0.3 }}>IN</span>
         )}
-        {isPresent && hrs > 0 && (
+        {isPresent && h > 0 && (
           <span style={{
             color: textColor,
             fontSize: 9.5, fontWeight: 900,
             fontFamily: "'JetBrains Mono',monospace", lineHeight: 1, letterSpacing: -0.5,
           }}>
-            {hrs}h
+            {h}h
           </span>
         )}
         {isAbsent && (
@@ -276,7 +294,7 @@ export default function EmployeeCard({ data, viewMode, onClick }: Props) {
                 const isHoliday = day.status === "holiday";
                 const isFuture  = day.status === "future";
                 const isToday   = day.date === today;
-                const hrs       = day.totalHours ?? 0;
+                const h       = day.totalHours ?? 0;
                 const dayNum    = new Date(day.date).getDate();
 
                 return (
@@ -290,7 +308,7 @@ export default function EmployeeCard({ data, viewMode, onClick }: Props) {
                   }}>
                     <span style={{
                       color: isPresent
-                           ? (hrs < 6 ? "rgba(120,255,140,0.85)" : "rgba(0,40,10,0.9)")
+                           ? (h < 6 ? "rgba(120,255,140,0.85)" : "rgba(0,40,10,0.9)")
                            : isAbsent  ? "rgba(255,100,100,0.75)"
                            : isHoliday ? "rgba(251,191,36,0.9)"
                            : "#4A5A9A",
@@ -298,13 +316,13 @@ export default function EmployeeCard({ data, viewMode, onClick }: Props) {
                     }}>
                       {dayNum}
                     </span>
-                    {isPresent && hrs > 0 && (
+                    {isPresent && h > 0 && (
                       <span style={{
-                        color: hrs < 6 ? "rgba(150,255,160,0.9)" : "rgba(0,30,5,0.85)",
+                        color: h < 6 ? "rgba(150,255,160,0.9)" : "rgba(0,30,5,0.85)",
                         fontSize: 6.5, fontWeight: 900,
                         fontFamily: "'JetBrains Mono',monospace", lineHeight: 1, letterSpacing: -0.3,
                       }}>
-                        {hrs}h
+                        {h}h
                       </span>
                     )}
                     {isHoliday && (
@@ -322,7 +340,7 @@ export default function EmployeeCard({ data, viewMode, onClick }: Props) {
       <div style={{
         display: "flex", alignItems: "center", justifyContent: "center",
         borderTop: "1px solid rgba(99,102,241,0.1)",
-        paddingTop: 1, gap: 115,
+        paddingTop: 1, gap: 114,
       }}>
         <div style={{ display: "flex", alignItems: "baseline", gap: 3 }}>
           <span style={{ color: "#FFD700", fontWeight: 600, fontSize: 12, lineHeight: 1 }}>{data.presentDays}</span>
@@ -334,7 +352,7 @@ export default function EmployeeCard({ data, viewMode, onClick }: Props) {
           </span>
 
           <span style={{ color: "#8090C0", fontSize: 9 }}>
-            hrs
+            h
           </span>
 
           {data.overtimeHours > 0 && (

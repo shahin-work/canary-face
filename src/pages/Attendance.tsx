@@ -55,23 +55,34 @@ function isFuture(_dateStr: string): boolean {
 }
 
 
-
 function calcHours(sessions: Session[], forDate?: string): number {
   let mins = 0;
-  const toMins = (t: string) => { const [h, m] = t.split(":").map(Number); return h * 60 + m; };
+  const toMins = (t: string) => {
+    const [h, m, s] = t.split(":").map(Number);
+    return h * 60 + m + (s || 0) / 60;
+  };
   const now = new Date();
   const todayStr = toDateStr(now);
-  const nowMins  = now.getHours() * 60 + now.getMinutes();
+  const nowMins  = Math.min(now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60, 21 * 60);
+
+  const WORK_START = 9 * 60;   // 09:00
+  const WORK_END   = 21 * 60;  // 21:00
+
   for (const s of sessions) {
     if (!s.check_in) continue;
+    const inMins  = Math.max(toMins(s.check_in),  WORK_START); // clamp early check-in
     if (s.check_out) {
-      mins += toMins(s.check_out) - toMins(s.check_in);
-    } else if (!forDate || forDate === todayStr) {
-      mins += Math.max(0, nowMins - toMins(s.check_in));
+      const outMins = Math.min(toMins(s.check_out), WORK_END); // clamp late check-out
+      mins += Math.max(0, outMins - inMins);
+    } else {
+      if (!forDate || forDate === todayStr) {
+        mins += Math.max(0, nowMins - inMins);
+      }
     }
   }
   return Math.round((mins / 60) * 10) / 10;
 }
+
 
 function getWeekDates(offset: number): string[] {
   const now    = new Date();
@@ -307,7 +318,31 @@ export default function Attendance() {
 
   type ViewMode = "week" | "month";
   const [viewMode,     setViewMode]    = useState<ViewMode>("week");
-  const [weekOffset,   setWeekOffset]  = useState(0);
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+  // const [weekOffset,   setWeekOffset]  = useState(0);
+
+const monday = (d: Date) => {
+  const x = new Date(d);
+  const dow = x.getDay();
+  x.setDate(x.getDate() - (dow === 0 ? 6 : dow - 1));
+  return x;
+};
+const initialWeekOffset = Math.round(
+  (monday(new Date(DATA_START)).getTime() - monday(new Date()).getTime()) / (7 * 86400000)
+);
+const [weekOffset, setWeekOffset] = useState(initialWeekOffset);
+
+
+
   const [monthOffset,  setMonthOffset] = useState(0);
   const [search,       setSearch]      = useState("");
   const [cards,        setCards]       = useState<EmployeeCardData[]>([]);
@@ -350,9 +385,9 @@ export default function Attendance() {
               if (isWeekend(date))   return { date, status: "weekend" as const };
               if (isFuture(date))    return { date, status: "future"  as const };
               try {
-                const snap = await getDoc(doc(db, "attendance", emp.emp_id, "dates", date));
+                const snap = await getDoc(doc(db, emp.emp_id, date));
                 if (snap.exists()) {
-                  const d = snap.data() as { sessions: Session[] };
+                  const d = snap.data() as { employee_name: string; sessions: Session[] };
                   return { date, status: "present" as const, sessions: d.sessions, totalHours: calcHours(d.sessions, date) };
                 }
               } catch (_) {}
@@ -416,6 +451,43 @@ export default function Attendance() {
     const dates = viewMode === "week" ? getWeekDates(weekOffset) : getMonthDates(monthOffset);
     fetchAll(dates);
   }, [viewMode, weekOffset, monthOffset]);
+
+
+  // ── Live tick: recalculate hours every 60s for open sessions ──
+  useEffect(() => {
+    const id = setInterval(() => {
+      setCards(prev => prev.map(card => {
+        const todayDay = card.weekDays.find(d => d.date === today);
+        if (!todayDay || todayDay.status !== "present") return card;
+        
+        const hasOpenSession = todayDay.sessions?.some(s => !s.check_out);
+        if (!hasOpenSession) return card;
+
+        // Recalculate totalHours for today
+        const updatedWeekDays = card.weekDays.map(d => {
+          if (d.date !== today || !d.sessions) return d;
+          return { ...d, totalHours: calcHours(d.sessions, d.date) };
+        });
+
+        const totalHours = Math.round(
+          updatedWeekDays.reduce((a, d) => a + (d.totalHours || 0), 0) * 10
+        ) / 10;
+
+        const overtimeHours = Math.round(
+          updatedWeekDays.reduce((sum, d) => {
+            if (d.status === "present" && (d.totalHours ?? 0) > 9)
+              return sum + ((d.totalHours ?? 0) - 9);
+            return sum;
+          }, 0) * 10
+        ) / 10;
+
+        return { ...card, weekDays: updatedWeekDays, totalHours, overtimeHours };
+      }));
+    }, 60_000); // every 60 seconds
+
+    return () => clearInterval(id);
+  }, [today]);
+
 
   const filtered = useMemo(() => {
     let base = cards;

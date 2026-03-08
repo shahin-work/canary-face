@@ -291,6 +291,20 @@ function TimelineRow({ day, attendanceMap, today, hoveredDay, onHover }: {
           );
         })}
 
+        {/* 6 PM marker line */}
+        {(() => {
+          const pct = ((18 * 60 - DAY_START) / DAY_SPAN) * 100;
+          return (
+            <div style={{
+              position: "absolute", left: `${pct}%`,
+              top: "50%", transform: "translateY(-50%)",
+              width: 1, height: 59, borderRadius: 1,
+              background: "rgba(248,113,113,0.10)",
+              zIndex: 2, pointerEvents: "none",
+            }}/>
+          );
+        })()}
+
         {/* Sessions */}
         {att?.sessions.map((s, i) => {
           const inPct  = timeToPercent(s.check_in);
@@ -528,7 +542,7 @@ export default function EmployeeDetails() {
         const empSnap = await getDoc(doc(db, "employees", empId));
         if (!empSnap.exists()) { setError("Employee not found."); return; }
         setEmployee(empSnap.data() as Employee);
-        const snap = await getDocs(collection(db, "attendance", empId, "dates"));
+        const snap = await getDocs(collection(db, empId));
         const days = snap.docs.map(d => ({ date: d.id, ...d.data() } as AttendanceDay));
         days.sort((a,b) => b.date.localeCompare(a.date));
         setAttendance(days);

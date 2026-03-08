@@ -3,6 +3,9 @@ import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
 import Attendance from "./pages/Attendance";
 import EmployeeDetails from "./pages/EmployeeDetails";
 import AddProfile from "./components/AddProfile";
+import AdminPanel from "./components/AdminPanel";
+
+const MOBILE_BLOCK_ENABLED = false; // toggle: set false to allow mobile
 
 // ── screen width hook ─────────────────────────────────────────────────────────
 function useWindowWidth() {
@@ -13,6 +16,19 @@ function useWindowWidth() {
     return () => window.removeEventListener("resize", handler);
   }, []);
   return width;
+}
+
+// ── online hook ───────────────────────────────────────────────────────────────
+function useOnline() {
+  const [online, setOnline] = useState(navigator.onLine);
+  useEffect(() => {
+    const on  = () => setOnline(true);
+    const off = () => setOnline(false);
+    window.addEventListener("online",  on);
+    window.addEventListener("offline", off);
+    return () => { window.removeEventListener("online", on); window.removeEventListener("offline", off); };
+  }, []);
+  return online;
 }
 
 // ── mobile block screen ───────────────────────────────────────────────────────
@@ -78,22 +94,40 @@ function MobileBlock() {
 // ── inner app — has access to useLocation ─────────────────────────────────────
 function AppInner() {
   const width    = useWindowWidth();
+  const online   = useOnline();
   const location = useLocation();
 
-  // /phone and /phone/anything always bypass the mobile block
   const isPhoneRoute = location.pathname === "/phone" ||
                        location.pathname.startsWith("/phone/");
 
-  if (width < 640 && !isPhoneRoute) return <MobileBlock />;
+if (MOBILE_BLOCK_ENABLED && width < 640 && !isPhoneRoute) return <MobileBlock />;
 
   return (
-    <Routes>
-      <Route path="/"               element={<Attendance />} />
-      <Route path="/:empSlug"       element={<EmployeeDetails />} />
-      <Route path="/phone"          element={<Attendance />} />
-      <Route path="/phone/:empSlug" element={<EmployeeDetails />} />
-      <Route path="/profile"    element={<AddProfile />} />
-    </Routes>
+    <>
+      <Routes>
+        <Route path="/"               element={<Attendance />} />
+        <Route path="/:empSlug"       element={<EmployeeDetails />} />
+        <Route path="/phone"          element={<Attendance />} />
+        <Route path="/phone/:empSlug" element={<EmployeeDetails />} />
+        <Route path="/profile"        element={<AddProfile />} />
+        <Route path="/admin"          element={<AdminPanel />} />
+      </Routes>
+
+      {!online && (
+        <div style={{
+          position: "fixed", bottom: 16, left: "50%", transform: "translateX(-50%)",
+          zIndex: 99999, background: "#1a0a0a", border: "1px solid rgba(248,113,113,0.4)",
+          borderRadius: 12, padding: "10px 18px",
+          display: "flex", alignItems: "center", gap: 10,
+          boxShadow: "0 8px 32px rgba(0,0,0,0.7)",
+          fontFamily: "'Sora', sans-serif",
+          whiteSpace: "nowrap",
+        }}>
+          <div style={{ width: 7, height: 7, borderRadius: "50%", background: "#F87171", boxShadow: "0 0 8px #F87171", flexShrink: 0 }}/>
+          <span style={{ color: "#FCA5A5", fontSize: 12, fontWeight: 600 }}>No internet connection</span>
+        </div>
+      )}
+    </>
   );
 }
 

@@ -168,17 +168,20 @@ export default function AddProfile() {
 
         {/* Existing Image Preview */}
         {selectedEmployee?.profile_image && !imageBase64 && (
-          <div className="mb-6 flex flex-col items-center">
-            <img
-              src={selectedEmployee.profile_image}
-              alt="Current"
-              className="w-40 h-40 object-cover rounded-xl border-2 border-[#ffd700]"
-            />
-            <p className="text-xs text-gray-400 mt-2">
-              Current Profile Image
-            </p>
-          </div>
-        )}
+  <div className="mb-6 flex flex-col items-center">
+    <img
+      src={
+        selectedEmployee.profile_image.startsWith("data:")
+          ? selectedEmployee.profile_image
+          : `data:image/jpeg;base64,${selectedEmployee.profile_image}`
+      }
+      alt="Current"
+      className="w-40 h-40 object-cover rounded-xl border-2 border-[#ffd700]"
+      onError={e => { (e.target as HTMLImageElement).style.display = "none"; }}
+    />
+    <p className="text-xs text-gray-400 mt-2">Current Profile Image</p>
+  </div>
+)}
 
         {/* Upload */}
         <div className="mb-6">
