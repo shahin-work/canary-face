@@ -824,7 +824,7 @@ const [weekOffset, setWeekOffset] = useState(initialWeekOffset);
             <div className="att-grid">
               {filtered.map(d => (
                 <EmployeeCard key={d.emp_id} data={d} viewMode={viewMode}
-                  onClick={() => navigate(`/${d.emp_id}-${d.name.toLowerCase().replace(/\s+/g, "-")}`)} />
+                onClick={() => navigate(`/${d.emp_id}`)} />
               ))}
             </div>
           )}

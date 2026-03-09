@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { doc, getDoc, collection, getDocs } from "firebase/firestore";
+import { collection, getDocs } from "firebase/firestore";
 import { db } from "../firebase";
+import { query, where } from "firebase/firestore";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface Session { session: number; check_in: string; check_out?: string; }
@@ -498,7 +499,7 @@ function TimelineRow({ day, attendanceMap, today, hoveredDay, onHover }: {
 export default function EmployeeDetails() {
   const { empSlug } = useParams();
   const navigate    = useNavigate();
-  const empId       = empSlug?.split("-")[0] ?? "";
+  const empId = empSlug ?? "";
 
   const [employee,    setEmployee]    = useState<Employee | null>(null);
   const [attendance,  setAttendance]  = useState<AttendanceDay[]>([]);
@@ -534,22 +535,53 @@ export default function EmployeeDetails() {
   const monthDates = useMemo(() => getMonthDates(viewYear, viewMonth), [viewYear, viewMonth]);
   const monthLabel = viewDate.toLocaleDateString("en-IN", { month:"long", year:"numeric" });
 
+
+
   useEffect(() => {
-    if (!empId) return;
-    (async () => {
-      setLoading(true);
-      try {
-        const empSnap = await getDoc(doc(db, "employees", empId));
-        if (!empSnap.exists()) { setError("Employee not found."); return; }
-        setEmployee(empSnap.data() as Employee);
-        const snap = await getDocs(collection(db, empId));
-        const days = snap.docs.map(d => ({ date: d.id, ...d.data() } as AttendanceDay));
-        days.sort((a,b) => b.date.localeCompare(a.date));
-        setAttendance(days);
-      } catch(e) { setError("Failed to load."); console.error(e); }
-      finally { setLoading(false); }
-    })();
-  }, [empId]);
+  if (!empId) return;
+
+  (async () => {
+    setLoading(true);
+
+    try {
+      const q = query(
+        collection(db, "employees"),
+        where("emp_id", "==", empId)
+      );
+
+      const snap = await getDocs(q);
+
+      if (snap.empty) {
+        setError("Employee not found.");
+        return;
+      }
+
+      const employeeData = snap.docs[0].data() as Employee;
+      setEmployee(employeeData);
+
+      const attendanceSnap = await getDocs(collection(db, empId));
+
+      const days = attendanceSnap.docs.map(d => ({
+        date: d.id,
+        ...d.data()
+      } as AttendanceDay));
+
+      days.sort((a, b) => b.date.localeCompare(a.date));
+
+      setAttendance(days);
+
+    } catch (e) {
+      setError("Failed to load.");
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  })();
+
+}, [empId]);
+
+ 
+ 
 
   const attendanceMap = useMemo(() => {
     const m = new Map<string,AttendanceDay>();
