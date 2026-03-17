@@ -9,6 +9,7 @@ interface DayStatus {
   status: "present" | "absent" | "weekend" | "holiday" | "future";
   sessions?: Session[];
   totalHours?: number;
+  extraTime?: string | null;  // ← ADD THIS
 }
 
 interface EmployeeCardData {
@@ -24,12 +25,14 @@ interface EmployeeCardData {
   todayStatus: "present" | "checked-in" | "absent";
   overtimeHours: number;
   currentlyIn: boolean;
+  extraTime?: string | null;
 }
 
 interface Props {
   data: EmployeeCardData;
   viewMode: "week" | "month";
   onClick: () => void;
+  isLive?: boolean;
 }
 
 const TYPE_COLORS: Record<string, string> = {
@@ -95,9 +98,11 @@ function chunkIntoWeekRows(days: DayStatus[]): (DayStatus | null)[][] {
   return rows;
 }
 
-export default function EmployeeCard({ data, viewMode, onClick }: Props) {
-  const today     = new Date().toISOString().split("T")[0];
+ 
+export default function EmployeeCard({ data, viewMode, onClick, isLive = false }: Props) {  const today     = new Date().toISOString().split("T")[0];
   const typeColor = TYPE_COLORS[data.type] || "#FFD700";
+
+  const isCurrentPeriod = data.weekDays.some(d => d.date === today);
 
   const statusCfg =
     data.todayStatus === "checked-in"
@@ -107,15 +112,36 @@ export default function EmployeeCard({ data, viewMode, onClick }: Props) {
       : { color: "#ff0000", bg: "rgba(248,113,113,0.1)", border: "rgba(123, 123, 123, 0.3)", dot: false, text: "ABS" };
 
   const weekRows = viewMode === "month" ? chunkIntoWeekRows(data.weekDays) : null;
+  
+  const totalExtraSeconds = data.weekDays.reduce((sum, d) => {
+    if (!d.extraTime) return sum;
+    const parts = d.extraTime.split(":");
+    const m = parseInt(parts[0], 10);
+    const s = parseInt(parts[1], 10);
+    return sum + m * 60 + s;
+  }, 0);
+  const totalExtraDisplay = totalExtraSeconds > 0
+    ? (() => {
+        const m = Math.floor(totalExtraSeconds / 60);
+        const s = totalExtraSeconds % 60;
+        return m > 0 ? `${m}m ${s}s` : `${s}s`;
+      })()
+    : null;
+ 
 
-  // ── bar colour helper (used in both week and month) ──
+
   function barBg(day: DayStatus): string {
-    if (day.status === "present") return presentBarColor(Math.round(day.totalHours ?? 0));
-    if (day.status === "absent")  return "rgba(239,68,68,0.5)";
-    if (day.status === "holiday") return "rgba(251,191,36,0.25)";   // amber — brighter than weekend
-    if (day.status === "weekend") return "rgba(99,102,241,0.13)";
-    return "rgba(15,20,60,0.5)"; // future
-  }
+  if (day.status === "present") return presentBarColor(Math.round(day.totalHours ?? 0));
+
+  if (day.status === "absent")  return "rgba(184, 134, 46, 0.5)";   // 🔴 clear red
+  // if (day.status === "absent")  return "rgba(239,68,68,0.5)";
+  if (day.status === "holiday") return "rgba(251,191,36,0.35)";   // 🟡
+  if (day.status === "weekend") return "rgba(99,102,241,0.18)";   // 🟣
+  if (day.status === "future")  return "rgba(120,140,200,0.08)";  // ⚪ very light
+
+  return "transparent";
+}
+  
 
   // ── single bar cell ──
   // isCheckedIn = currently inside (no checkout yet on this day)
@@ -159,7 +185,9 @@ export default function EmployeeCard({ data, viewMode, onClick }: Props) {
           </span>
         )}
         {isAbsent && (
-          <span style={{ color: "rgba(248,80,80,0.55)", fontSize: 9, fontWeight: 700 }}></span>
+          <span style={{ color: "#ff6b6b", fontSize: 8, fontWeight: 800 }}>
+            
+          </span>
         )}
         {isHoliday && (
           <span style={{ color: "rgba(251,191,36,0.7)", fontSize: 7.5, fontWeight: 700 }}>★</span>
@@ -232,19 +260,30 @@ export default function EmployeeCard({ data, viewMode, onClick }: Props) {
           </p>
         </div>
 
-        {/* status pill */}
-        <div style={{
-          flexShrink: 0, display: "flex", alignItems: "center", gap: 4,
-          background: statusCfg.bg, border: `1px solid ${statusCfg.border}`,
-          borderRadius: 20, padding: "3px 7px",
-        }}>
-          {statusCfg.dot && (
-            <div style={{ width: 5, height: 5, borderRadius: "50%", background: statusCfg.color, boxShadow: `0 0 5px ${statusCfg.color}` }} />
-          )}
-          <span style={{ color: statusCfg.color, fontSize: 9, fontWeight: 700, letterSpacing: 0.8 }}>
-            {statusCfg.text}
-          </span>
-        </div>
+        {/* status pill */}   
+        {isCurrentPeriod && (
+          <div style={{
+            flexShrink: 0, display: "flex", alignItems: "center", gap: 4,
+            background: statusCfg.bg, border: `1px solid ${statusCfg.border}`,
+            borderRadius: 20, padding: "3px 7px",
+          }}>
+            {statusCfg.dot && (
+              <div style={{
+                width: 5, height: 5, borderRadius: "50%",
+                background: statusCfg.color,
+                boxShadow: `0 0 5px ${statusCfg.color}`
+              }} />
+            )}
+            <span style={{
+              color: statusCfg.color,
+              fontSize: 9,
+              fontWeight: 700,
+              letterSpacing: 0.8
+            }}>
+              {statusCfg.text}
+            </span>
+          </div>
+        )}
       </div>
 
       {/* ── ROW 2: Bars ── */}
@@ -316,6 +355,8 @@ export default function EmployeeCard({ data, viewMode, onClick }: Props) {
                     }}>
                       {dayNum}
                     </span>
+
+ 
                     {isPresent && h > 0 && (
                       <span style={{
                         color: h < 6 ? "rgba(150,255,160,0.9)" : "rgba(0,30,5,0.85)",
@@ -355,18 +396,25 @@ export default function EmployeeCard({ data, viewMode, onClick }: Props) {
             h
           </span>
 
-          {data.overtimeHours > 0 && (
-            <span
-              style={{
-                fontSize: 8.5,
-                color: "#93C5FD",
-                fontWeight: 700,
-                marginLeft: 2
-              }}
-            >
-              +{data.overtimeHours} OT
-            </span>
-          )}
+
+
+{data.overtimeHours > 0 && (
+  <>
+    <span style={{ fontSize: 8.5, color: "#93C5FD", fontWeight: 700, marginLeft: 2 }}>
+      +{data.overtimeHours} OT
+    </span>
+ 
+    {isLive && totalExtraDisplay && (
+      <span style={{
+        fontSize: 8, color: "#991B1B", fontWeight: 700,
+        marginLeft: 2, fontFamily: "'JetBrains Mono', monospace",
+      }}>
+        -{totalExtraDisplay}
+      </span>
+    )} 
+  </>
+)} 
+
         </div>
       </div>
     </div>

@@ -11,6 +11,7 @@ const firebaseConfig = {
   appId: "YOUR_APP_ID",
 };
 
+
 const fbApp = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
 const db    = getFirestore(fbApp);
 
@@ -739,6 +740,33 @@ function AttendanceTab({ toast }: any) {
   const [expanded, setExpanded] = useState<string|null>(null);
   const [modal, setModal]       = useState<any>(null);
 
+
+
+  // ← ADD HERE
+  const [dbLive, setDbLive]       = useState<boolean | null>(null);
+  const [togglingDb, setTogglingDb] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const snap = await getDocs(collection(db, "settings"));
+        const settingsDoc = snap.docs.find(d => d.id === "app");
+        if (settingsDoc) setDbLive(settingsDoc.data().live ?? false);
+      } catch (_) {}
+    })();
+  }, []);
+
+    async function toggleDbLive() {
+    setTogglingDb(true);
+    try {
+      const newVal = !dbLive;
+      await setDoc(doc(db, "settings", "app"), { live: newVal }, { merge: true });
+      setDbLive(newVal);
+      toast(`System set to ${newVal ? "LIVE 🟢" : "OFFLINE 🔴"}`);
+    } catch (e: any) { toast("Toggle failed: " + e.message, "error"); }
+    finally { setTogglingDb(false); }
+  }
+
   async function loadEmps() {
     setLE(true);
     try {
@@ -846,6 +874,39 @@ function AttendanceTab({ toast }: any) {
               </Btn>
 
               <Btn small outline color={SUB} onClick={() => loadDates(selEmp)} loading={loadingDates}>↻</Btn>
+           
+              <div style={{
+                display: "flex", alignItems: "center", gap: 8,
+                background: dbLive ? "rgba(74,222,128,0.08)" : "rgba(248,113,113,0.08)",
+                border: `1px solid ${dbLive ? GREEN + "44" : RED + "44"}`,
+                borderRadius: 9, padding: "5px 10px",
+              }}>
+                <span style={{ color: SUB, fontSize: 10, fontWeight: 700, letterSpacing: 0.6 }}>SYSTEM</span>
+                <div onClick={!togglingDb ? toggleDbLive : undefined} style={{
+                  width: 36, height: 20, borderRadius: 20, cursor: togglingDb ? "wait" : "pointer",
+                  background: dbLive ? GREEN : RED,
+                  position: "relative", transition: "background 0.2s",
+                  opacity: dbLive === null ? 0.4 : 1, flexShrink: 0,
+                }}>
+                  <div style={{
+                    position: "absolute", top: 3, left: dbLive ? 18 : 3,
+                    width: 14, height: 14, borderRadius: "50%",
+                    background: "#fff", transition: "left 0.2s",
+                    boxShadow: "0 1px 4px rgba(0,0,0,0.4)",
+                  }} />
+                </div>
+                <span style={{
+                  fontSize: 10, fontWeight: 700,
+                  color: dbLive ? GREEN : RED,
+                  fontFamily: "'JetBrains Mono',monospace",
+                }}>
+                  {dbLive === null ? "…" : dbLive ? "LIVE" : "OFF"}
+                </span>
+              </div>
+           
+           
+           
+           
             </div>
 
             {/* ── Today's status card ── */}

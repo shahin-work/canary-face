@@ -6,7 +6,7 @@ import { query, where } from "firebase/firestore";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface Session { session: number; check_in: string; check_out?: string; }
-interface AttendanceDay { date: string; sessions: Session[]; }
+interface AttendanceDay { date: string; sessions: Session[]; extra_time?: string | null; }
 interface Employee { emp_id: string; name: string; department: string; type: string; created_at: string; profile_image?: string; }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -164,14 +164,14 @@ function InsightCard({ label, value, unit, sub, color, icon }: {
   );
 }
 
-// ─── TimelineRow ──────────────────────────────────────────────────────────────
 function TimelineRow({ day, attendanceMap, today, hoveredDay, onHover }: {
   day: string;
-  attendanceMap: Map<string,AttendanceDay>;
+  attendanceMap: Map<string, AttendanceDay>;
   today: string;
   hoveredDay: string | null;
   onHover: (day: string | null) => void;
-}) {
+}) { 
+
   const d       = new Date(day);
   const dayName = d.toLocaleDateString("en-IN", { weekday:"short" });
   const dayNum  = d.getDate();
@@ -183,6 +183,7 @@ function TimelineRow({ day, attendanceMap, today, hoveredDay, onHover }: {
   const hasSess  = !!(att && att.sessions.length > 0);
   const hours    = hasSess ? calcHours(att!.sessions, day) : 0;
   const isHovered = hoveredDay === day;
+  const extraTime = att?.extra_time ?? null;  // ← ADD THIS
 
   const state: "present"|"weekend"|"holiday"|"absent"|"future" =
     hasSess ? "present" :
@@ -471,7 +472,7 @@ function TimelineRow({ day, attendanceMap, today, hoveredDay, onHover }: {
         })}
       </div>
 
-      {/* ── Hours ── */}
+{/* ── Hours ── */}
       <div style={{
         textAlign:"right", paddingLeft:12,
         transition:"all 0.12s",
@@ -486,11 +487,26 @@ function TimelineRow({ day, attendanceMap, today, hoveredDay, onHover }: {
               textShadow: isHovered ? `0 0 12px ${hoursColor}66` : "none",
             }}>{hours}h</div>
             <div style={{ fontSize:8, color: isHovered ? C.sub : C.dim, marginTop:2, letterSpacing:0.5, transition:"color 0.12s" }}>worked</div>
+            {extraTime && (() => {
+              const parts = extraTime.split(":");
+              const m = parseInt(parts[0], 10);
+              const s = parseInt(parts[1], 10);
+              const display = m > 0 ? `${m}m ${s}s` : `${s}s`;
+              return (
+                <div style={{
+                  fontSize: 8, fontWeight: 800,
+                  color: "#7f1d1d",
+                  fontFamily: "'JetBrains Mono',monospace",
+                  marginTop: 2, letterSpacing: 0.3,
+                }}>-{display}</div>
+              );
+            })()}
           </>
         ) : (
           <div style={{ fontSize:11, color: isHovered ? C.sub : C.dim, transition:"color 0.12s" }}>—</div>
         )}
       </div>
+      
     </div>
   );
 }

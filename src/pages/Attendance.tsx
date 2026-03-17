@@ -28,9 +28,11 @@ const HOLIDAYS_2026 = new Set([
   "2026-12-25",
 ]);
 
+
 function isHoliday(dateStr: string): boolean {
   return HOLIDAYS_2026.has(dateStr);
 }
+
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
@@ -352,6 +354,7 @@ const [weekOffset, setWeekOffset] = useState(initialWeekOffset);
   const [currentlyIn,  setCurrentlyIn] = useState(0);
   const [toast,        setToast]       = useState<string | null>(null);
   const [activeFilter, setActiveFilter] = useState<FilterChip>("all");
+  const [isLive, setIsLive] = useState(false);
 
   const displayDates = useMemo(
     () => viewMode === "week" ? getWeekDates(weekOffset) : getMonthDates(monthOffset),
@@ -365,6 +368,66 @@ const [weekOffset, setWeekOffset] = useState(initialWeekOffset);
     return dates[dates.length - 1] < DATA_START;
   }
 
+
+  async function fetchTodayInOffice() {
+  try {
+    const empSnap = await getDocs(collection(db, "employees"));
+    const employees = empSnap.docs.map(d => d.data() as { emp_id: string });
+
+    const today = toDateStr(new Date());
+
+
+        // ✅ ADD THIS BACK
+    const todayMap: Record<string, Session[]> = {};
+
+    await Promise.all(
+      employees.map(async (emp) => {
+        try {
+          const snap = await getDoc(doc(db, emp.emp_id, today));
+          if (snap.exists()) {
+            const d = snap.data() as { sessions: Session[]; extra_time?: string | null };
+            todayMap[emp.emp_id] = d.sessions || [];
+          }
+        } catch (_) {}
+      })
+    );
+ 
+      await Promise.all(
+        employees.map(async (emp) => {
+          try {
+            const snap = await getDoc(doc(db, emp.emp_id, today));
+            if (snap.exists()) {
+              const d = snap.data() as { sessions: Session[] };
+              todayMap[emp.emp_id] = d.sessions || [];
+            }
+          } catch (_) {}
+        })
+      );
+
+
+    const results = await Promise.all(
+      employees.map(async (emp) => {
+        try {
+          const snap = await getDoc(doc(db, emp.emp_id, today));
+          if (snap.exists()) {
+            const data = snap.data() as { sessions: Session[] };
+
+            if (!data.sessions?.length) return false;
+
+            const last = data.sessions[data.sessions.length - 1];
+            return !last.check_out;
+          }
+        } catch (_) {}
+        return false;
+      })
+    );
+
+    setCurrentlyIn(results.filter(Boolean).length);
+  } catch (e) {
+    console.error(e);
+  }
+}
+
   async function fetchAll(datesToFetch?: string[]) {
     setLoading(true);
     setError("");
@@ -377,25 +440,45 @@ const [weekOffset, setWeekOffset] = useState(initialWeekOffset);
       const employees = sortEmployees(raw);
       const dates     = datesToFetch ?? displayDates;
 
+      
       const result: EmployeeCardData[] = await Promise.all(
         employees.map(async (emp) => {
           const weekDays: DayStatus[] = await Promise.all(
-            dates.map(async (date) => {
-              if (date < DATA_START) return { date, status: "future" as const };
-              if (isHoliday(date))   return { date, status: "holiday" as const };
-              if (isWeekend(date))   return { date, status: "weekend" as const };
-              if (isFuture(date))    return { date, status: "future"  as const };
-              try {
-                const snap = await getDoc(doc(db, emp.emp_id, date));
-                if (snap.exists()) {
-                  const d = snap.data() as { employee_name: string; sessions: Session[] };
-                  return { date, status: "present" as const, sessions: d.sessions, totalHours: calcHours(d.sessions, date) };
-                }
-              } catch (_) {}
-              return { date, status: "absent" as const };
-            })
-          );
+  dates.map(async (date) => {
+    if (date < DATA_START) return { date, status: "future" as const };
+    if (isHoliday(date))   return { date, status: "holiday" as const };
+    if (isWeekend(date))   return { date, status: "weekend" as const };
+    if (isFuture(date))    return { date, status: "future"  as const };
 
+    try {
+      const snap = await getDoc(doc(db, emp.emp_id, date));
+  if (snap.exists()) {
+    const d = snap.data() as { sessions: Session[]; extra_time?: string | null };
+      return {
+      date,
+      status: "present" as const,
+      sessions: d.sessions,
+      totalHours: calcHours(d.sessions, date),
+      extraTime: d.extra_time ?? null
+    };
+  }
+
+
+    } catch (_) {}
+
+    if (date === today) {
+      return { date, status: "absent" as const };
+    }
+
+    if (date < today) {
+      return { date, status: "absent" as const };
+    }
+
+    return { date, status: "future" as const };
+  })
+);
+ 
+ 
           const presentDays  = weekDays.filter(d => d.status === "present").length;
           const workingDays  = weekDays.filter(d =>
             d.status !== "weekend" && d.status !== "future" && d.status !== "holiday"
@@ -404,6 +487,7 @@ const [weekOffset, setWeekOffset] = useState(initialWeekOffset);
           const attendancePercent = workingDays > 0 ? Math.round((presentDays / workingDays) * 100) : 0;
 
           const todayDay = weekDays.find(d => d.date === today);
+          const extraTime = todayDay?.extraTime ?? null;
           let todayStatus: "present" | "checked-in" | "absent" = "absent";
           let isCurrentlyIn = false;
           if (todayDay?.status === "present" && todayDay.sessions?.length) {
@@ -433,12 +517,12 @@ const [weekOffset, setWeekOffset] = useState(initialWeekOffset);
             attendancePercent,
             todayStatus,
             overtimeHours: roundedOT,
+            extraTime,
             currentlyIn: isCurrentlyIn,
           };
         })
       );
 
-      setCurrentlyIn(result.filter(c => c.currentlyIn).length);
       setCards(result);
     } catch (e) {
       setError("Failed to load attendance data.");
@@ -453,6 +537,12 @@ const [weekOffset, setWeekOffset] = useState(initialWeekOffset);
     fetchAll(dates);
   }, [viewMode, weekOffset, monthOffset]);
 
+useEffect(() => {
+  fetchTodayInOffice();
+  getDoc(doc(db, "settings", "app")).then(snap => {
+    if (snap.exists()) setIsLive(snap.data().live ?? false);
+  }).catch(() => {});
+}, []);
 
   // ── Live tick: recalculate hours every 60s for open sessions ──
   useEffect(() => {
@@ -564,6 +654,13 @@ const [weekOffset, setWeekOffset] = useState(initialWeekOffset);
   return (
     <div style={{ minHeight: "100vh", background: BG, fontFamily: "'Sora', sans-serif", color: TEXT }}>
       <style>{`
+
+        @keyframes livePulse {
+          0%   { box-shadow: 0 0 0px #4ADE80; opacity: 0.7; transform: scale(1); }
+          50%  { box-shadow: 0 0 10px #4ADE80, 0 0 18px #4ADE80; opacity: 1; transform: scale(1.15); }
+          100% { box-shadow: 0 0 0px #4ADE80; opacity: 0.7; transform: scale(1); }
+        }
+
         @import url('https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@500;600;700;800&display=swap');
         *, *::before, *::after { font-family: 'Sora', sans-serif; box-sizing: border-box; }
         input::placeholder { color: #3A4A7A; }
@@ -642,7 +739,15 @@ const [weekOffset, setWeekOffset] = useState(initialWeekOffset);
               <span style={{ color: SUB }}>employees</span>
               <div style={{ width: 1, height: 13, background: "rgba(99,102,241,0.25)" }} />
               <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-                <div style={{ width: 6, height: 6, borderRadius: "50%", background: "#4ADE80", boxShadow: "0 0 6px #4ADE80" }} />
+              <div
+                style={{
+                  width: 6,
+                  height: 6,
+                  borderRadius: "50%",
+                  background: "#4ADE80",
+                  animation: "livePulse 1.4s ease-in-out infinite"
+                }}
+              />
                 <span style={{ color: "#4ADE80", fontWeight: 700 }}>{currentlyIn}</span>
                 <span style={{ color: SUB }}>in office</span>
               </div>
@@ -782,7 +887,8 @@ const [weekOffset, setWeekOffset] = useState(initialWeekOffset);
         <div style={{ maxWidth: 1300, margin: "0 auto", padding: "0 30px 14px", display: "flex", gap: 14, flexWrap: "wrap", alignItems: "center" }}>
           {[
             { c: "#25ba5c",               l: "Present" },
-            { c: "rgba(239,68,68,0.5)",   l: "Absent"  },
+            // { c: "rgba(239,68,68,0.5)",   l: "Absent"  },
+            { c: "rgba(184, 134, 46, 0.5)",   l: "Absent" },
             { c: "rgba(99,102,241,0.13)", l: "Weekend" },
             { c: "rgba(251,191,36,0.25)", l: "Holiday" },
           ].map(({ c, l }) => (
@@ -824,7 +930,7 @@ const [weekOffset, setWeekOffset] = useState(initialWeekOffset);
             <div className="att-grid">
               {filtered.map(d => (
                 <EmployeeCard key={d.emp_id} data={d} viewMode={viewMode}
-                onClick={() => navigate(`/${d.emp_id}`)} />
+  onClick={() => navigate(`/${d.emp_id}`)} isLive={isLive} />
               ))}
             </div>
           )}
