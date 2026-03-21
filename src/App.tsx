@@ -76,7 +76,6 @@ function MobileBlock() {
 
       <p style={{ color: "#8090C0", fontSize: 14, lineHeight: 1.7, maxWidth: 300, margin: "0 0 28px" }}>
         Canary Face attendance dashboard is designed for desktop and laptop screens.
-        Please open it on a larger device.
       </p>
 
       <div style={{
@@ -88,10 +87,7 @@ function MobileBlock() {
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
           <circle cx="12" cy="12" r="10" stroke="#6366F1" strokeWidth="2"/>
           <path d="M12 8v4l3 3" stroke="#6366F1" strokeWidth="2" strokeLinecap="round"/>
-        </svg>
-        <span style={{ color: "#6366F1", fontSize: 12, fontWeight: 600 }}>
-          Recommended: 1024px or wider
-        </span>
+        </svg> 
       </div>
     </div>
   );
