@@ -110,12 +110,12 @@ function AppInner() {
 
   if (
     MOBILE_BLOCK_ENABLED &&
-    isMobile &&
+    (isMobile || isTouch) &&
     !isPhoneRoute
   ) {
     return <MobileBlock />;
   }
-
+ 
   return (
     <>
       <Routes>
