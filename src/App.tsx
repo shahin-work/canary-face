@@ -8,14 +8,20 @@ import AdminPanel from "./components/AdminPanel";
 const MOBILE_BLOCK_ENABLED = true; // toggle: set false to allow mobile
 
 // ── screen width hook ─────────────────────────────────────────────────────────
-function useWindowWidth() {
-  const [width, setWidth] = useState(window.innerWidth);
+function useIsMobileDevice() {
+  const [isMobile, setIsMobile] = useState(false);
+
   useEffect(() => {
-    const handler = () => setWidth(window.innerWidth);
-    window.addEventListener("resize", handler);
-    return () => window.removeEventListener("resize", handler);
+    const ua = navigator.userAgent || navigator.vendor;
+
+    const mobile =
+      /android|iphone|ipad|ipod|opera mini|iemobile|mobile/i.test(ua) ||
+      (navigator.maxTouchPoints && navigator.maxTouchPoints > 2);
+
+    setIsMobile(mobile);
   }, []);
-  return width;
+
+  return isMobile;
 }
 
 // ── online hook ───────────────────────────────────────────────────────────────
@@ -93,28 +99,38 @@ function MobileBlock() {
 
 // ── inner app — has access to useLocation ─────────────────────────────────────
 function AppInner() {
-  const width    = useWindowWidth();
+  const isMobile = useIsMobileDevice();
+  const isTouch  = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
   const online   = useOnline();
   const location = useLocation();
 
-  const isPhoneRoute = location.pathname === "/phone" ||
-                       location.pathname.startsWith("/phone/");
+  const isPhoneRoute =
+    location.pathname === "/phone" ||
+    location.pathname.startsWith("/phone/");
 
-if (MOBILE_BLOCK_ENABLED && width < 640 && !isPhoneRoute) return <MobileBlock />;
+  if (
+    MOBILE_BLOCK_ENABLED &&
+    isMobile &&
+    !isPhoneRoute
+  ) {
+    return <MobileBlock />;
+  }
 
   return (
     <>
       <Routes>
-        <Route path="/"               element={<Attendance />} />
-        <Route path="/:empSlug"       element={<EmployeeDetails />} />
-        <Route path="/profile"        element={<AddProfile />} />
-        <Route path="/admin"          element={<AdminPanel />} />
-        <Route path="/phone"          element={<Attendance />} />
-        <Route path="/phone/:empSlug" element={<EmployeeDetails />} />
-        <Route path="/phone/profile"  element={<AddProfile />} />
-        <Route path="/phone/admin"    element={<AdminPanel />} />
-      </Routes>
+        <Route path="/" element={<Attendance />} />
+        <Route path="/:empSlug" element={<EmployeeDetails />} />
+        <Route path="/profile" element={<AddProfile />} />
+        <Route path="/admin" element={<AdminPanel />} />
 
+        {/* mobile routes */}
+        <Route path="/phone" element={<Attendance />} />
+        <Route path="/phone/:empSlug" element={<EmployeeDetails />} />
+        <Route path="/phone/profile" element={<AddProfile />} />
+        <Route path="/phone/admin" element={<AdminPanel />} />
+      </Routes>
+ 
       {!online && (
         <div style={{
           position: "fixed", bottom: 16, left: "50%", transform: "translateX(-50%)",
