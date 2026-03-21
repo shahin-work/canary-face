@@ -16,7 +16,7 @@ function useIsMobileDevice() {
 
     const mobile =
       /android|iphone|ipad|ipod|opera mini|iemobile|mobile/i.test(ua) ||
-      (navigator.maxTouchPoints && navigator.maxTouchPoints > 2);
+      (navigator.maxTouchPoints > 2);
 
     setIsMobile(mobile);
   }, []);
