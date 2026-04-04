@@ -309,6 +309,10 @@ function TimelineRow({ day, attendanceMap, today, hoveredDay, onHover }: {
 
         {/* Sessions */}
         {att?.sessions.map((s, i) => {
+            const isWfhSession = (s as any).wfh === true;
+            const sessColor = isWfhSession ? "#EC4899" : C.green;
+            const sessColor2 = isWfhSession ? "#BE185D" : C.green2;
+
           const inPct  = timeToPercent(s.check_in);
           const outPct = s.check_out
             ? timeToPercent(s.check_out)
@@ -337,10 +341,10 @@ function TimelineRow({ day, attendanceMap, today, hoveredDay, onHover }: {
                 top:"50%", transform:"translateY(-50%)",
                 height: isHovered ? 5 : 3, borderRadius:4,
                 background: active
-                  ? `linear-gradient(90deg,${C.green2},${C.green},#86EFAC)`
-                  : `linear-gradient(90deg,${C.green2},${C.green})`,
-                boxShadow: active ? `0 0 10px ${C.green}66` : isHovered ? `0 0 8px ${C.green}55` : `0 0 4px ${C.green2}44`,
-                zIndex:1,
+                  ? `linear-gradient(90deg,${sessColor2},${sessColor},${isWfhSession ? "#f9a8d4" : "#86EFAC"})`
+                  : `linear-gradient(90deg,${sessColor2},${sessColor})`,
+                boxShadow: active ? `0 0 10px ${sessColor}66` : isHovered ? `0 0 8px ${sessColor}55` : `0 0 4px ${sessColor2}44`,
+                  zIndex:1,
                 transition:"height 0.12s, box-shadow 0.12s",
               }}/>
 
@@ -352,7 +356,7 @@ function TimelineRow({ day, attendanceMap, today, hoveredDay, onHover }: {
                   top:"50%",
                   transform:"translate(-50%, -130%)",
                   fontSize:8, fontWeight:800,
-                  color: C.green,
+                  color: sessColor,
                   fontFamily:"'JetBrains Mono',monospace",
                   letterSpacing:0.3,
                   whiteSpace:"nowrap",
@@ -385,8 +389,8 @@ function TimelineRow({ day, attendanceMap, today, hoveredDay, onHover }: {
                 left:`calc(${inPct}% - 5px)`,
                 top:"50%", transform:"translateY(-50%)",
                 width:10, height:10, borderRadius:"50%",
-                background:C.green, border:`2px solid ${C.bg}`,
-                boxShadow: isHovered ? `0 0 10px ${C.green}BB` : `0 0 7px ${C.green}99`,
+                background: sessColor, border:`2px solid ${C.bg}`,
+boxShadow: isHovered ? `0 0 10px ${sessColor}BB` : `0 0 7px ${sessColor}99`,
                 zIndex:3,
                 transition:"box-shadow 0.12s",
               }}/>
@@ -398,13 +402,14 @@ function TimelineRow({ day, attendanceMap, today, hoveredDay, onHover }: {
                   left:`${inPct}%`,
                   top:"calc(50% - 18px)",
                   transform:"translateX(-50%)",
-                  fontSize:9, fontWeight:800, color:C.green,
+                  fontSize:9, fontWeight:800, 
+                  color: sessColor,
                   fontFamily:"'JetBrains Mono',monospace",
                   letterSpacing:0.3,
                   whiteSpace:"nowrap",
                   zIndex:10,
                   pointerEvents:"none",
-                  textShadow:`0 0 8px ${C.green}88`,
+                  textShadow:`0 0 8px ${sessColor}88`,
                 }}>{fmtTime(s.check_in)}</span>
               )}
 

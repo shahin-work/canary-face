@@ -452,16 +452,20 @@ const [weekOffset, setWeekOffset] = useState(initialWeekOffset);
 
     try {
       const snap = await getDoc(doc(db, emp.emp_id, date));
-  if (snap.exists()) {
-    const d = snap.data() as { sessions: Session[]; extra_time?: string | null };
-      return {
-      date,
-      status: "present" as const,
-      sessions: d.sessions,
-      totalHours: calcHours(d.sessions, date),
-      extraTime: d.extra_time ?? null
-    };
-  }
+  
+      
+      if (snap.exists()) {
+  const d = snap.data() as { sessions: Session[]; extra_time?: string | null };
+  const isWfh = d.sessions?.length > 0 && d.sessions.every((s: any) => s.wfh === true);
+  return {
+    date,
+    status: "present" as const,
+    sessions: d.sessions,
+    totalHours: calcHours(d.sessions, date),
+    extraTime: d.extra_time ?? null,
+    wfh: isWfh,
+  };
+}
 
 
     } catch (_) {}
@@ -729,30 +733,41 @@ useEffect(() => {
           {/* right group */}
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
 
-            {/* stats pill */}
-            <div style={{
-              display: "flex", alignItems: "center", gap: 8,
-              background: SURF, border: `1px solid ${BORDER}`, borderRadius: 10,
-              padding: "5px 13px", fontSize: 12, flexShrink: 0,
-            }}>
-              <span style={{ color: TEXT, fontWeight: 700 }}>{cards.length}</span>
-              <span style={{ color: SUB }}>employees</span>
-              <div style={{ width: 1, height: 13, background: "rgba(99,102,241,0.25)" }} />
-              <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-              <div
-                style={{
-                  width: 6,
-                  height: 6,
-                  borderRadius: "50%",
-                  background: "#4ADE80",
-                  animation: "livePulse 1.4s ease-in-out infinite"
-                }}
-              />
-                <span style={{ color: "#4ADE80", fontWeight: 700 }}>{currentlyIn}</span>
-                <span style={{ color: SUB }}>in office</span>
-              </div>
-            </div>
 
+
+
+<div style={{
+  display: "flex", alignItems: "center", gap: 8,
+  background: SURF, border: `1px solid ${BORDER}`, borderRadius: 10,
+  padding: "5px 13px", fontSize: 12, flexShrink: 0,
+}}>
+  <span style={{ color: TEXT, fontWeight: 700 }}>{cards.length}</span>
+  <span style={{ color: SUB }}>employees</span>
+  <div style={{ width: 1, height: 13, background: "rgba(99,102,241,0.25)" }} />
+  <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+    <div style={{
+      width: 6, height: 6, borderRadius: "50%",
+      background: "#4ADE80", animation: "livePulse 1.4s ease-in-out infinite"
+    }} />
+    <span style={{ color: "#4ADE80", fontWeight: 700 }}>{currentlyIn}</span>
+    <span style={{ color: SUB }}>in office</span>
+  </div>
+  {cards.filter(c => c.weekDays.find(d => d.date === today)?.wfh).length > 0 && (
+    <>
+      <div style={{ width: 1, height: 13, background: "rgba(99,102,241,0.25)" }} />
+      <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+        <div style={{
+          width: 6, height: 6, borderRadius: "50%",
+          background: "#EC4899", boxShadow: "0 0 6px #EC4899",
+        }} />
+        <span style={{ color: "#EC4899", fontWeight: 700 }}>
+          {cards.filter(c => c.weekDays.find(d => d.date === today)?.wfh).length}
+        </span>
+        <span style={{ color: SUB }}>wfh</span>
+      </div>
+    </>
+  )}
+</div> 
             {/* admin badge */}
             <div className="adm-wrap" style={{ flexShrink: 0 }}>
               <div style={{
@@ -886,12 +901,12 @@ useEffect(() => {
         {/* ── LEGEND ── */}
         <div style={{ maxWidth: 1300, margin: "0 auto", padding: "0 30px 14px", display: "flex", gap: 14, flexWrap: "wrap", alignItems: "center" }}>
           {[
-            { c: "#25ba5c",               l: "Present" },
-            // { c: "rgba(239,68,68,0.5)",   l: "Absent"  },
-            { c: "rgba(184, 134, 46, 0.5)",   l: "Absent" },
-            { c: "rgba(99,102,241,0.13)", l: "Weekend" },
-            { c: "rgba(251,191,36,0.25)", l: "Holiday" },
-          ].map(({ c, l }) => (
+              { c: "#25ba5c",               l: "Present" },
+              { c: "rgba(236,72,153,0.45)", l: "Remote" },
+              { c: "rgba(239,68,68,0.5)",   l: "Absent" },
+              { c: "rgba(99,102,241,0.13)", l: "Weekend" },
+              { c: "rgba(32, 21, 184, 0.5)", l: "Holiday" },
+            ].map(({ c, l }) => (
             <div key={l} style={{ display: "flex", alignItems: "center", gap: 5 }}>
               <div style={{ width: 18, height: 7, borderRadius: 2.5, background: c }} />
               <span style={{ color: SUB, fontSize: 10.5 }}>{l}</span>

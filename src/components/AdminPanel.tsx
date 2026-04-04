@@ -15,8 +15,8 @@ const firebaseConfig = {
 const fbApp = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
 const db    = getFirestore(fbApp);
 
-const ADMIN_PASS   = "555";
-const SESSION_MINS = 30;
+const ADMIN_PASS   = "369";
+const SESSION_MINS = 10;
 const SESS_KEY     = "cf_admin_ts";
 
 const BG     = "#060D2E";

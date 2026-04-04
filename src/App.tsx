@@ -4,6 +4,8 @@ import Attendance from "./pages/Attendance";
 import EmployeeDetails from "./pages/EmployeeDetails";
 import AddProfile from "./components/AddProfile";
 import AdminPanel from "./components/AdminPanel";
+import HrPanel from "./components/HrPanel";
+
 
 const MOBILE_BLOCK_ENABLED = true; // toggle: set false to allow mobile
 
@@ -118,13 +120,15 @@ function AppInner() {
         <Route path="/" element={<Attendance />} />
         <Route path="/:empSlug" element={<EmployeeDetails />} />
         <Route path="/profile" element={<AddProfile />} />
-        <Route path="/admin" element={<AdminPanel />} />
+        <Route path="/console" element={<AdminPanel />} />
+        <Route path="/hr" element={<HrPanel />} />
 
         {/* mobile routes */}
         <Route path="/phone" element={<Attendance />} />
         <Route path="/phone/:empSlug" element={<EmployeeDetails />} />
         <Route path="/phone/profile" element={<AddProfile />} />
-        <Route path="/phone/admin" element={<AdminPanel />} />
+        <Route path="/phone/console" element={<AdminPanel />} />
+        <Route path="/phone/hr" element={<HrPanel />} />
       </Routes>
  
       {!online && (

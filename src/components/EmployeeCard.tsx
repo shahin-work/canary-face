@@ -10,6 +10,7 @@ interface DayStatus {
   sessions?: Session[];
   totalHours?: number;
   extraTime?: string | null;  // ← ADD THIS
+  wfh?: boolean;  // ← ADD THIS
 }
 
 interface EmployeeCardData {
@@ -131,12 +132,13 @@ export default function EmployeeCard({ data, viewMode, onClick, isLive = false }
 
 
   function barBg(day: DayStatus): string {
+  if (day.status === "present" && day.wfh) return "rgba(166, 38, 128, 0.74)"; // 🟣 magenta WFH
   if (day.status === "present") return presentBarColor(Math.round(day.totalHours ?? 0));
-
-  if (day.status === "absent")  return "rgba(184, 134, 46, 0.5)";   // 🔴 clear red
-  // if (day.status === "absent")  return "rgba(239,68,68,0.5)";
-  if (day.status === "holiday") return "rgba(251,191,36,0.35)";   // 🟡
-  if (day.status === "weekend") return "rgba(99,102,241,0.18)";   // 🟣
+  
+  // if (day.status === "absent")  return "rgba(184, 134, 46, 0.5)";   // 🔴 clear red
+  if (day.status === "absent")  return "rgba(239,68,68,0.5)";
+  if (day.status === "holiday") return "rgba(32, 21, 184, 0.5)";   // 🟡
+  if (day.status === "weekend") return "rgba(65, 66, 134, 0.18)";   // 🟣
   if (day.status === "future")  return "rgba(120,140,200,0.08)";  // ⚪ very light
 
   return "transparent";
@@ -154,9 +156,12 @@ export default function EmployeeCard({ data, viewMode, onClick, isLive = false }
     const h       = day.totalHours ?? 0;
 
     // For currently-checked-in: use a mid-green so it's clearly visible
-    const bg = isCheckedIn && isPresent && h === 0
-      ? "#15731B"   // 4h equiv green for "in progress"
-      : barBg(day);
+    const bg =
+    day.wfh && day.status === "present"
+      ? "rgba(166, 38, 128, 0.74)"  // force WFH color
+      : (isCheckedIn && isPresent && h === 0
+          ? "#15731B"
+          : barBg(day));
 
     const textColor = (() => {
       if (!isPresent) return "#001a00";
@@ -192,6 +197,10 @@ export default function EmployeeCard({ data, viewMode, onClick, isLive = false }
         {isHoliday && (
           <span style={{ color: "rgba(251,191,36,0.7)", fontSize: 7.5, fontWeight: 700 }}>★</span>
         )}
+
+        {day.wfh && day.status === "present" && (
+        <span style={{ color: "#f9a8d4", fontSize: 7.5, fontWeight: 800, letterSpacing: 0.3 }}></span>
+      )}
       </div>
     );
   }
@@ -346,11 +355,14 @@ export default function EmployeeCard({ data, viewMode, onClick, isLive = false }
                     flexDirection: "column", gap: 0, position: "relative",
                   }}>
                     <span style={{
-                      color: isPresent
-                           ? (h < 6 ? "rgba(120,255,140,0.85)" : "rgba(0,40,10,0.9)")
-                           : isAbsent  ? "rgba(255,100,100,0.75)"
-                           : isHoliday ? "rgba(251,191,36,0.9)"
-                           : "#4A5A9A",
+
+                      color: (day.wfh && isPresent)
+                      ? "rgba(249,168,212,0.95)"
+                      : isPresent
+                      ? (h < 6 ? "rgba(120,255,140,0.85)" : "rgba(0,40,10,0.9)")
+                      : isAbsent  ? "rgba(255,100,100,0.75)"
+                      : isHoliday ? "rgba(251,191,36,0.9)"
+                      : "#4A5A9A", 
                       fontSize: 6.5, fontWeight: 700, lineHeight: 1,
                     }}>
                       {dayNum}
