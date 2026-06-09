@@ -1,41 +1,25 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { useNavigate } from "react-router-dom";
 import { collection, getDocs, doc, getDoc } from "firebase/firestore";
 import { db } from "../firebase";
 import EmployeeCard from "../components/EmployeeCard";
 import type { EmployeeCardData, DayStatus, Session } from "../components/EmployeeCard";
 import logo from "../assets/react.png";
-
+import AddMeeting from "../components/AddMeeting"; 
+import { useNavigate, useLocation } from "react-router-dom";
 // ─── constants ───────────────────────────────────────────────────────────────
-
 const DATA_START = "2026-03-02";
 
 const HOLIDAYS_2026 = new Set([
-  "2026-02-15",
-  "2026-03-20",
-  "2026-04-03",
-  "2026-04-05",
-  "2026-04-15",
-  "2026-05-01",
-  "2026-05-27",
-  "2026-08-15",
-  "2026-08-25",
-  "2026-08-26",
-  "2026-09-21",
-  "2026-10-02",
-  "2026-10-20",
-  "2026-11-08",
-  "2026-12-25",
+  "2026-02-15", "2026-03-20", "2026-04-03", "2026-04-05", "2026-04-15",
+  "2026-05-01", "2026-05-27", "2026-08-15", "2026-08-25", "2026-08-26",
+  "2026-09-21", "2026-10-02", "2026-10-20", "2026-11-08", "2026-12-25",
 ]);
-
 
 function isHoliday(dateStr: string): boolean {
   return HOLIDAYS_2026.has(dateStr);
 }
 
-
 // ─── helpers ─────────────────────────────────────────────────────────────────
-
 function toDateStr(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
@@ -51,12 +35,10 @@ function isWeekend(dateStr: string): boolean {
 // in prod
 // function isFuture(dateStr: string): boolean {
 //   return dateStr > toDateStr(new Date());
-// } 
- 
+// }
 function isFuture(_dateStr: string): boolean {
   return false; // always allow in development
 }
-
 
 function calcHours(sessions: Session[], forDate?: string): number {
   let mins = 0;
@@ -73,9 +55,9 @@ function calcHours(sessions: Session[], forDate?: string): number {
 
   for (const s of sessions) {
     if (!s.check_in) continue;
-    const inMins  = Math.max(toMins(s.check_in),  WORK_START); // clamp early check-in
+    const inMins = Math.max(toMins(s.check_in), WORK_START);
     if (s.check_out) {
-      const outMins = Math.min(toMins(s.check_out), WORK_END); // clamp late check-out
+      const outMins = Math.min(toMins(s.check_out), WORK_END);
       mins += Math.max(0, outMins - inMins);
     } else {
       if (!forDate || forDate === todayStr) {
@@ -85,7 +67,6 @@ function calcHours(sessions: Session[], forDate?: string): number {
   }
   return Math.round((mins / 60) * 10) / 10;
 }
-
 
 function getWeekDates(offset: number): string[] {
   const now    = new Date();
@@ -207,11 +188,8 @@ function Toast({ message, onDone }: { message: string; onDone: () => void }) {
 type FilterChip = "all" | "present" | "absent" | "in" | "overtime";
 
 const FILTER_LABELS: Record<FilterChip, string> = {
-  all:      "All",
-  present:  "Present Today",
-  absent:   "Absent Today",
-  in:       "Currently In",
-  overtime: "Overtime",
+  all: "All", present: "Present Today", absent: "Absent Today",
+  in: "Currently In", overtime: "Overtime",
 };
 
 function FilterDropdown({
@@ -236,7 +214,6 @@ function FilterDropdown({
 
   return (
     <div ref={ref} style={{ position: "relative", flexShrink: 0 }}>
-      {/* trigger */}
       <button
         onClick={() => setOpen(o => !o)}
         style={{
@@ -269,7 +246,6 @@ function FilterDropdown({
         </svg>
       </button>
 
-      {/* panel */}
       {open && (
         <div style={{
           position: "absolute", top: "calc(100% + 6px)", right: 0,
@@ -314,47 +290,78 @@ function FilterDropdown({
   );
 }
 
+// ─── People list (used in the hover tooltips) ─────────────────────────────────
+function PeopleList({ people, empty, showSince }: {
+  people: { emp_id: string; name: string; profile_image?: string; checkIn?: string }[];
+  empty: string;
+  showSince?: boolean;
+}) {
+  if (people.length === 0)
+    return <p style={{ color: SUB, fontSize: 11, margin: 0, padding: "4px 2px" }}>{empty}</p>;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+      {people.map(p => (
+        <div key={p.emp_id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "3px 4px" }}>
+          <div style={{
+            width: 22, height: 22, borderRadius: 6, flexShrink: 0, overflow: "hidden",
+            background: "rgba(99,102,241,0.15)", border: "1px solid rgba(99,102,241,0.25)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}>
+            {p.profile_image
+              ? <img src={p.profile_image} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+              : <span style={{ fontSize: 8.5, fontWeight: 700, color: SUB }}>
+                  {p.name.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase()}
+                </span>}
+          </div>
+          <span style={{ color: TEXT, fontSize: 11.5, fontWeight: 500, whiteSpace: "nowrap" }}>{p.name}</span>
+          {showSince && p.checkIn && (
+            <span style={{ marginLeft: "auto", color: SUB, fontSize: 9.5, fontFamily: "'JetBrains Mono',monospace", paddingLeft: 8 }}>
+              {p.checkIn.slice(0, 5)}
+            </span>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ─── component ────────────────────────────────────────────────────────────────
 export default function Attendance() {
   const navigate = useNavigate();
   const clock    = useClock();
+  
+    const location = useLocation();
 
+    // track viewport width so isPhone re-evaluates on resize (not just refresh)
+    const [viewportW, setViewportW] = useState(() => window.innerWidth);
+    useEffect(() => {
+      const onResize = () => setViewportW(window.innerWidth);
+      window.addEventListener("resize", onResize);
+      return () => window.removeEventListener("resize", onResize);
+    }, []);
+
+    const isPhone = useMemo(() => {
+      const coarse = window.matchMedia?.("(pointer: coarse)").matches ?? false; // finger-first device
+      const smallScreen = viewportW < 820;                                      // phone-sized screen
+      const onPhoneRoute = location.pathname.startsWith("/phone");
+      return onPhoneRoute || (coarse && smallScreen);
+    }, [location.pathname, viewportW]);
+
+  
   type ViewMode = "week" | "month";
   const [viewMode,     setViewMode]    = useState<ViewMode>("week");
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
-  // const [weekOffset,   setWeekOffset]  = useState(0);
-
-const monday = (d: Date) => {
-  const x = new Date(d);
-  const dow = x.getDay();
-  x.setDate(x.getDate() - (dow === 0 ? 6 : dow - 1));
-  return x;
-};
-const initialWeekOffset = Math.round(
-  (monday(new Date(DATA_START)).getTime() - monday(new Date()).getTime()) / (7 * 86400000)
-);
-const [weekOffset, setWeekOffset] = useState(initialWeekOffset);
-
-
-
+  const [weekOffset,   setWeekOffset]  = useState(0);   // 0 = current week (today)
   const [monthOffset,  setMonthOffset] = useState(0);
   const [search,       setSearch]      = useState("");
   const [cards,        setCards]       = useState<EmployeeCardData[]>([]);
   const [loading,      setLoading]     = useState(true);
   const [error,        setError]       = useState("");
-  const [currentlyIn,  setCurrentlyIn] = useState(0);
+  const [, setCurrentlyIn] = useState<number>(0);
   const [toast,        setToast]       = useState<string | null>(null);
   const [activeFilter, setActiveFilter] = useState<FilterChip>("all");
-  const [isLive, setIsLive] = useState(false);
+  const [isLive,       setIsLive]      = useState(false);
+  const [inOffice, setInOffice] = useState<{ emp_id: string; name: string; profile_image?: string; checkIn?: string }[]>([]);
+  const [meetingOpen,  setMeetingOpen] = useState(false);
 
   const displayDates = useMemo(
     () => viewMode === "week" ? getWeekDates(weekOffset) : getMonthDates(monthOffset),
@@ -364,65 +371,45 @@ const [weekOffset, setWeekOffset] = useState(initialWeekOffset);
   const today = toDateStr(new Date());
 
   function isPeriodBeforeStart(dates: string[]): boolean {
-    // Block if the period's last date is before DATA_START (whole period is pre-March)
     return dates[dates.length - 1] < DATA_START;
   }
 
-
-  async function fetchTodayInOffice() {
+async function fetchTodayInOffice() {
   try {
     const empSnap = await getDocs(collection(db, "employees"));
-    const employees = empSnap.docs.map(d => d.data() as { emp_id: string });
+    const employees = empSnap.docs.map(d => d.data() as {
+      emp_id: string; name: string; profile_image?: string;
+    });
+    const todayKey = toDateStr(new Date());
 
-    const today = toDateStr(new Date());
-
-
-        // ✅ ADD THIS BACK
-    const todayMap: Record<string, Session[]> = {};
-
-    await Promise.all(
+    const rows = await Promise.all(
       employees.map(async (emp) => {
         try {
-          const snap = await getDoc(doc(db, emp.emp_id, today));
+          const snap = await getDoc(doc(db, emp.emp_id, todayKey));
           if (snap.exists()) {
-            const d = snap.data() as { sessions: Session[]; extra_time?: string | null };
-            todayMap[emp.emp_id] = d.sessions || [];
-          }
-        } catch (_) {}
-      })
-    );
- 
-      await Promise.all(
-        employees.map(async (emp) => {
-          try {
-            const snap = await getDoc(doc(db, emp.emp_id, today));
-            if (snap.exists()) {
-              const d = snap.data() as { sessions: Session[] };
-              todayMap[emp.emp_id] = d.sessions || [];
-            }
-          } catch (_) {}
-        })
-      );
-
-
-    const results = await Promise.all(
-      employees.map(async (emp) => {
-        try {
-          const snap = await getDoc(doc(db, emp.emp_id, today));
-          if (snap.exists()) {
-            const data = snap.data() as { sessions: Session[] };
-
-            if (!data.sessions?.length) return false;
-
+            const data = snap.data() as { sessions?: Session[] };
+            if (!data.sessions?.length) return null;
             const last = data.sessions[data.sessions.length - 1];
-            return !last.check_out;
+            if (last.check_out) return null; // checked out → not currently in
+            return {
+              emp_id: emp.emp_id,
+              name: emp.name,
+              profile_image: emp.profile_image,
+              checkIn: last.check_in, // the open session's check-in
+            };
           }
         } catch (_) {}
-        return false;
+        return null;
       })
     );
 
-    setCurrentlyIn(results.filter(Boolean).length);
+    const inList = rows
+      .filter((r): r is NonNullable<typeof r> => r !== null)
+      // earliest check-in first → person in office longest is on top
+      .sort((a, b) => a.checkIn.localeCompare(b.checkIn));
+
+    setInOffice(inList);
+    setCurrentlyIn(inList.length);
   } catch (e) {
     console.error(e);
   }
@@ -432,65 +419,53 @@ const [weekOffset, setWeekOffset] = useState(initialWeekOffset);
     setLoading(true);
     setError("");
     try {
-      const empSnap   = await getDocs(collection(db, "employees"));
-      const raw       = empSnap.docs.map(d => d.data() as {
+      const empSnap = await getDocs(collection(db, "employees"));
+      const raw = empSnap.docs.map(d => d.data() as {
         emp_id: string; name: string; department: string; type: string;
         created_at: string; profile_image?: string;
       });
       const employees = sortEmployees(raw);
       const dates     = datesToFetch ?? displayDates;
 
-      
       const result: EmployeeCardData[] = await Promise.all(
         employees.map(async (emp) => {
           const weekDays: DayStatus[] = await Promise.all(
-  dates.map(async (date) => {
-    if (date < DATA_START) return { date, status: "future" as const };
-    if (isHoliday(date))   return { date, status: "holiday" as const };
-    if (isWeekend(date))   return { date, status: "weekend" as const };
-    if (isFuture(date))    return { date, status: "future"  as const };
+            dates.map(async (date) => {
+              if (date < DATA_START) return { date, status: "future" as const };
+              if (isHoliday(date))   return { date, status: "holiday" as const };
+              if (isWeekend(date))   return { date, status: "weekend" as const };
+              if (isFuture(date))    return { date, status: "future"  as const };
 
-    try {
-      const snap = await getDoc(doc(db, emp.emp_id, date));
-  
-      
-      if (snap.exists()) {
-  const d = snap.data() as { sessions: Session[]; extra_time?: string | null };
-  const isWfh = d.sessions?.length > 0 && d.sessions.every((s: any) => s.wfh === true);
-  return {
-    date,
-    status: "present" as const,
-    sessions: d.sessions,
-    totalHours: calcHours(d.sessions, date),
-    extraTime: d.extra_time ?? null,
-    wfh: isWfh,
-  };
-}
+              try {
+                const snap = await getDoc(doc(db, emp.emp_id, date));
+                if (snap.exists()) {
+                  const d = snap.data() as { sessions: Session[]; extra_time?: string | null };
+                  const isWfh = d.sessions?.length > 0 && d.sessions.every((s: any) => s.wfh === true);
+                  return {
+                    date,
+                    status: "present" as const,
+                    sessions: d.sessions,
+                    totalHours: calcHours(d.sessions, date),
+                    extraTime: d.extra_time ?? null,
+                    wfh: isWfh,
+                  };
+                }
+              } catch (_) {}
 
+              if (date === today) return { date, status: "absent" as const };
+              if (date < today)   return { date, status: "absent" as const };
+              return { date, status: "future" as const };
+            })
+          );
 
-    } catch (_) {}
-
-    if (date === today) {
-      return { date, status: "absent" as const };
-    }
-
-    if (date < today) {
-      return { date, status: "absent" as const };
-    }
-
-    return { date, status: "future" as const };
-  })
-);
- 
- 
-          const presentDays  = weekDays.filter(d => d.status === "present").length;
-          const workingDays  = weekDays.filter(d =>
+          const presentDays = weekDays.filter(d => d.status === "present").length;
+          const workingDays = weekDays.filter(d =>
             d.status !== "weekend" && d.status !== "future" && d.status !== "holiday"
           ).length;
-          const totalHours   = weekDays.reduce((a, d) => a + (d.totalHours || 0), 0);
+          const totalHours = weekDays.reduce((a, d) => a + (d.totalHours || 0), 0);
           const attendancePercent = workingDays > 0 ? Math.round((presentDays / workingDays) * 100) : 0;
 
-          const todayDay = weekDays.find(d => d.date === today);
+          const todayDay  = weekDays.find(d => d.date === today);
           const extraTime = todayDay?.extraTime ?? null;
           let todayStatus: "present" | "checked-in" | "absent" = "absent";
           let isCurrentlyIn = false;
@@ -501,13 +476,12 @@ const [weekOffset, setWeekOffset] = useState(initialWeekOffset);
           }
 
           const overtimeHours = weekDays.reduce((sum, d) => {
-          if (d.status === "present" && (d.totalHours ?? 0) > 9) {
-            return sum + ((d.totalHours ?? 0) - 9);
-          }
-          return sum;
-        }, 0);
-
-        const roundedOT = Math.round(overtimeHours * 10) / 10;
+            if (d.status === "present" && (d.totalHours ?? 0) > 9) {
+              return sum + ((d.totalHours ?? 0) - 9);
+            }
+            return sum;
+          }, 0);
+          const roundedOT = Math.round(overtimeHours * 10) / 10;
 
           return {
             emp_id: emp.emp_id,
@@ -541,33 +515,29 @@ const [weekOffset, setWeekOffset] = useState(initialWeekOffset);
     fetchAll(dates);
   }, [viewMode, weekOffset, monthOffset]);
 
-useEffect(() => {
-  fetchTodayInOffice();
-  getDoc(doc(db, "settings", "app")).then(snap => {
-    if (snap.exists()) setIsLive(snap.data().live ?? false);
-  }).catch(() => {});
-}, []);
+  useEffect(() => {
+    fetchTodayInOffice();
+    getDoc(doc(db, "settings", "app")).then(snap => {
+      if (snap.exists()) setIsLive(snap.data().live ?? false);
+    }).catch(() => {});
+  }, []);
 
-  // ── Live tick: recalculate hours every 60s for open sessions ──
+  // ── Live tick: recalc hours every 60s for open sessions ──
   useEffect(() => {
     const id = setInterval(() => {
       setCards(prev => prev.map(card => {
         const todayDay = card.weekDays.find(d => d.date === today);
         if (!todayDay || todayDay.status !== "present") return card;
-        
         const hasOpenSession = todayDay.sessions?.some(s => !s.check_out);
         if (!hasOpenSession) return card;
 
-        // Recalculate totalHours for today
         const updatedWeekDays = card.weekDays.map(d => {
           if (d.date !== today || !d.sessions) return d;
           return { ...d, totalHours: calcHours(d.sessions, d.date) };
         });
-
         const totalHours = Math.round(
           updatedWeekDays.reduce((a, d) => a + (d.totalHours || 0), 0) * 10
         ) / 10;
-
         const overtimeHours = Math.round(
           updatedWeekDays.reduce((sum, d) => {
             if (d.status === "present" && (d.totalHours ?? 0) > 9)
@@ -578,11 +548,9 @@ useEffect(() => {
 
         return { ...card, weekDays: updatedWeekDays, totalHours, overtimeHours };
       }));
-    }, 60_000); // every 60 seconds
-
+    }, 60_000);
     return () => clearInterval(id);
   }, [today]);
-
 
   const filtered = useMemo(() => {
     let base = cards;
@@ -607,30 +575,27 @@ useEffect(() => {
     overtime: cards.filter(c => c.overtimeHours > 0).length,
   }), [cards]);
 
-  // ── Navigation caps ──────────────────────────────────────────────────────
-  const now = new Date();
+  const wfhPeople = useMemo(
+    () => cards
+      .filter(c => c.weekDays.find(d => d.date === today)?.wfh)
+      .map(c => ({ emp_id: c.emp_id, name: c.name, profile_image: c.profile_image })),
+    [cards, today]
+  );
 
-  // Week cap: the Monday of the week that contains Dec 31 2026
+  // ── Navigation caps ──
+  const now = new Date();
   const currentMonday = (() => {
-    const d = new Date(now);
-    const dow = d.getDay();
-    d.setDate(d.getDate() - (dow === 0 ? 6 : dow - 1));
-    d.setHours(0, 0, 0, 0);
-    return d;
+    const d = new Date(now); const dow = d.getDay();
+    d.setDate(d.getDate() - (dow === 0 ? 6 : dow - 1)); d.setHours(0, 0, 0, 0); return d;
   })();
   const dec31Monday = (() => {
-    const d = new Date(2026, 11, 31); // Dec 31 2026
-    const dow = d.getDay();
-    d.setDate(d.getDate() - (dow === 0 ? 6 : dow - 1));
-    d.setHours(0, 0, 0, 0);
-    return d;
+    const d = new Date(2026, 11, 31); const dow = d.getDay();
+    d.setDate(d.getDate() - (dow === 0 ? 6 : dow - 1)); d.setHours(0, 0, 0, 0); return d;
   })();
   const maxWeekOffset  = Math.max(0, Math.round((dec31Monday.getTime() - currentMonday.getTime()) / (7 * 86400000)));
-  const maxMonthOffset = (2026 - now.getFullYear()) * 12 + (11 - now.getMonth()); // Dec 2026
+  const maxMonthOffset = (2026 - now.getFullYear()) * 12 + (11 - now.getMonth());
 
-  const canGoNext = viewMode === "week"
-    ? weekOffset < maxWeekOffset
-    : monthOffset < maxMonthOffset;
+  const canGoNext = viewMode === "week" ? weekOffset < maxWeekOffset : monthOffset < maxMonthOffset;
 
   function goBack() {
     const nextOffset = viewMode === "week" ? weekOffset - 1 : monthOffset - 1;
@@ -641,30 +606,23 @@ useEffect(() => {
     }
     viewMode === "week" ? setWeekOffset(o => o - 1) : setMonthOffset(o => o - 1);
   }
-
   function goFwd() {
     if (canGoNext) viewMode === "week" ? setWeekOffset(o => o + 1) : setMonthOffset(o => o + 1);
   }
 
-  const periodLabel = viewMode === "week"
-    ? weekLabel(weekOffset, displayDates)
-    : monthLabel(monthOffset);
-
+  const periodLabel = viewMode === "week" ? weekLabel(weekOffset, displayDates) : monthLabel(monthOffset);
   const timeStr = clock.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: true });
   const dateStr = clock.toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short", year: "numeric" });
-
   const dismissToast = useCallback(() => setToast(null), []);
 
   return (
     <div style={{ minHeight: "100vh", background: BG, fontFamily: "'Sora', sans-serif", color: TEXT }}>
       <style>{`
-
         @keyframes livePulse {
           0%   { box-shadow: 0 0 0px #4ADE80; opacity: 0.7; transform: scale(1); }
           50%  { box-shadow: 0 0 10px #4ADE80, 0 0 18px #4ADE80; opacity: 1; transform: scale(1.15); }
           100% { box-shadow: 0 0 0px #4ADE80; opacity: 0.7; transform: scale(1); }
         }
-
         @import url('https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@500;600;700;800&display=swap');
         *, *::before, *::after { font-family: 'Sora', sans-serif; box-sizing: border-box; }
         input::placeholder { color: #3A4A7A; }
@@ -699,11 +657,33 @@ useEffect(() => {
           box-shadow:0 8px 24px rgba(0,0,0,0.5); pointer-events:none; white-space:normal;
         }
         .adm-wrap:hover .adm-tip { display:block; }
+        .io-wrap, .wfh-wrap { position: relative; }
+        .io-tip {
+          display: none; position: absolute; top: calc(100% + 10px); left: 50%;
+          transform: translateX(-50%);
+          background: linear-gradient(145deg,#0F1848,#080F35);
+          border: 1px solid rgba(99,102,241,0.3); border-radius: 12px;
+          padding: 10px; min-width: 200px; max-width: 260px;
+          max-height: 280px; overflow-y: auto; z-index: 300;
+          box-shadow: 0 12px 36px rgba(0,0,0,0.6);
+        }
+        .io-wrap:hover .io-tip, .wfh-wrap:hover .io-tip { display: block; }
+        .meetbtn:hover { background: rgba(255,215,0,0.14) !important; }
         @keyframes toast-bar { from{width:100%} to{width:0%} }
         @keyframes sk { 0%,100%{opacity:.35} 50%{opacity:.6} }
       `}</style>
 
       {toast && <Toast message={toast} onDone={dismissToast} />}
+
+      <AddMeeting
+        open={meetingOpen}
+        onClose={() => setMeetingOpen(false)}
+        onSaved={(msg) => {
+          setToast(msg);
+          fetchTodayInOffice();
+          fetchAll(viewMode === "week" ? getWeekDates(weekOffset) : getMonthDates(monthOffset));
+        }}
+      />
 
       {/* ══ HEADER ══ */}
       <header style={{
@@ -712,16 +692,10 @@ useEffect(() => {
         position: "sticky", top: 0, zIndex: 40, backdropFilter: "blur(12px)",
       }}>
         <div style={{ maxWidth: 1300, margin: "0 auto", padding: "10px 24px", display: "flex", alignItems: "center", gap: 10 }}>
-
-          {/* logo */}
-          {/* <a href="https://www.canarysuite.in/tool/39eI96JB8MFWX8RKQiTK" */}
           <a href="https://www.canarysuite.in/tool/canary-face"
             style={{ display: "flex", alignItems: "center", gap: 10, textDecoration: "none", flexShrink: 0 }}>
-            <img
-              src={logo}
-              alt="Canary Face"
-              style={{ width: 33, height: 33, borderRadius: 8, objectFit: "contain", background: SURF }}
-            />
+            <img src={logo} alt="Canary Face"
+              style={{ width: 33, height: 33, borderRadius: 8, objectFit: "contain", background: SURF }} />
             <div>
               <p style={{ fontWeight: 700, fontSize: 14, color: TEXT, lineHeight: 1, margin: 0 }}>Canary Face</p>
               <p style={{ fontSize: 10, color: SUB, marginTop: 2 }}>Attendance · Software Team</p>
@@ -733,41 +707,68 @@ useEffect(() => {
           {/* right group */}
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
 
+            {/* stats badge with hover tooltips */}
+            <div style={{
+              display: "flex", alignItems: "center", gap: 8,
+              background: SURF, border: `1px solid ${BORDER}`, borderRadius: 10,
+              padding: "5px 13px", fontSize: 12, flexShrink: 0,
+            }}>
+              <span style={{ color: TEXT, fontWeight: 700 }}>{cards.length}</span>
+              <span style={{ color: SUB }}>employees</span>
+
+              <div style={{ width: 1, height: 13, background: "rgba(99,102,241,0.25)" }} />
+
+              {/* in office — hover for names */}
+              <div className="io-wrap" style={{ display: "flex", alignItems: "center", gap: 5, cursor: "default" }}>
+                <div style={{ width: 6, height: 6, borderRadius: "50%", background: "#4ADE80", animation: "livePulse 1.4s ease-in-out infinite" }} />
+                <span style={{ color: "#4ADE80", fontWeight: 700 }}>{inOffice.length}</span>
+                <span style={{ color: SUB }}>in office</span>
+                <div className="io-tip">
+                  <p style={{ fontSize: 9, fontWeight: 700, color: "#4ADE80", letterSpacing: 0.6, textTransform: "uppercase", margin: "0 0 7px", paddingLeft: 2 }}>Currently in office</p>
+                  <PeopleList people={inOffice} empty="No one is in office right now." />
+                </div>
+              </div>
+
+              {wfhPeople.length > 0 && (
+                <>
+                  <div style={{ width: 1, height: 13, background: "rgba(99,102,241,0.25)" }} />
+                  <div className="wfh-wrap" style={{ display: "flex", alignItems: "center", gap: 5, cursor: "default" }}>
+                    <div style={{ width: 6, height: 6, borderRadius: "50%", background: "#EC4899", boxShadow: "0 0 6px #EC4899" }} />
+                    <span style={{ color: "#EC4899", fontWeight: 700 }}>{wfhPeople.length}</span>
+                    <span style={{ color: SUB }}>wfh</span>
+                    <div className="io-tip">
+                      <p style={{ fontSize: 9, fontWeight: 700, color: "#EC4899", letterSpacing: 0.6, textTransform: "uppercase", margin: "0 0 7px", paddingLeft: 2 }}>Working from home</p>
+                      <PeopleList people={wfhPeople} empty="No one is working from home." />
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
 
 
 
-<div style={{
-  display: "flex", alignItems: "center", gap: 8,
-  background: SURF, border: `1px solid ${BORDER}`, borderRadius: 10,
-  padding: "5px 13px", fontSize: 12, flexShrink: 0,
-}}>
-  <span style={{ color: TEXT, fontWeight: 700 }}>{cards.length}</span>
-  <span style={{ color: SUB }}>employees</span>
-  <div style={{ width: 1, height: 13, background: "rgba(99,102,241,0.25)" }} />
-  <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-    <div style={{
-      width: 6, height: 6, borderRadius: "50%",
-      background: "#4ADE80", animation: "livePulse 1.4s ease-in-out infinite"
-    }} />
-    <span style={{ color: "#4ADE80", fontWeight: 700 }}>{currentlyIn}</span>
-    <span style={{ color: SUB }}>in office</span>
-  </div>
-  {cards.filter(c => c.weekDays.find(d => d.date === today)?.wfh).length > 0 && (
-    <>
-      <div style={{ width: 1, height: 13, background: "rgba(99,102,241,0.25)" }} />
-      <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-        <div style={{
-          width: 6, height: 6, borderRadius: "50%",
-          background: "#EC4899", boxShadow: "0 0 6px #EC4899",
-        }} />
-        <span style={{ color: "#EC4899", fontWeight: 700 }}>
-          {cards.filter(c => c.weekDays.find(d => d.date === today)?.wfh).length}
-        </span>
-        <span style={{ color: SUB }}>wfh</span>
-      </div>
-    </>
-  )}
-</div> 
+
+
+            {/* Add meeting */}
+            {/* Add a meeting */}
+            {/* Add meeting — desktop / office device only */}
+            {!isPhone && (
+              <button onClick={() => setMeetingOpen(true)} title="Add a meeting" className="meetbtn"
+                style={{
+                  display: "flex", alignItems: "center", gap: 6, flexShrink: 0,
+                  background: "rgba(255,215,0,0.07)", border: `1px solid ${YELLOW}44`,
+                  borderRadius: 10, padding: "6px 12px", cursor: "pointer", transition: "all 0.15s",
+                }}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
+                  <rect x="3" y="5" width="18" height="16" rx="2" stroke={YELLOW} strokeWidth="1.8"/>
+                  <path d="M16 3v4M8 3v4M3 10h18M12 13v4M10 15h4" stroke={YELLOW} strokeWidth="1.8" strokeLinecap="round"/>
+                </svg>
+              </button>
+            )}
+
+
+
+
             {/* admin badge */}
             <div className="adm-wrap" style={{ flexShrink: 0 }}>
               <div style={{
@@ -792,7 +793,6 @@ useEffect(() => {
               <span style={{ color: DIM, fontSize: 9, marginTop: 2, whiteSpace: "nowrap" }}>{dateStr}</span>
             </div>
 
-            {/* divider */}
             <div style={{ width: 1, height: 22, background: BORDER, flexShrink: 0 }} />
 
             {/* refresh */}
@@ -800,6 +800,7 @@ useEffect(() => {
               onClick={() => {
                 const dates = viewMode === "week" ? getWeekDates(weekOffset) : getMonthDates(monthOffset);
                 fetchAll(dates);
+                fetchTodayInOffice();
               }}
               disabled={loading} title="Refresh" className="rbtn"
               style={{
@@ -823,16 +824,12 @@ useEffect(() => {
 
       {/* ══ MAIN ══ */}
       <div className="page-bg" style={{ minHeight: "calc(100vh - 57px)" }}>
-
         {/* ── TOOLBAR ── */}
         <div style={{
           maxWidth: 1300, margin: "0 auto", padding: "12px 24px",
           display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap",
         }}>
-
-          {/* left: toggle + navigator */}
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-            {/* Week / Month toggle */}
             <div style={{ display: "flex", background: SURF, border: `1px solid ${BORDER}`, borderRadius: 10, padding: 3, gap: 2 }}>
               {(["week", "month"] as const).map(m => (
                 <button key={m} className="mbtn"
@@ -848,7 +845,6 @@ useEffect(() => {
               ))}
             </div>
 
-            {/* Period navigator */}
             <div style={{
               display: "flex", alignItems: "center", gap: 3,
               background: SURF, border: `1px solid ${BORDER}`, borderRadius: 10, padding: "4px 8px",
@@ -873,9 +869,7 @@ useEffect(() => {
             </div>
           </div>
 
-          {/* right: search + filter dropdown side by side */}
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            {/* Search */}
             <div style={{ position: "relative", width: "min(220px,100%)" }}>
               <svg style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)" }}
                 width="12" height="12" viewBox="0 0 24 24" fill="none">
@@ -892,8 +886,6 @@ useEffect(() => {
                 onFocus={e => (e.currentTarget.style.borderColor = YELLOW)}
                 onBlur={e => (e.currentTarget.style.borderColor = BORDER)} />
             </div>
-
-            {/* Filter dropdown */}
             <FilterDropdown active={activeFilter} setActive={setActiveFilter} counts={filterCounts} />
           </div>
         </div>
@@ -901,12 +893,12 @@ useEffect(() => {
         {/* ── LEGEND ── */}
         <div style={{ maxWidth: 1300, margin: "0 auto", padding: "0 30px 14px", display: "flex", gap: 14, flexWrap: "wrap", alignItems: "center" }}>
           {[
-              { c: "#25ba5c",               l: "Present" },
-              { c: "rgba(236,72,153,0.45)", l: "Remote" },
-              { c: "rgba(239,68,68,0.5)",   l: "Absent" },
-              { c: "rgba(99,102,241,0.13)", l: "Weekend" },
-              { c: "rgba(32, 21, 184, 0.5)", l: "Holiday" },
-            ].map(({ c, l }) => (
+            { c: "#25ba5c",               l: "Present" },
+            { c: "rgba(236,72,153,0.45)", l: "Remote" },
+            { c: "rgba(239,68,68,0.5)",   l: "Absent" },
+            { c: "rgba(99,102,241,0.13)", l: "Weekend" },
+            { c: "rgba(32, 21, 184, 0.5)", l: "Holiday" },
+          ].map(({ c, l }) => (
             <div key={l} style={{ display: "flex", alignItems: "center", gap: 5 }}>
               <div style={{ width: 18, height: 7, borderRadius: 2.5, background: c }} />
               <span style={{ color: SUB, fontSize: 10.5 }}>{l}</span>
@@ -945,7 +937,7 @@ useEffect(() => {
             <div className="att-grid">
               {filtered.map(d => (
                 <EmployeeCard key={d.emp_id} data={d} viewMode={viewMode}
-  onClick={() => navigate(`/${d.emp_id}`)} isLive={isLive} />
+                  onClick={() => navigate(`/${d.emp_id}`)} isLive={isLive} />
               ))}
             </div>
           )}

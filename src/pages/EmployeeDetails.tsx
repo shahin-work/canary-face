@@ -9,6 +9,14 @@ interface Session { session: number; check_in: string; check_out?: string; }
 interface AttendanceDay { date: string; sessions: Session[]; extra_time?: string | null; }
 interface Employee { emp_id: string; name: string; department: string; type: string; created_at: string; profile_image?: string; }
 
+
+const fmtHM = (h: number) => {
+  const total = Math.round(h * 60);
+  const hh = Math.floor(total / 60);
+  const mm = total % 60;
+  return mm === 0 ? `${hh}h` : `${hh}h ${mm}m`;
+};
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const toDateStr = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
@@ -18,10 +26,11 @@ const getInitials = (name: string) => name.split(" ").map(n=>n[0]).join("").slic
 
 function calcHours(sessions: Session[], forDate?: string): number {
   let mins = 0;
+  if (!Array.isArray(sessions) || sessions.length === 0) return 0;   // guard
   const now = new Date(), todayStr = toDateStr(now);
   const nowMins = now.getHours()*60 + now.getMinutes();
   for (const s of sessions) {
-    if (!s.check_in) continue;
+    if (!s || !s.check_in) continue;
     if (s.check_out) mins += toMins(s.check_out) - toMins(s.check_in);
     else if (!forDate || forDate === todayStr) mins += Math.max(0, nowMins - toMins(s.check_in));
   }
@@ -309,9 +318,10 @@ function TimelineRow({ day, attendanceMap, today, hoveredDay, onHover }: {
 
         {/* Sessions */}
         {att?.sessions.map((s, i) => {
+            const isMeeting    = (s as any).meeting === true;
             const isWfhSession = (s as any).wfh === true;
-            const sessColor = isWfhSession ? "#EC4899" : C.green;
-            const sessColor2 = isWfhSession ? "#BE185D" : C.green2;
+            const sessColor  = isMeeting ? "#22D3EE" : isWfhSession ? "#EC4899" : C.green;   // cyan for meetings
+            const sessColor2 = isMeeting ? "#0891B2" : isWfhSession ? "#BE185D" : C.green2;
 
           const inPct  = timeToPercent(s.check_in);
           const outPct = s.check_out
@@ -328,7 +338,7 @@ function TimelineRow({ day, attendanceMap, today, hoveredDay, onHover }: {
 
           // Session hours label for hovered state
           const sessHours = calcSessionHours(s, day);
-          const sessHoursStr = sessHours > 0 ? `${sessHours}h` : "";
+          const sessHoursStr = sessHours > 0 ? fmtHM(sessHours) : "";
           const midPct = (inPct + (s.check_out ? timeToPercent(s.check_out) : (isToday ? nowPct : inPct + 1.5))) / 2;
 
           return (
@@ -341,7 +351,7 @@ function TimelineRow({ day, attendanceMap, today, hoveredDay, onHover }: {
                 top:"50%", transform:"translateY(-50%)",
                 height: isHovered ? 5 : 3, borderRadius:4,
                 background: active
-                  ? `linear-gradient(90deg,${sessColor2},${sessColor},${isWfhSession ? "#f9a8d4" : "#86EFAC"})`
+                  ? `linear-gradient(90deg,${sessColor2},${sessColor},${isMeeting ? "#a5f3fc" : isWfhSession ? "#f9a8d4" : "#86EFAC"})`
                   : `linear-gradient(90deg,${sessColor2},${sessColor})`,
                 boxShadow: active ? `0 0 10px ${sessColor}66` : isHovered ? `0 0 8px ${sessColor}55` : `0 0 4px ${sessColor2}44`,
                   zIndex:1,
@@ -490,7 +500,7 @@ boxShadow: isHovered ? `0 0 10px ${sessColor}BB` : `0 0 7px ${sessColor}99`,
               fontFamily:"'JetBrains Mono',monospace", lineHeight:1,
               transition:"all 0.12s",
               textShadow: isHovered ? `0 0 12px ${hoursColor}66` : "none",
-            }}>{hours}h</div>
+            }}>{fmtHM(hours)}</div>
             <div style={{ fontSize:8, color: isHovered ? C.sub : C.dim, marginTop:2, letterSpacing:0.5, transition:"color 0.12s" }}>worked</div>
             {extraTime && (() => {
               const parts = extraTime.split(":");
@@ -613,8 +623,7 @@ export default function EmployeeDetails() {
   // ── Stats ──────────────────────────────────────────────────────────────────
   const workDays   = attendance.filter(a => !isNonWorking(a.date));
   const totalDays  = workDays.length;
-  const totalHours = workDays.reduce((s,d) => s + calcHours(d.sessions, d.date), 0);
-  const avgHours   = totalDays > 0 ? Math.round((totalHours/totalDays)*100)/100 : 0;
+  const totalHours = workDays.reduce((s,d) => s + calcHours(d.sessions ?? [], d.date), 0);  const avgHours   = totalDays > 0 ? Math.round((totalHours/totalDays)*100)/100 : 0;
 
   const todayAtt      = attendanceMap.get(today);
   const todayHours    = todayAtt ? calcHours(todayAtt.sessions, today) : 0;
@@ -718,7 +727,7 @@ export default function EmployeeDetails() {
               <div style={{fontSize:9.5,fontWeight:700,color:isCurrentlyIn?C.green:C.red}}>
                 {isCurrentlyIn?"Currently In":todayAtt?"Checked Out":"Not In Today"}
               </div>
-              {isCurrentlyIn&&<div style={{fontSize:8,color:C.dim,marginTop:1}}>{todayHours}h elapsed</div>}
+              {isCurrentlyIn&&<div style={{fontSize:8,color:C.dim,marginTop:1}}>{fmtHM(todayHours)} elapsed</div>}
             </div>
           </div>
         </div>
@@ -750,7 +759,8 @@ export default function EmployeeDetails() {
 
           {/* Legend */}
           <div style={{display:"flex",alignItems:"center",gap:12,fontSize:9,color:C.sub}}>
-            {[{c:C.green,l:"Check-in"},{c:C.red,l:"Check-out"},{c:C.yellow,l:"Live"}].map(({c,l})=>(
+            {/* {[{c:C.green,l:"Check-in"},{c:C.red,l:"Check-out"},{c:C.yellow,l:"Live"}].map(({c,l})=>( */}
+              {[{c:C.green,l:"Check-in"},{c:C.red,l:"Check-out"},{c:"#22D3EE",l:"Meeting"},{c:C.yellow,l:"Live"}].map(({c,l})=>(
               <div key={l} style={{display:"flex",alignItems:"center",gap:4}}>
                 <div style={{width:7,height:7,borderRadius:"50%",background:c,boxShadow:`0 0 4px ${c}`}}/>
                 <span>{l}</span>

@@ -7,7 +7,7 @@ import AdminPanel from "./components/AdminPanel";
 import HrPanel from "./components/HrPanel";
 
 
-const MOBILE_BLOCK_ENABLED = true; // toggle: set false to allow mobile
+const MOBILE_BLOCK_ENABLED = false; // toggle: set false to allow mobile
 
 // ── screen width hook ─────────────────────────────────────────────────────────
 function useIsMobileDevice() {
