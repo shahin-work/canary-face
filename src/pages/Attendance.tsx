@@ -664,7 +664,7 @@ async function fetchTodayInOffice() {
             radial-gradient(ellipse 50% 40% at 0% 80%, rgba(79,55,200,0.12) 0%, transparent 60%),
             #060D2E;
         }
-        .att-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 13px; }
+.att-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 9px; }
         @media (max-width: 1200px) { .att-grid { grid-template-columns: repeat(3, 1fr); } }
         @media (max-width: 820px)  { .att-grid { grid-template-columns: repeat(2, 1fr); } }
         @media (max-width: 520px)  { .att-grid { grid-template-columns: 1fr; } }
@@ -722,8 +722,8 @@ async function fetchTodayInOffice() {
         borderBottom: `1px solid ${BORDER}`,
         position: "sticky", top: 0, zIndex: 40, backdropFilter: "blur(12px)",
       }}>
-        <div style={{ maxWidth: 1300, margin: "0 auto", padding: "10px 24px", display: "flex", alignItems: "center", gap: 10 }}>
-          <a href="https://canarysuite.in/tool/fGNtdSUNasCM88Yneqii"
+<div style={{ maxWidth: 1500, margin: "0 auto", padding: "10px 8px", display: "flex", alignItems: "center", gap: 10 }}>
+          <a href="https://canarysuite.in/cv"
             style={{ display: "flex", alignItems: "center", gap: 10, textDecoration: "none", flexShrink: 0 }}>
             <AnimatedLogo />
              <div>
@@ -856,7 +856,7 @@ async function fetchTodayInOffice() {
       <div className="page-bg" style={{ minHeight: "calc(100vh - 57px)" }}>
         {/* ── TOOLBAR ── */}
         <div style={{
-          maxWidth: 1300, margin: "0 auto", padding: "12px 24px",
+maxWidth: 1500, margin: "0 auto", padding: "12px 8px",
           display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap",
         }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
@@ -921,7 +921,8 @@ async function fetchTodayInOffice() {
         </div>
 
         {/* ── LEGEND ── */}
-        <div style={{ maxWidth: 1300, margin: "0 auto", padding: "0 30px 14px", display: "flex", gap: 14, flexWrap: "wrap", alignItems: "center" }}>
+        <div style={{ maxWidth: 1500, margin: "0 auto", padding: "0 10px 14px", display: "flex", gap: 15, flexWrap: "wrap", alignItems: "center", paddingLeft: 20 }}> 
+
           {[
             { c: "#25ba5c",               l: "Present" },
             { c: "rgba(236,72,153,0.45)", l: "Remote" },
@@ -941,8 +942,8 @@ async function fetchTodayInOffice() {
         </div>
 
         {/* ── GRID ── */}
-        <main style={{ maxWidth: 1300, margin: "0 auto", padding: "0 24px 48px" }}>
-          {error && (
+                  <main style={{ maxWidth: 1500, margin: "0 auto", padding: "0 8px 48px" }}>
+   {error && (
             <div style={{
               borderRadius: 10, padding: "10px 16px", marginBottom: 14, fontSize: 12.5,
               background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.3)", color: "#FCA5A5",

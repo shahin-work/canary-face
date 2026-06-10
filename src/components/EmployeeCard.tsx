@@ -135,7 +135,7 @@ function WeekBar({ day, isCheckedIn = false, today }: { day: DayStatus; isChecke
 
     return (
       <div style={{
-        width: "100%", height: 28, background: bg, borderRadius: 3,
+        width: "100%", height: 35, background: bg, borderRadius: 3,
         opacity: isFuture ? 0.22 : 1,
         outline: isToday ? `1.9px solid #FFD700` : "none",
         outlineOffset: isToday ? 1 : 0,
@@ -148,8 +148,8 @@ function WeekBar({ day, isCheckedIn = false, today }: { day: DayStatus; isChecke
       {isPresent && h > 0 && (
         <span style={{
           color: textColor,
-          fontSize: 8.5, fontWeight: 900,
-          fontFamily: "'JetBrains Mono',monospace", lineHeight: 1, letterSpacing: -0.5,
+          fontSize: 13, fontWeight: 900,
+          fontFamily: "'JetBrains Mono',monospace", lineHeight: 1, letterSpacing: -0.3,
         }}>
           {fmtHMShort(h)}
         </span>
@@ -347,7 +347,7 @@ export default function EmployeeCard({ data, viewMode, onClick, isLive = false }
         background: "linear-gradient(155deg, #0D1545 0%, #070F30 100%)",
         border: "1px solid rgba(99,102,241,0.18)",
         borderRadius: 14,
-        padding: "13px 13px 11px",
+        padding: "18px 10px 16px",
         display: "flex", flexDirection: "column", gap: 9,
         position: "relative",
         boxShadow: "0 4px 20px rgba(0,0,0,0.45)",
