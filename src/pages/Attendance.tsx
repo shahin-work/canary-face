@@ -723,7 +723,7 @@ async function fetchTodayInOffice() {
         position: "sticky", top: 0, zIndex: 40, backdropFilter: "blur(12px)",
       }}>
         <div style={{ maxWidth: 1300, margin: "0 auto", padding: "10px 24px", display: "flex", alignItems: "center", gap: 10 }}>
-          <a href="https://www.canarysuite.in/tool/canary-face"
+          <a href="https://canarysuite.in/tool/fGNtdSUNasCM88Yneqii"
             style={{ display: "flex", alignItems: "center", gap: 10, textDecoration: "none", flexShrink: 0 }}>
             <AnimatedLogo />
              <div>
