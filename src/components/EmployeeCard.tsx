@@ -1,5 +1,8 @@
 import { useState } from "react";
 
+// const SHOW_RED_BORDER_UNDER_8 = false;
+const SHOW_RED_BORDER_UNDER_8 = true;
+
 interface Session {
   session?: number;
   check_in: string;
@@ -69,37 +72,21 @@ function fmtHMShort(h: number): string {
   return fmtHM(h);
 }
 
-// function presentBarColor(h: number): string {
-//   if (h === 0)       return "#0D300F";
-//   if (h < 1)         return "#0D300F";
-//   if (h < 2)         return "#0F3D12";
-//   if (h < 3)         return "#115417";
-//   if (h < 4)         return "#13661A";
-//   if (h < 5)         return "#15731B";
-//   if (h < 6)         return "#17841D";
-//   if (h < 7)         return "#1A9720";
-//   if (h < 8)         return "#1ca323";
-//   if (h < 9)         return "#12B31E";
-//   if (h < 10)        return "#33ce4f";
-//   return "#5bf367";
-// }
 
 function presentBarColor(h: number): string {
-  if (h === 0)  return "#0D300F";
-  if (h < 1)    return "#0D300F";
-  if (h < 2)    return "#0D300F";
-  if (h < 3)    return "#0D300F";
-  if (h < 4)    return "#0D300F";
-  if (h < 5)    return "#15731B";
-  if (h < 6)    return "#17841D";
-  if (h < 7)    return "#1A9720";
-  if (h < 8)    return "#1ca323";
-  if (h < 9)    return "#12B31E";
-  if (h < 10)   return "#33ce4f";
-  return "#33ce4f";
+  if (h === 0)  return "#19601D";
+  if (h < 1)    return "#19601D";
+  if (h < 2)    return "#19601D";
+  if (h < 3)    return "#19601D";
+  if (h < 4)    return "#19601D";
+  if (h < 5)    return "#218027";
+  if (h < 6)    return "#228529";
+  if (h < 7)    return "#2ba433";
+  if (h < 8)    return "#2dac35";
+  if (h < 9)    return "#39de44";
+  if (h < 10)   return "#3ce748";
+  return "#3ce748";
 }
-
-
 
 // Mon-first week grid padding: (getDay()+6)%7 → 0=Mon…6=Sun
 function chunkIntoWeekRows(days: DayStatus[]): (DayStatus | null)[][] {
@@ -115,8 +102,7 @@ function chunkIntoWeekRows(days: DayStatus[]): (DayStatus | null)[][] {
 
 function barBg(day: DayStatus): string {
   if (day.status === "present" && day.wfh) return "rgba(166, 38, 128, 0.74)";
-  if (day.status === "present") return presentBarColor(Math.round(day.totalHours ?? 0));
-  if (day.status === "absent")  return "rgba(239,68,68,0.5)";
+if (day.status === "present") return presentBarColor(Math.floor(day.totalHours ?? 0));  if (day.status === "absent")  return "rgba(239,68,68,0.5)";
   if (day.status === "holiday") return "rgba(32, 21, 184, 0.5)";
   if (day.status === "weekend") return "rgba(65, 66, 134, 0.18)";
   if (day.status === "future")  return "rgba(120,140,200,0.08)";
@@ -144,18 +130,16 @@ function WeekBar({ day, isCheckedIn = false, today }: { day: DayStatus; isChecke
     return h < 5 ? "rgba(150,255,150,0.85)" : "#001a00";
   })();
 
-  const underEight = isPresent && h > 0 && h < 8;
+    const underEight = SHOW_RED_BORDER_UNDER_8 && isPresent && h > 0 && h < 8;
+
 
     return (
       <div style={{
         width: "100%", height: 28, background: bg, borderRadius: 3,
         opacity: isFuture ? 0.22 : 1,
-        outline: isToday
-          ? `1.5px solid #FFD700`
-          : underEight
-          ? "1.5px solid rgba(239,68,68,0.7)"
-          : "none",
-        outlineOffset: 1,
+        outline: isToday ? `1.9px solid #FFD700` : "none",
+        outlineOffset: isToday ? 1 : 0,
+        boxShadow: underEight && !isToday ? "0 0 0 1px rgb(161, 0, 0)" : "none",
         display: "flex", alignItems: "center", justifyContent: "center",
       }}>
       {isPresent && (isCheckedIn && h === 0) && (
