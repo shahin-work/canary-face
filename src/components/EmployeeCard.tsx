@@ -1,7 +1,11 @@
+import { useState } from "react";
+
 interface Session {
   session?: number;
   check_in: string;
   check_out?: string;
+  meeting?: boolean;
+  meeting_purpose?: string;
 }
 
 interface DayStatus {
@@ -52,9 +56,21 @@ function getInitials(name: string) {
   return name.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase();
 }
 
+// ─── Format decimal hours → "8.54" (hours.minutes, not decimal) ─────────────
+// e.g. 8h 54m → "8.54",  7h 6m → "7.06",  9h 0m → "9"
+function fmtHM(h: number): string {
+  const totalMins = Math.round(h * 60);
+  const hh = Math.floor(totalMins / 60);
+  const mm = totalMins % 60;
+  return `${hh}.${String(mm).padStart(2, "0")}`;
+}
+
+function fmtHMShort(h: number): string {
+  return fmtHM(h);
+}
 
 // function presentBarColor(h: number): string {
-//   if (h === 0)       return "#0D300F"; // just checked in
+//   if (h === 0)       return "#0D300F";
 //   if (h < 1)         return "#0D300F";
 //   if (h < 2)         return "#0F3D12";
 //   if (h < 3)         return "#115417";
@@ -62,27 +78,25 @@ function getInitials(name: string) {
 //   if (h < 5)         return "#15731B";
 //   if (h < 6)         return "#17841D";
 //   if (h < 7)         return "#1A9720";
-//   if (h < 8)         return "#1CAB23";
+//   if (h < 8)         return "#1ca323";
 //   if (h < 9)         return "#12B31E";
-//   if (h < 10)        return "#3ED95A";
-//   return "#80FF8A";                      // 10h+
+//   if (h < 10)        return "#33ce4f";
+//   return "#5bf367";
 // }
 
-
-
 function presentBarColor(h: number): string {
-  if (h === 0)       return "#0D300F"; // just checked in
-  if (h < 1)         return "#0D300F";
-  if (h < 2)         return "#0F3D12";
-  if (h < 3)         return "#115417";
-  if (h < 4)         return "#13661A";
-  if (h < 5)         return "#15731B";
-  if (h < 6)         return "#17841D";
-  if (h < 7)         return "#1A9720";
-  if (h < 8)         return "#1ca323";
-  if (h < 9)         return "#12B31E";
-  if (h < 10)        return "#33ce4f";
-  return "#5bf367";                      // 10h+
+  if (h === 0)  return "#0D300F";
+  if (h < 1)    return "#0D300F";
+  if (h < 2)    return "#0D300F";
+  if (h < 3)    return "#0D300F";
+  if (h < 4)    return "#0D300F";
+  if (h < 5)    return "#15731B";
+  if (h < 6)    return "#17841D";
+  if (h < 7)    return "#1A9720";
+  if (h < 8)    return "#1ca323";
+  if (h < 9)    return "#12B31E";
+  if (h < 10)   return "#33ce4f";
+  return "#33ce4f";
 }
 
 
@@ -99,8 +113,221 @@ function chunkIntoWeekRows(days: DayStatus[]): (DayStatus | null)[][] {
   return rows;
 }
 
+function barBg(day: DayStatus): string {
+  if (day.status === "present" && day.wfh) return "rgba(166, 38, 128, 0.74)";
+  if (day.status === "present") return presentBarColor(Math.round(day.totalHours ?? 0));
+  if (day.status === "absent")  return "rgba(239,68,68,0.5)";
+  if (day.status === "holiday") return "rgba(32, 21, 184, 0.5)";
+  if (day.status === "weekend") return "rgba(65, 66, 134, 0.18)";
+  if (day.status === "future")  return "rgba(120,140,200,0.08)";
+  return "transparent";
+}
+
+function WeekBar({ day, isCheckedIn = false, today }: { day: DayStatus; isCheckedIn?: boolean; today: string }) {
+  const isToday   = day.date === today;
+  const isPresent = day.status === "present";
+  const isAbsent  = day.status === "absent";
+  const isHoliday = day.status === "holiday";
+  const isFuture  = day.status === "future";
+  const h         = day.totalHours ?? 0;
+
+  const bg =
+    day.wfh && day.status === "present"
+      ? "rgba(166, 38, 128, 0.74)"
+      : (isCheckedIn && isPresent && h === 0
+          ? "#15731B"
+          : barBg(day));
+
+  const textColor = (() => {
+    if (!isPresent) return "#001a00";
+    if (isCheckedIn && h === 0) return "rgba(150,255,150,0.9)";
+    return h < 5 ? "rgba(150,255,150,0.85)" : "#001a00";
+  })();
+
+  const underEight = isPresent && h > 0 && h < 8;
+
+    return (
+      <div style={{
+        width: "100%", height: 28, background: bg, borderRadius: 3,
+        opacity: isFuture ? 0.22 : 1,
+        outline: isToday
+          ? `1.5px solid #FFD700`
+          : underEight
+          ? "1.5px solid rgba(239,68,68,0.7)"
+          : "none",
+        outlineOffset: 1,
+        display: "flex", alignItems: "center", justifyContent: "center",
+      }}>
+      {isPresent && (isCheckedIn && h === 0) && (
+        <span style={{ color: "rgba(150,255,150,0.9)", fontSize: 8, fontWeight: 800, letterSpacing: 0.3 }}>IN</span>
+      )}
+      {isPresent && h > 0 && (
+        <span style={{
+          color: textColor,
+          fontSize: 8.5, fontWeight: 900,
+          fontFamily: "'JetBrains Mono',monospace", lineHeight: 1, letterSpacing: -0.5,
+        }}>
+          {fmtHMShort(h)}
+        </span>
+      )}
+      {isAbsent && (
+        <span style={{ color: "#ff6b6b", fontSize: 8, fontWeight: 800 }}></span>
+      )}
+      {isHoliday && (
+        <span style={{ color: "rgba(251,191,36,0.7)", fontSize: 7.5, fontWeight: 700 }}>★</span>
+      )}
+      {day.wfh && day.status === "present" && (
+        <span style={{ color: "#f9a8d4", fontSize: 7.5, fontWeight: 800, letterSpacing: 0.3 }}></span>
+      )}
+    </div>
+  );
+}
+
+function MeetingDayCell({ day, today }: { day: DayStatus; today: string }) {
+  const [hovered, setHovered] = useState(false);
+  const meetingSessions = day.sessions?.filter(s => s.meeting === true) ?? [];
+  const hasMeeting = meetingSessions.length > 0;
+  const purposes = meetingSessions.map(s => s.meeting_purpose).filter(Boolean) as string[];
+
+  return (
+    <div
+      style={{ position: "relative", width: "100%" }}
+      onMouseEnter={() => hasMeeting && setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
+      <WeekBar
+        day={day}
+        today={today}
+        isCheckedIn={
+          day.status === "present" &&
+          (day.totalHours ?? 0) === 0 &&
+          Array.isArray(day.sessions) &&
+          day.sessions.length > 0 &&
+          !day.sessions[day.sessions.length - 1]?.check_out
+        }
+      />
+      {hasMeeting && (
+        <div style={{
+          position: "absolute", bottom: 2, right: 2,
+          width: 7, height: 7, borderRadius: "50%",
+          background: "#22D3EE", border: "1px solid #060D2E",
+          pointerEvents: "none",
+        }} />
+      )}
+{hovered && hasMeeting && (
+        <div style={{
+          position: "absolute", bottom: "calc(100% + 6px)", left: "50%",
+          transform: "translateX(-50%)",
+          background: "linear-gradient(145deg,#0F1848,#080F35)",
+          border: "1px solid #22D3EE66",
+          borderRadius: 8, padding: "7px 10px",
+          zIndex: 99999, pointerEvents: "none",
+          boxShadow: "0 6px 24px rgba(0,0,0,0.7)",
+          minWidth: 120, maxWidth: 200, whiteSpace: "normal",
+        }}>
+          <div style={{
+            fontSize: 8, fontWeight: 700, color: "#22D3EE",
+            letterSpacing: 0.6, textTransform: "uppercase", marginBottom: 4,
+          }}>📅 Meeting</div>
+          {purposes.length > 0
+            ? purposes.map((p, i) => (
+                <div key={i} style={{
+                  fontSize: 10, color: "#DDE3FF", fontWeight: 500, lineHeight: 1.4,
+                  borderTop: i > 0 ? "1px solid rgba(99,102,241,0.15)" : "none",
+                  paddingTop: i > 0 ? 3 : 0, marginTop: i > 0 ? 3 : 0,
+                }}>{p}</div>
+              ))
+            : <div style={{ fontSize: 9.5, color: "#8090C0" }}>No purpose saved</div>
+          }
+        </div>
+      )}
+    </div>
+  );
+}
  
-export default function EmployeeCard({ data, viewMode, onClick, isLive = false }: Props) {  const today     = new Date().toISOString().split("T")[0];
+
+function MonthMeetingCell({ day, isPresent, isAbsent, isHoliday, isFuture, isToday, h, dayNum }: {
+  day: DayStatus;
+  isPresent: boolean; isAbsent: boolean; isHoliday: boolean;
+  isFuture: boolean; isToday: boolean; h: number; dayNum: number;
+}) {
+  const [hovered, setHovered] = useState(false);
+  const meetingSessions = day.sessions?.filter(s => s.meeting === true) ?? [];
+  const hasMeeting = meetingSessions.length > 0;
+  const purposes = meetingSessions.map(s => s.meeting_purpose).filter(Boolean) as string[];
+
+  return (
+    <div
+      style={{
+        flex: 1, height: 22, background: barBg(day), borderRadius: 3,
+        opacity: isFuture ? 0.2 : 1,
+        outline: isToday ? "1.5px solid #FFD700" : "none",
+        outlineOffset: 1,
+        display: "flex", alignItems: "center", justifyContent: "center",
+        flexDirection: "column", gap: 0, position: "relative",
+      }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
+      <span style={{
+        color: (day.wfh && isPresent)
+          ? "rgba(249,168,212,0.95)"
+          : isPresent
+          ? (h < 6 ? "rgba(120,255,140,0.85)" : "rgba(0,40,10,0.9)")
+          : isAbsent  ? "rgba(255,100,100,0.75)"
+          : isHoliday ? "rgba(251,191,36,0.9)"
+          : "#4A5A9A",
+        fontSize: 6.5, fontWeight: 700, lineHeight: 1,
+      }}>{dayNum}</span>
+      {isPresent && h > 0 && (
+        <span style={{
+          color: h < 6 ? "rgba(150,255,160,0.9)" : "rgba(0,30,5,0.85)",
+          fontSize: 6, fontWeight: 900,
+          fontFamily: "'JetBrains Mono',monospace", lineHeight: 1, letterSpacing: -0.3,
+        }}>{fmtHMShort(h)}</span>
+      )}
+      {isHoliday && (
+        <span style={{ color: "rgba(251,191,36,0.6)", fontSize: 5.5, lineHeight: 1 }}>★</span>
+      )}
+      {hasMeeting && (
+        <div style={{
+          position: "absolute", bottom: 2, right: 2,
+          width: 7, height: 7, borderRadius: "50%",
+          background: "#22D3EE", border: "1px solid #060D2E",
+          pointerEvents: "none",
+        }} />
+      )}
+      {hovered && purposes.length > 0 && (
+        <div style={{
+          position: "absolute", bottom: "calc(100% + 5px)", left: "50%",
+          transform: "translateX(-50%)",
+          background: "linear-gradient(145deg,#0F1848,#080F35)",
+          border: "1px solid #22D3EE44",
+          borderRadius: 8, padding: "5px 8px",
+          zIndex: 999, pointerEvents: "none",
+          boxShadow: "0 6px 20px rgba(0,0,0,0.6)",
+          minWidth: 100, maxWidth: 170, whiteSpace: "normal",
+        }}>
+          <div style={{
+            fontSize: 8, fontWeight: 700, color: "#22D3EE",
+            letterSpacing: 0.6, textTransform: "uppercase", marginBottom: 3,
+          }}>Meeting</div>
+          {purposes.map((p, i) => (
+            <div key={i} style={{
+              fontSize: 9, color: "#DDE3FF", fontWeight: 500, lineHeight: 1.4,
+              borderTop: i > 0 ? "1px solid rgba(99,102,241,0.15)" : "none",
+              paddingTop: i > 0 ? 3 : 0, marginTop: i > 0 ? 3 : 0,
+            }}>{p}</div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default function EmployeeCard({ data, viewMode, onClick, isLive = false }: Props) {
+  const today     = new Date().toISOString().split("T")[0];
+
   const typeColor = TYPE_COLORS[data.type] || "#FFD700";
 
   const isCurrentPeriod = data.weekDays.some(d => d.date === today);
@@ -113,7 +340,7 @@ export default function EmployeeCard({ data, viewMode, onClick, isLive = false }
       : { color: "#ff0000", bg: "rgba(248,113,113,0.1)", border: "rgba(123, 123, 123, 0.3)", dot: false, text: "ABS" };
 
   const weekRows = viewMode === "month" ? chunkIntoWeekRows(data.weekDays) : null;
-  
+
   const totalExtraSeconds = data.weekDays.reduce((sum, d) => {
     if (!d.extraTime) return sum;
     const parts = d.extraTime.split(":");
@@ -129,82 +356,6 @@ export default function EmployeeCard({ data, viewMode, onClick, isLive = false }
       })()
     : null;
  
-
-
-  function barBg(day: DayStatus): string {
-  if (day.status === "present" && day.wfh) return "rgba(166, 38, 128, 0.74)"; // 🟣 magenta WFH
-  if (day.status === "present") return presentBarColor(Math.round(day.totalHours ?? 0));
-  
-  // if (day.status === "absent")  return "rgba(184, 134, 46, 0.5)";   // 🔴 clear red
-  if (day.status === "absent")  return "rgba(239,68,68,0.5)";
-  if (day.status === "holiday") return "rgba(32, 21, 184, 0.5)";   // 🟡
-  if (day.status === "weekend") return "rgba(65, 66, 134, 0.18)";   // 🟣
-  if (day.status === "future")  return "rgba(120,140,200,0.08)";  // ⚪ very light
-
-  return "transparent";
-}
-  
-
-  // ── single bar cell ──
-  // isCheckedIn = currently inside (no checkout yet on this day)
-  function WeekBar({ day, isCheckedIn = false }: { day: DayStatus; isCheckedIn?: boolean }) {
-    const isToday   = day.date === today;
-    const isPresent = day.status === "present";
-    const isAbsent  = day.status === "absent";
-    const isHoliday = day.status === "holiday";
-    const isFuture  = day.status === "future";
-    const h       = day.totalHours ?? 0;
-
-    // For currently-checked-in: use a mid-green so it's clearly visible
-    const bg =
-    day.wfh && day.status === "present"
-      ? "rgba(166, 38, 128, 0.74)"  // force WFH color
-      : (isCheckedIn && isPresent && h === 0
-          ? "#15731B"
-          : barBg(day));
-
-    const textColor = (() => {
-      if (!isPresent) return "#001a00";
-      if (isCheckedIn && h === 0) return "rgba(150,255,150,0.9)";
-      return h < 5 ? "rgba(150,255,150,0.85)" : "#001a00";
-    })();
-
-    return (
-      <div style={{
-        width: "100%", height: 28, background: bg, borderRadius: 3,
-        opacity: isFuture ? 0.22 : 1,
-        outline: isToday ? `1.5px solid #FFD700` : "none",
-        outlineOffset: 1,
-        display: "flex", alignItems: "center", justifyContent: "center",
-      }}>
-        {isPresent && (isCheckedIn && h === 0) && (
-          <span style={{ color: "rgba(150,255,150,0.9)", fontSize: 8, fontWeight: 800, letterSpacing: 0.3 }}>IN</span>
-        )}
-        {isPresent && h > 0 && (
-          <span style={{
-            color: textColor,
-            fontSize: 9.5, fontWeight: 900,
-            fontFamily: "'JetBrains Mono',monospace", lineHeight: 1, letterSpacing: -0.5,
-          }}>
-            {h}h
-          </span>
-        )}
-        {isAbsent && (
-          <span style={{ color: "#ff6b6b", fontSize: 8, fontWeight: 800 }}>
-            
-          </span>
-        )}
-        {isHoliday && (
-          <span style={{ color: "rgba(251,191,36,0.7)", fontSize: 7.5, fontWeight: 700 }}>★</span>
-        )}
-
-        {day.wfh && day.status === "present" && (
-        <span style={{ color: "#f9a8d4", fontSize: 7.5, fontWeight: 800, letterSpacing: 0.3 }}></span>
-      )}
-      </div>
-    );
-  }
-
   return (
     <div
       onClick={onClick}
@@ -214,7 +365,7 @@ export default function EmployeeCard({ data, viewMode, onClick, isLive = false }
         borderRadius: 14,
         padding: "13px 13px 11px",
         display: "flex", flexDirection: "column", gap: 9,
-        position: "relative", overflow: "hidden",
+        position: "relative",
         boxShadow: "0 4px 20px rgba(0,0,0,0.45)",
         transition: "transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease",
         cursor: "pointer",
@@ -224,7 +375,8 @@ export default function EmployeeCard({ data, viewMode, onClick, isLive = false }
         el.style.transform = "translateY(-2px)";
         el.style.boxShadow = "0 10px 30px rgba(0,0,0,0.55)";
         el.style.borderColor = "rgba(99,102,241,0.4)";
-      }}
+        el.style.borderColor = "rgba(99,102,241,0.4)";
+   }}
       onMouseLeave={e => {
         const el = e.currentTarget as HTMLDivElement;
         el.style.transform = "translateY(0)";
@@ -269,7 +421,7 @@ export default function EmployeeCard({ data, viewMode, onClick, isLive = false }
           </p>
         </div>
 
-        {/* status pill */}   
+        {/* status pill */}
         {isCurrentPeriod && (
           <div style={{
             flexShrink: 0, display: "flex", alignItems: "center", gap: 4,
@@ -306,16 +458,8 @@ export default function EmployeeCard({ data, viewMode, onClick, isLive = false }
             }}>
               <span style={{ color: "#7080B8", fontSize: 7, fontWeight: 600, lineHeight: 1, letterSpacing: 0.3 }}>
                 {getDayLetter(day.date)}
-              </span>
-              <WeekBar day={day}
-                isCheckedIn={
-                  day.status === "present" &&
-                  (day.totalHours ?? 0) === 0 &&
-                  Array.isArray(day.sessions) &&
-                  day.sessions.length > 0 &&
-                  !day.sessions[day.sessions.length - 1]?.check_out
-                }
-              />
+              </span>  
+              <MeetingDayCell day={day} today={today} />
             </div>
           ))}
         </div>
@@ -342,46 +486,22 @@ export default function EmployeeCard({ data, viewMode, onClick, isLive = false }
                 const isHoliday = day.status === "holiday";
                 const isFuture  = day.status === "future";
                 const isToday   = day.date === today;
-                const h       = day.totalHours ?? 0;
+                const h         = day.totalHours ?? 0;
                 const dayNum    = new Date(day.date).getDate();
 
                 return (
-                  <div key={day.date} style={{
-                    flex: 1, height: 22, background: barBg(day), borderRadius: 3,
-                    opacity: isFuture ? 0.2 : 1,
-                    outline: isToday ? "1.5px solid #FFD700" : "none",
-                    outlineOffset: 1,
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                    flexDirection: "column", gap: 0, position: "relative",
-                  }}>
-                    <span style={{
-
-                      color: (day.wfh && isPresent)
-                      ? "rgba(249,168,212,0.95)"
-                      : isPresent
-                      ? (h < 6 ? "rgba(120,255,140,0.85)" : "rgba(0,40,10,0.9)")
-                      : isAbsent  ? "rgba(255,100,100,0.75)"
-                      : isHoliday ? "rgba(251,191,36,0.9)"
-                      : "#4A5A9A", 
-                      fontSize: 6.5, fontWeight: 700, lineHeight: 1,
-                    }}>
-                      {dayNum}
-                    </span>
-
- 
-                    {isPresent && h > 0 && (
-                      <span style={{
-                        color: h < 6 ? "rgba(150,255,160,0.9)" : "rgba(0,30,5,0.85)",
-                        fontSize: 6.5, fontWeight: 900,
-                        fontFamily: "'JetBrains Mono',monospace", lineHeight: 1, letterSpacing: -0.3,
-                      }}>
-                        {h}h
-                      </span>
-                    )}
-                    {isHoliday && (
-                      <span style={{ color: "rgba(251,191,36,0.6)", fontSize: 5.5, lineHeight: 1 }}>★</span>
-                    )}
-                  </div>
+                  
+                  <MonthMeetingCell
+                    key={day.date}
+                    day={day}
+                    isPresent={isPresent}
+                    isAbsent={isAbsent}
+                    isHoliday={isHoliday}
+                    isFuture={isFuture}
+                    isToday={isToday}
+                    h={h}
+                    dayNum={dayNum}
+                  />
                 );
               })}
             </div>
@@ -401,32 +521,25 @@ export default function EmployeeCard({ data, viewMode, onClick, isLive = false }
         </div>
         <div style={{ display: "flex", alignItems: "baseline", gap: 3 }}>
           <span style={{ color: "#FFD700", fontWeight: 600, fontSize: 12, lineHeight: 1 }}>
-            {data.totalHours}
+            {fmtHM(data.totalHours)}
           </span>
+          <span style={{ color: "#8090C0", fontSize: 9 }}>h</span>
 
-          <span style={{ color: "#8090C0", fontSize: 9 }}>
-            h
-          </span>
-
-
-
-{data.overtimeHours > 0 && (
-  <>
-    <span style={{ fontSize: 8.5, color: "#93C5FD", fontWeight: 700, marginLeft: 2 }}>
-      +{data.overtimeHours} OT
-    </span>
- 
-    {isLive && totalExtraDisplay && (
-      <span style={{
-        fontSize: 8, color: "#991B1B", fontWeight: 700,
-        marginLeft: 2, fontFamily: "'JetBrains Mono', monospace",
-      }}>
-        -{totalExtraDisplay}
-      </span>
-    )} 
-  </>
-)} 
-
+          {data.overtimeHours > 0 && (
+            <>
+              <span style={{ fontSize: 8.5, color: "#93C5FD", fontWeight: 700, marginLeft: 2 }}>
+                +{fmtHM(data.overtimeHours)}h OT
+              </span>
+              {isLive && totalExtraDisplay && (
+                <span style={{
+                  fontSize: 8, color: "#991B1B", fontWeight: 700,
+                  marginLeft: 2, fontFamily: "'JetBrains Mono', monospace",
+                }}>
+                  -{totalExtraDisplay}
+                </span>
+              )}
+            </>
+          )}
         </div>
       </div>
     </div>

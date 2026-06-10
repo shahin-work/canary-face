@@ -4,10 +4,11 @@ import { db } from "../firebase";
 import EmployeeCard from "../components/EmployeeCard";
 import type { EmployeeCardData, DayStatus, Session } from "../components/EmployeeCard";
 import logo from "../assets/react.png";
+import logo2 from "../assets/react1.png";
 import AddMeeting from "../components/AddMeeting"; 
 import { useNavigate, useLocation } from "react-router-dom";
+import { DATA_START } from "../App";
 // ─── constants ───────────────────────────────────────────────────────────────
-const DATA_START = "2026-03-02";
 
 const HOLIDAYS_2026 = new Set([
   "2026-02-15", "2026-03-20", "2026-04-03", "2026-04-05", "2026-04-15",
@@ -40,6 +41,7 @@ function isFuture(_dateStr: string): boolean {
   return false; // always allow in development
 }
 
+
 function calcHours(sessions: Session[], forDate?: string): number {
   let mins = 0;
   const toMins = (t: string) => {
@@ -48,25 +50,54 @@ function calcHours(sessions: Session[], forDate?: string): number {
   };
   const now = new Date();
   const todayStr = toDateStr(now);
-  const nowMins  = Math.min(now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60, 21 * 60);
-
-  const WORK_START = 9 * 60;   // 09:00
-  const WORK_END   = 21 * 60;  // 21:00
+  const nowMins = now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60;
 
   for (const s of sessions) {
     if (!s.check_in) continue;
-    const inMins = Math.max(toMins(s.check_in), WORK_START);
+    const inMins = toMins(s.check_in);
     if (s.check_out) {
-      const outMins = Math.min(toMins(s.check_out), WORK_END);
-      mins += Math.max(0, outMins - inMins);
+      mins += Math.max(0, toMins(s.check_out) - inMins);
     } else {
       if (!forDate || forDate === todayStr) {
         mins += Math.max(0, nowMins - inMins);
       }
     }
   }
-  return Math.round((mins / 60) * 10) / 10;
+  return Math.round((mins / 60) * 100) / 100;
 }
+
+function AnimatedLogo() {
+  const [showSparkle, setShowSparkle] = useState(false);
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      setShowSparkle(true);
+      setTimeout(() => setShowSparkle(false), 300);
+    }, 2000);
+    return () => clearInterval(id);
+  }, []);
+
+  return (
+    <div style={{ position: "relative", width: 33, height: 33, flexShrink: 0 }}>
+      <img
+        src={logo}
+        alt="Canary Face"
+        style={{ width: 33, height: 33, borderRadius: 8, objectFit: "contain", background: SURF, position: "absolute", top: 0, left: 0 }}
+      />
+      <img
+        src={logo2}
+        alt=""
+        style={{
+          width: 33, height: 33, borderRadius: 8, objectFit: "contain", background: SURF,
+          position: "absolute", top: 0, left: 0,
+          opacity: showSparkle ? 1 : 0,
+          transition: showSparkle ? "opacity 0.05s ease" : "opacity 0.2s ease",
+        }}
+      />
+    </div>
+  );
+}
+ 
 
 function getWeekDates(offset: number): string[] {
   const now    = new Date();
@@ -598,14 +629,14 @@ async function fetchTodayInOffice() {
   const canGoNext = viewMode === "week" ? weekOffset < maxWeekOffset : monthOffset < maxMonthOffset;
 
   function goBack() {
-    const nextOffset = viewMode === "week" ? weekOffset - 1 : monthOffset - 1;
-    const nextDates  = viewMode === "week" ? getWeekDates(nextOffset) : getMonthDates(nextOffset);
-    if (isPeriodBeforeStart(nextDates)) {
-      setToast("Attendance data is available from 1 March 2026 onwards. No earlier records exist.");
+      const nextOffset = viewMode === "week" ? weekOffset - 1 : monthOffset - 1;
+      const nextDates  = viewMode === "week" ? getWeekDates(nextOffset) : getMonthDates(nextOffset);
+      if (isPeriodBeforeStart(nextDates)) {
+        setToast(`Records available from ${new Date(DATA_START).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })} only. Previous data requires admin access.`);
       return;
     }
     viewMode === "week" ? setWeekOffset(o => o - 1) : setMonthOffset(o => o - 1);
-  }
+    }
   function goFwd() {
     if (canGoNext) viewMode === "week" ? setWeekOffset(o => o + 1) : setMonthOffset(o => o + 1);
   }
@@ -694,9 +725,8 @@ async function fetchTodayInOffice() {
         <div style={{ maxWidth: 1300, margin: "0 auto", padding: "10px 24px", display: "flex", alignItems: "center", gap: 10 }}>
           <a href="https://www.canarysuite.in/tool/canary-face"
             style={{ display: "flex", alignItems: "center", gap: 10, textDecoration: "none", flexShrink: 0 }}>
-            <img src={logo} alt="Canary Face"
-              style={{ width: 33, height: 33, borderRadius: 8, objectFit: "contain", background: SURF }} />
-            <div>
+            <AnimatedLogo />
+             <div>
               <p style={{ fontWeight: 700, fontSize: 14, color: TEXT, lineHeight: 1, margin: 0 }}>Canary Face</p>
               <p style={{ fontSize: 10, color: SUB, marginTop: 2 }}>Attendance · Software Team</p>
             </div>

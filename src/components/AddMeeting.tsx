@@ -145,7 +145,7 @@ const canSave = !!selected && !!date && !!start && !!end && durValid && title.tr
         check_in: `${start}:00`,
         check_out: `${end}:00`,
         meeting: true,
-        ...(title.trim() ? { title: title.trim() } : {}),
+        ...(title.trim() ? { meeting_purpose: title.trim() } : {}),
       };
       await setDoc(ref, { sessions: [...existing, newSession] }, { merge: true });
       onSaved?.(`Meeting added for ${selected.name} on ${date} (${start}–${end}).`);

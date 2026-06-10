@@ -8,6 +8,7 @@ import HrPanel from "./components/HrPanel";
 
 
 const MOBILE_BLOCK_ENABLED = false; // toggle: set false to allow mobile
+export const DATA_START = "2026-06-01";
 
 // ── screen width hook ─────────────────────────────────────────────────────────
 function useIsMobileDevice() {

@@ -400,7 +400,7 @@ function TimelineRow({ day, attendanceMap, today, hoveredDay, onHover }: {
                 top:"50%", transform:"translateY(-50%)",
                 width:10, height:10, borderRadius:"50%",
                 background: sessColor, border:`2px solid ${C.bg}`,
-boxShadow: isHovered ? `0 0 10px ${sessColor}BB` : `0 0 7px ${sessColor}99`,
+                boxShadow: isHovered ? `0 0 10px ${sessColor}BB` : `0 0 7px ${sessColor}99`,
                 zIndex:3,
                 transition:"box-shadow 0.12s",
               }}/>
