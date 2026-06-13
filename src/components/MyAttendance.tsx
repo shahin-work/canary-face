@@ -597,7 +597,7 @@ function TodaySessionTimeline({ sessions }: { sessions: any[] }) {
 
 // ─── Summary Modal ────────────────────────────────────────────────────────────
 function SummaryModal({
-  me, today, week, loading, refreshing, onClose, onSwitch, navigate,
+  me, today, week, loading, refreshing, onClose, onSwitch,
 }: {
   me: EmployeeLite | null;
   today: DayInfo | null;
@@ -822,7 +822,7 @@ export default function MyAttendance() {
 
   const [today, setToday] = useState<DayInfo | null>(null);
   const [week, setWeek]   = useState<DayInfo[]>([]);
-  const [loadingData, setLoadingData] = useState(false);
+  const [, setLoadingData] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [summaryReady, setSummaryReady] = useState(false);
 
