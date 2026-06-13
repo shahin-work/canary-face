@@ -96,7 +96,14 @@ function calcHours(sessions: any[], forDate?: string): number {
   }
   return Math.round((mins / 60) * 100) / 100;
 }
-
+// ─── Standalone loader (shown before the modal, during the DB fetch) ─────────
+function LoaderOverlay() {
+  return (
+    <Backdrop>
+      <LogoLoader />
+    </Backdrop>
+  );
+}
 function fmtHours(h: number): string {
   const totalMins = Math.round(h * 60);
   const hh = Math.floor(totalMins / 60);
@@ -648,10 +655,29 @@ function SummaryModal({
               {me?.emp_id} · {me?.department}
             </p>
           </div>
-          <button onClick={onClose} style={{
-            background: "none", border: "none", color: DIM, fontSize: 22,
-            cursor: "pointer", lineHeight: 1, padding: "0 2px", flexShrink: 0,
-          }}>×</button>
+          <button
+  onClick={onClose}
+  style={{
+    width: 42,
+    height: 42,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    background: "rgba(10,10,10,0.55)",
+    backdropFilter: "blur(12px)",
+    WebkitBackdropFilter: "blur(12px)",
+    border: "1px solid rgba(255,255,255,0.12)",
+    borderRadius: "50%",
+    color: "#ff4d4f",
+    fontSize: 32,
+    cursor: "pointer",
+    lineHeight: 1,
+    flexShrink: 0,
+    padding: 0,
+  }}
+>
+  ×
+</button>
         </div>
 
         <div style={{ padding: "12px 22px 14px" }}>
@@ -769,20 +795,9 @@ function SummaryModal({
 
         {/* footer */}
         <div style={{ padding: "10px 22px 14px", borderTop: `1px solid ${BORDER}`, display: "flex", flexDirection: "column", gap: 8 }}>
-          <div style={{ display: "flex", gap: 8 }}>
-            <button onClick={() => { onClose(); navigate(`/${me?.emp_id}`); }} style={{
-              flex: 1, padding: "9px", borderRadius: 10, border: "none",
-              background: YELLOW, color: BG, fontSize: 12.5, fontWeight: 800,
-              cursor: "pointer", fontFamily: "inherit",
-            }}>View Full Profile →</button>
-            <button onClick={onClose} style={{
-              padding: "9px 16px", borderRadius: 10, border: `1px solid ${BORDER}`,
-              background: SURF2, color: SUB, fontSize: 12.5, fontWeight: 600,
-              cursor: "pointer", fontFamily: "inherit",
-            }}>Close</button>
-          </div>
+          
           <button onClick={onSwitch} style={{
-            background: "none", border: "none", color: TEXT, fontSize: 13,
+            background: "none", border: "none", color: TEXT, fontSize: 12,
             cursor: "pointer", fontFamily: "inherit", padding: 0,
             textDecoration: "underline", textAlign: "center", width: "100%",
           }}>Not you? Switch profile</button>
@@ -809,6 +824,7 @@ export default function MyAttendance() {
   const [week, setWeek]   = useState<DayInfo[]>([]);
   const [loadingData, setLoadingData] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [summaryReady, setSummaryReady] = useState(false);
 
   // decide what to show on first mount
   useEffect(() => {
@@ -816,7 +832,7 @@ export default function MyAttendance() {
       setPickerOpen(true);
     } else {
       const auto = localStorage.getItem(AUTO_KEY);
-      if (auto !== "0") setSummaryOpen(true);
+      if (auto !== "0") openSummary();
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -839,7 +855,7 @@ export default function MyAttendance() {
 
   // load this user's today + week data
   const loadMyData = useCallback(async (id: string, knownEmp?: EmployeeLite | null, silent = false) => {
-    if (!silent) setLoadingData(true);
+    if (!silent) { setLoadingData(true); setSummaryReady(false); }
     try {
       let empInfo = knownEmp || null;
       if (!empInfo) {
@@ -878,7 +894,7 @@ export default function MyAttendance() {
     } catch (e) {
       console.error(e);
     } finally {
-      if (!silent) setLoadingData(false);
+      if (!silent) { setLoadingData(false); setSummaryReady(true); }
     }
   }, []);
 
@@ -902,13 +918,18 @@ export default function MyAttendance() {
     return () => clearInterval(id);
   }, [empId, summaryOpen, loadMyData]);
 
+  function openSummary() {
+    setSummaryReady(false);   // show the flicker loader first
+    setSummaryOpen(true);
+  }
+
   function selectEmployee(emp: EmployeeLite) {
     localStorage.setItem(ID_KEY, emp.emp_id);
     localStorage.setItem(NAME_KEY, emp.name);
     setEmpId(emp.emp_id);
     setMe(emp);
     setPickerOpen(false);
-    setSummaryOpen(true);
+    openSummary();
   }
 
   function switchProfile() {
@@ -919,6 +940,7 @@ export default function MyAttendance() {
     setToday(null);
     setWeek([]);
     setSummaryOpen(false);
+    setSummaryReady(false);
     setPickerOpen(true);
   }
 
@@ -982,12 +1004,14 @@ export default function MyAttendance() {
         />
       )}
 
-      {summaryOpen && (
+      {summaryOpen && !summaryReady && <LoaderOverlay />}
+
+      {summaryOpen && summaryReady && (
         <SummaryModal
           me={me}
           today={today}
           week={week}
-          loading={loadingData}
+          loading={false}
           refreshing={refreshing}
           onClose={() => setSummaryOpen(false)}
           onSwitch={switchProfile}
@@ -998,7 +1022,7 @@ export default function MyAttendance() {
       {/* floating reopen pill */}
       {empId && !summaryOpen && !pickerOpen && (
         <button
-          onClick={() => setSummaryOpen(true)}
+          onClick={openSummary}
           className="ma-fab"
           title="My attendance"
           style={{
