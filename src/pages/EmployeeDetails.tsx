@@ -114,6 +114,8 @@ const C = {
   yellow: "#FFD700",
   green:  "#22C55E",
   green2: "#16A34A",
+  regGreen:  "#15803D",
+  regGreen2: "#0B5D2E",
   red:    "#ff3434",
   indigo: "#6366F1",
   blue:   "#60A5FA",
@@ -320,8 +322,9 @@ function TimelineRow({ day, attendanceMap, today, hoveredDay, onHover }: {
         {att?.sessions.map((s, i) => {
             const isMeeting    = (s as any).meeting === true;
             const isWfhSession = (s as any).wfh === true;
-            const sessColor  = isMeeting ? "#22D3EE" : isWfhSession ? "#EC4899" : C.green;   // cyan for meetings
-            const sessColor2 = isMeeting ? "#0891B2" : isWfhSession ? "#BE185D" : C.green2;
+            const isReg        = (s as any).regularized === true;
+            const sessColor  = isMeeting ? "#22D3EE" : isReg ? C.regGreen  : isWfhSession ? "#EC4899" : C.green;   // cyan=meeting, dark green=regularized
+            const sessColor2 = isMeeting ? "#0891B2" : isReg ? C.regGreen2 : isWfhSession ? "#BE185D" : C.green2;
 
           const inPct  = timeToPercent(s.check_in);
           const outPct = s.check_out
@@ -351,7 +354,7 @@ function TimelineRow({ day, attendanceMap, today, hoveredDay, onHover }: {
                 top:"50%", transform:"translateY(-50%)",
                 height: isHovered ? 5 : 3, borderRadius:4,
                 background: active
-                  ? `linear-gradient(90deg,${sessColor2},${sessColor},${isMeeting ? "#a5f3fc" : isWfhSession ? "#f9a8d4" : "#86EFAC"})`
+                  ? `linear-gradient(90deg,${sessColor2},${sessColor},${isMeeting ? "#a5f3fc" : isReg ? "#4ADE80" : isWfhSession ? "#f9a8d4" : "#86EFAC"})`
                   : `linear-gradient(90deg,${sessColor2},${sessColor})`,
                 boxShadow: active ? `0 0 10px ${sessColor}66` : isHovered ? `0 0 8px ${sessColor}55` : `0 0 4px ${sessColor2}44`,
                   zIndex:1,
@@ -760,7 +763,7 @@ export default function EmployeeDetails() {
           {/* Legend */}
           <div style={{display:"flex",alignItems:"center",gap:12,fontSize:9,color:C.sub}}>
             {/* {[{c:C.green,l:"Check-in"},{c:C.red,l:"Check-out"},{c:C.yellow,l:"Live"}].map(({c,l})=>( */}
-              {[{c:C.green,l:"Check-in"},{c:C.red,l:"Check-out"},{c:"#22D3EE",l:"Meeting"},{c:C.yellow,l:"Live"}].map(({c,l})=>(
+              {[{c:C.green,l:"Check-in"},{c:C.red,l:"Check-out"},{c:"#22D3EE",l:"Meeting"},{c:C.regGreen,l:"Regularized"},{c:C.yellow,l:"Live"}].map(({c,l})=>(
               <div key={l} style={{display:"flex",alignItems:"center",gap:4}}>
                 <div style={{width:7,height:7,borderRadius:"50%",background:c,boxShadow:`0 0 4px ${c}`}}/>
                 <span>{l}</span>

@@ -139,7 +139,7 @@ function WeekBar({ day, isCheckedIn = false, today }: { day: DayStatus; isChecke
         opacity: isFuture ? 0.22 : 1,
         outline: isToday ? `1.9px solid #FFD700` : "none",
         outlineOffset: isToday ? 1 : 0,
-        boxShadow: underEight && !isToday ? "0 0 0 1px rgb(161, 0, 0)" : "none",
+        boxShadow: underEight && !isToday ? "0 0 0 1.5px rgb(161, 0, 0)" : "none",
         display: "flex", alignItems: "center", justifyContent: "center",
       }}>
       {isPresent && (isCheckedIn && h === 0) && (

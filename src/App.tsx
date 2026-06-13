@@ -5,6 +5,8 @@ import EmployeeDetails from "./pages/EmployeeDetails";
 import AddProfile from "./components/AddProfile";
 import AdminPanel from "./components/AdminPanel";
 import HrPanel from "./components/HrPanel";
+import Guide from "./pages/Guide";
+import MyAttendance from "./components/MyAttendance";
 
 
 const MOBILE_BLOCK_ENABLED = false; // toggle: set false to allow mobile
@@ -106,6 +108,9 @@ function AppInner() {
   const isPhoneRoute =
     location.pathname === "/phone" ||
     location.pathname.startsWith("/phone/");
+    
+  const isAdminRoute =
+    /^\/(phone\/)?(console|hr)$/.test(location.pathname);
 
   if (
     MOBILE_BLOCK_ENABLED &&
@@ -123,6 +128,7 @@ function AppInner() {
         <Route path="/profile" element={<AddProfile />} />
         <Route path="/console" element={<AdminPanel />} />
         <Route path="/hr" element={<HrPanel />} />
+        <Route path="/guide" element={<Guide />} />  
 
         {/* mobile routes */}
         <Route path="/phone" element={<Attendance />} />
@@ -130,7 +136,10 @@ function AppInner() {
         <Route path="/phone/profile" element={<AddProfile />} />
         <Route path="/phone/console" element={<AdminPanel />} />
         <Route path="/phone/hr" element={<HrPanel />} />
+        <Route path="/phone/guide" element={<Guide />} />   
       </Routes>
+
+    {!isAdminRoute && <MyAttendance />}
  
       {!online && (
         <div style={{

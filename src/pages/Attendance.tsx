@@ -33,6 +33,13 @@ function isWeekend(dateStr: string): boolean {
   return false;
 }
 
+// function isWeekend(dateStr: string): boolean {
+//   const d = new Date(dateStr);
+//   const dow = d.getDay();
+
+//   return dow === 0; // Only Sunday is weekend
+// }
+
 // in prod
 // function isFuture(dateStr: string): boolean {
 //   return dateStr > toDateStr(new Date());
@@ -393,6 +400,7 @@ export default function Attendance() {
   const [isLive,       setIsLive]      = useState(false);
   const [inOffice, setInOffice] = useState<{ emp_id: string; name: string; profile_image?: string; checkIn?: string }[]>([]);
   const [meetingOpen,  setMeetingOpen] = useState(false);
+  const didAutoScroll = useRef(false);
 
   const displayDates = useMemo(
     () => viewMode === "week" ? getWeekDates(weekOffset) : getMonthDates(monthOffset),
@@ -646,6 +654,23 @@ async function fetchTodayInOffice() {
   const dateStr = clock.toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short", year: "numeric" });
   const dismissToast = useCallback(() => setToast(null), []);
 
+  // ── phone only: center the stored "me" card once the grid is ready ──
+  useEffect(() => {
+    if (didAutoScroll.current || !isPhone || loading) return;
+    const myId = localStorage.getItem("cf_my_emp_id");
+    if (!myId || !filtered.some(c => c.emp_id === myId)) return;
+
+    const t = setTimeout(() => {
+      const el = document.getElementById(`empcard-${myId}`);
+      if (!el) return;
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      el.classList.add("empcard-focus");
+      setTimeout(() => el.classList.remove("empcard-focus"), 2000);
+      didAutoScroll.current = true;
+    }, 350); // small delay so the cards have painted
+    return () => clearTimeout(t);
+  }, [isPhone, loading, filtered]);
+
   return (
     <div style={{ minHeight: "100vh", background: BG, fontFamily: "'Sora', sans-serif", color: TEXT }}>
       <style>{`
@@ -664,7 +689,26 @@ async function fetchTodayInOffice() {
             radial-gradient(ellipse 50% 40% at 0% 80%, rgba(79,55,200,0.12) 0%, transparent 60%),
             #060D2E;
         }
-.att-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 9px; }
+        .att-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 9px; }
+
+        .empcard-focus { border-radius: 14px; animation: empcard-focus-anim 2s ease; }
+                @keyframes empcard-focus-anim {
+                  0%   { box-shadow: 0 0 0 0 rgba(255,215,0,0); }
+                  18%  { box-shadow: 0 0 0 3px rgba(255,215,0,0.9), 0 0 22px rgba(255,215,0,0.5); }
+                  100% { box-shadow: 0 0 0 0 rgba(255,215,0,0); }
+                }
+
+        @media (max-width: 760px) {
+                  .att-headrow    { flex-wrap: wrap !important; gap: 8px !important; padding: 8px 10px !important; }
+                  .att-rightgroup { width: 100% !important; flex-wrap: wrap !important; justify-content: flex-start !important; gap: 6px !important; }
+                  .att-stats      { flex-wrap: wrap !important; row-gap: 4px !important; }
+                  .att-clock      { margin-left: auto !important; }
+                }
+                @media (max-width: 480px) {
+                  .att-clock { display: none !important; }
+                }
+
+
         @media (max-width: 1200px) { .att-grid { grid-template-columns: repeat(3, 1fr); } }
         @media (max-width: 820px)  { .att-grid { grid-template-columns: repeat(2, 1fr); } }
         @media (max-width: 520px)  { .att-grid { grid-template-columns: 1fr; } }
@@ -722,8 +766,7 @@ async function fetchTodayInOffice() {
         borderBottom: `1px solid ${BORDER}`,
         position: "sticky", top: 0, zIndex: 40, backdropFilter: "blur(12px)",
       }}>
-<div style={{ maxWidth: 1500, margin: "0 auto", padding: "10px 8px", display: "flex", alignItems: "center", gap: 10 }}>
-          <a href="https://canarysuite.in/cv"
+<div className="att-headrow" style={{ maxWidth: 1500, margin: "0 auto", padding: "10px 8px", display: "flex", alignItems: "center", gap: 10 }}>          <a href="https://canarysuite.in/cv"
             style={{ display: "flex", alignItems: "center", gap: 10, textDecoration: "none", flexShrink: 0 }}>
             <AnimatedLogo />
              <div>
@@ -735,10 +778,10 @@ async function fetchTodayInOffice() {
           <div style={{ flex: 1 }} />
 
           {/* right group */}
-          <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+          <div className="att-rightgroup" style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
 
             {/* stats badge with hover tooltips */}
-            <div style={{
+            <div className="att-stats" style={{
               display: "flex", alignItems: "center", gap: 8,
               background: SURF, border: `1px solid ${BORDER}`, borderRadius: 10,
               padding: "5px 13px", fontSize: 12, flexShrink: 0,
@@ -774,31 +817,94 @@ async function fetchTodayInOffice() {
                 </>
               )}
             </div>
+ 
+              <div className="adm-wrap" style={{ flexShrink: 0 }}>
+                <button
+                  onClick={() => navigate(isPhone ? "/phone/guide" : "/guide")}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                    flexShrink: 0,
+                    background: SURF,
+                    border: `1px solid ${BORDER}`,
+                    borderRadius: 10,
+                    padding: "6px 12px",
+                    cursor: "pointer",
+                    color: SUB,
+                    fontSize: 11,
+                    fontWeight: 600,
+                  }}
+                >
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
+                    <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="1.8" />
+                    <path
+                      d="M12 17v.01M12 14c0-2 2-2 2-4a2 2 0 10-4 0"
+                      stroke="currentColor"
+                      strokeWidth="1.8"
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                </button>
 
-
-
-
-
-            {/* Add meeting */}
-            {/* Add a meeting */}
+                <div className="adm-tip">
+                  How canaryface works
+                </div>
+              </div>
+ 
+ 
             {/* Add meeting — desktop / office device only */}
             {!isPhone && (
-              <button onClick={() => setMeetingOpen(true)} title="Add a meeting" className="meetbtn"
-                style={{
-                  display: "flex", alignItems: "center", gap: 6, flexShrink: 0,
-                  background: "rgba(255,215,0,0.07)", border: `1px solid ${YELLOW}44`,
-                  borderRadius: 10, padding: "6px 12px", cursor: "pointer", transition: "all 0.15s",
-                }}>
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
-                  <rect x="3" y="5" width="18" height="16" rx="2" stroke={YELLOW} strokeWidth="1.8"/>
-                  <path d="M16 3v4M8 3v4M3 10h18M12 13v4M10 15h4" stroke={YELLOW} strokeWidth="1.8" strokeLinecap="round"/>
-                </svg>
-              </button>
+              <div className="adm-wrap" style={{ flexShrink: 0 }}>
+                <button
+                  onClick={() => setMeetingOpen(true)}
+                  className="meetbtn"
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                    flexShrink: 0,
+                    background: "rgba(255,215,0,0.07)",
+                    border: `1px solid ${YELLOW}44`,
+                    borderRadius: 10,
+                    padding: "6px 12px",
+                    cursor: "pointer",
+                    transition: "all 0.15s",
+                  }}
+                >
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
+                    <rect x="3" y="5" width="18" height="16" rx="2" stroke={YELLOW} strokeWidth="1.8" />
+                    <path
+                      d="M16 3v4M8 3v4M3 10h18M12 13v4M10 15h4"
+                      stroke={YELLOW}
+                      strokeWidth="1.8"
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                </button>
+
+                <div className="adm-tip">
+                  Add meeting
+                </div>
+              </div>
             )}
 
-
-
-
+            {/* hr badge */}
+            <div className="adm-wrap" style={{ flexShrink: 0 }}>
+              <div style={{
+                display: "flex", alignItems: "center", gap: 6,
+                background: "rgba(255,215,0,0.07)", border: `1px solid ${YELLOW}44`,
+                borderRadius: 10, padding: "5px 12px", cursor: "default",
+              }}>
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none">
+                  <circle cx="12" cy="8" r="4" stroke={YELLOW} strokeWidth="2"/>
+                  <path d="M4 20c0-4 3.6-7 8-7s8 3 8 7" stroke={YELLOW} strokeWidth="2" strokeLinecap="round"/>
+                </svg>
+                <span style={{ color: YELLOW, fontSize: 10.5, fontWeight: 700, letterSpacing: 0.5 }}>HR PANEL</span>
+              </div>
+              <div className="adm-tip">Available for HR personnel only. Manage employee records, leave requests, attendance regularizations, and workforce administration.</div>
+            </div>
+ 
             {/* admin badge */}
             <div className="adm-wrap" style={{ flexShrink: 0 }}>
               <div style={{
@@ -816,7 +922,7 @@ async function fetchTodayInOffice() {
             </div>
 
             {/* live clock */}
-            <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", flexShrink: 0 }}>
+            <div className="att-clock" style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", flexShrink: 0 }}>
               <span style={{ color: TEXT, fontWeight: 700, fontSize: 10, marginTop: 4, fontFamily: "'JetBrains Mono',monospace", letterSpacing: 0.8, lineHeight: 1 }}>
                 {timeStr}
               </span>
@@ -967,8 +1073,10 @@ maxWidth: 1500, margin: "0 auto", padding: "12px 8px",
           ) : (
             <div className="att-grid">
               {filtered.map(d => (
-                <EmployeeCard key={d.emp_id} data={d} viewMode={viewMode}
-                  onClick={() => navigate(`/${d.emp_id}`)} isLive={isLive} />
+                <div key={d.emp_id} id={`empcard-${d.emp_id}`}>
+                  <EmployeeCard data={d} viewMode={viewMode}
+                    onClick={() => navigate(`/${d.emp_id}`)} isLive={isLive} />
+                </div>
               ))}
             </div>
           )}
