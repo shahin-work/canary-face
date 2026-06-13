@@ -914,7 +914,7 @@ export default function MyAttendance() {
       loadMyData(empId, meRef.current, true).finally(() => {
         setTimeout(() => setRefreshing(false), 1000);
       });
-    }, 5000);
+    }, 4000);
     return () => clearInterval(id);
   }, [empId, summaryOpen, loadMyData]);
 

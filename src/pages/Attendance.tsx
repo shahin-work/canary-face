@@ -408,7 +408,7 @@ export default function Attendance() {
   );
 
   const today = toDateStr(new Date());
-
+  const myId = typeof window !== "undefined" ? localStorage.getItem("cf_my_emp_id") : null;
   function isPeriodBeforeStart(dates: string[]): boolean {
     return dates[dates.length - 1] < DATA_START;
   }
@@ -664,8 +664,6 @@ async function fetchTodayInOffice() {
       const el = document.getElementById(`empcard-${myId}`);
       if (!el) return;
       el.scrollIntoView({ behavior: "smooth", block: "center" });
-      el.classList.add("empcard-focus");
-      setTimeout(() => el.classList.remove("empcard-focus"), 2000);
       didAutoScroll.current = true;
     }, 350); // small delay so the cards have painted
     return () => clearTimeout(t);
@@ -691,12 +689,24 @@ async function fetchTodayInOffice() {
         }
         .att-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 9px; }
 
-        .empcard-focus { border-radius: 14px; animation: empcard-focus-anim 2s ease; }
-                @keyframes empcard-focus-anim {
-                  0%   { box-shadow: 0 0 0 0 rgba(255,215,0,0); }
-                  18%  { box-shadow: 0 0 0 3px rgba(255,215,0,0.9), 0 0 22px rgba(255,215,0,0.5); }
-                  100% { box-shadow: 0 0 0 0 rgba(255,215,0,0); }
-                }
+        .empcard-mine {
+          border-radius: 16px;
+          outline: 2px solid ${YELLOW};
+          outline-offset: 2px;
+          animation: empcard-mine-glow 2.4s ease-in-out infinite;
+        }
+        @keyframes empcard-mine-glow {
+          0%,100% { box-shadow: 0 0 0 1px rgba(255,215,0,0.30), 0 0 16px rgba(255,215,0,0.20); }
+          50%     { box-shadow: 0 0 0 1px rgba(255,215,0,0.55), 0 0 28px rgba(255,215,0,0.42); }
+        }
+        .empcard-you {
+          position: absolute; top: -9px; left: 12px; z-index: 6;
+          background: ${YELLOW}; color: ${BG};
+          font-size: 9px; font-weight: 800; letter-spacing: 0.6px;
+          padding: 2px 9px; border-radius: 20px;
+          box-shadow: 0 3px 10px rgba(255,215,0,0.45);
+          font-family: 'Sora', sans-serif;
+        }
 
         @media (max-width: 760px) {
                   .att-headrow    { flex-wrap: wrap !important; gap: 8px !important; padding: 8px 10px !important; }
@@ -1072,12 +1082,21 @@ maxWidth: 1500, margin: "0 auto", padding: "12px 8px",
             </div>
           ) : (
             <div className="att-grid">
-              {filtered.map(d => (
-                <div key={d.emp_id} id={`empcard-${d.emp_id}`}>
-                  <EmployeeCard data={d} viewMode={viewMode}
-                    onClick={() => navigate(`/${d.emp_id}`)} isLive={isLive} />
-                </div>
-              ))}
+              {filtered.map(d => {
+                const mine = d.emp_id === myId;
+                return (
+                  <div
+                    key={d.emp_id}
+                    id={`empcard-${d.emp_id}`}
+                    className={mine ? "empcard-mine" : undefined}
+                    style={mine ? { position: "relative" } : undefined}
+                  >
+                    {mine && <span className="empcard-you">YOU</span>}
+                    <EmployeeCard data={d} viewMode={viewMode}
+                      onClick={() => navigate(`/${d.emp_id}`)} isLive={isLive} />
+                  </div>
+                );
+              })}
             </div>
           )}
         </main>

@@ -541,7 +541,14 @@ export default function EmployeeDetails() {
   const [error,       setError]       = useState("");
   const [hoveredDay,  setHoveredDay]  = useState<string | null>(null);
   const [toast,       setToast]       = useState("");
-
+  const [isPhone, setIsPhone] = useState(
+      typeof window !== "undefined" && window.innerWidth < 760
+    );
+    useEffect(() => {
+      const onResize = () => setIsPhone(window.innerWidth < 760);
+      window.addEventListener("resize", onResize);
+      return () => window.removeEventListener("resize", onResize);
+    }, []);
   // Allowed range: March 2026 (offset 0) → December 2026 (offset 9)
   const RANGE_YEAR  = 2026;
   const RANGE_START_MONTH = 2;  // March (0-indexed)
@@ -677,6 +684,7 @@ export default function EmployeeDetails() {
       `}</style>
 
       {/* ══ SIDEBAR ══════════════════════════════════════════════════════════ */}
+      {!isPhone && (
       <aside style={{
         width:SIDEBAR_W, flexShrink:0,
         background:C.surf, borderRight:`1px solid ${C.border}`,
@@ -743,26 +751,48 @@ export default function EmployeeDetails() {
           {INSIGHTS.map(ins => <InsightCard key={ins.label} {...ins}/>)}
         </div>
       </aside>
+      )}
 
       {/* ══ MAIN ═════════════════════════════════════════════════════════════ */}
       <div style={{flex:1,display:"flex",flexDirection:"column",minHeight:"100vh",overflow:"hidden",paddingTop:HEADER_H+RULER_H}}>
 
         {/* Fixed header */}
         <div style={{
-          position:"fixed",top:0,left:SIDEBAR_W,right:0,zIndex:100,
+          position:"fixed",top:0,left:isPhone?0:SIDEBAR_W,right:0,zIndex:100,
           background:`linear-gradient(180deg,${C.surf}FA 0%,${C.bg}F0 100%)`,
           borderBottom:`1px solid ${C.border}`,
           backdropFilter:"blur(16px)",
-          padding:"0 24px",height:HEADER_H,
+          padding:isPhone?"0 12px":"0 24px",height:HEADER_H,
           display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,
         }}>
-          <div>
-            <h1 style={{fontSize:14,fontWeight:700,color:C.text,lineHeight:1.2}}>Attendance Timeline</h1>
+          <div style={{ display:"flex", alignItems:"center", gap:10, minWidth:0 }}>
+            {isPhone && (
+              <button className="backbtn" onClick={()=>navigate("/")} style={{
+                display:"flex",alignItems:"center",gap:5,background:"none",border:"none",
+                cursor:"pointer",color:C.yellow,fontSize:12,fontWeight:700,
+                fontFamily:"'Sora',sans-serif",flexShrink:0,
+              }}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                  <path d="M19 12H5M5 12l7-7M5 12l7 7" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+                Back
+              </button>
+            )}
+            <div style={{ minWidth:0 }}>
+              <h1 style={{fontSize:14,fontWeight:700,color:C.text,lineHeight:1.2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
+                {isPhone ? employee.name : "Attendance Timeline"}
+              </h1>
+              {isPhone && (
+                <p style={{fontSize:9,color:typeColor,fontFamily:"'JetBrains Mono',monospace",margin:"1px 0 0",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
+                  {employee.emp_id} · {employee.department}
+                </p>
+              )}
+            </div>
           </div>
 
-          {/* Legend */}
+          {/* Legend — desktop only */}
+          {!isPhone && (
           <div style={{display:"flex",alignItems:"center",gap:12,fontSize:9,color:C.sub}}>
-            {/* {[{c:C.green,l:"Check-in"},{c:C.red,l:"Check-out"},{c:C.yellow,l:"Live"}].map(({c,l})=>( */}
               {[{c:C.green,l:"Check-in"},{c:C.red,l:"Check-out"},{c:"#22D3EE",l:"Meeting"},{c:C.regGreen,l:"Regularized"},{c:C.yellow,l:"Live"}].map(({c,l})=>(
               <div key={l} style={{display:"flex",alignItems:"center",gap:4}}>
                 <div style={{width:7,height:7,borderRadius:"50%",background:c,boxShadow:`0 0 4px ${c}`}}/>
@@ -770,6 +800,7 @@ export default function EmployeeDetails() {
               </div>
             ))}
           </div>
+          )}
 
           {/* Month nav */}
           <div style={{
@@ -810,7 +841,7 @@ export default function EmployeeDetails() {
 
         {/* Fixed time ruler — 9 to 21, no AM/PM */}
         <div style={{
-          position:"fixed",top:HEADER_H,left:SIDEBAR_W,right:0,zIndex:99,
+          position:"fixed",top:HEADER_H,left:isPhone?0:SIDEBAR_W,right:0,zIndex:99,
           display:"grid",gridTemplateColumns:"60px 1fr 68px",
           gap:0,padding:"5px 20px",
           borderBottom:`1px solid ${C.bord2}`,
