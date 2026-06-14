@@ -13,30 +13,53 @@ function isAndroid() {
   return /Android/i.test(navigator.userAgent);
 }
 
+function isStandalone() {
+  return window.matchMedia?.('(display-mode: standalone)').matches
+    || (navigator as any).standalone === true;
+}
+
 export default function InstallPrompt() {
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
-    if (!isAndroid()) return;
+    if (!isAndroid()) {
+      console.log('[InstallPrompt] not Android, skipping');
+      return;
+    }
+    if (isStandalone()) {
+      console.log('[InstallPrompt] already installed/standalone, skipping');
+      return;
+    }
+
+    console.log('[InstallPrompt] Android detected, listening for beforeinstallprompt');
 
     const handler = (e: Event) => {
+      console.log('[InstallPrompt] beforeinstallprompt fired!', e);
       e.preventDefault();
       setDeferredPrompt(e);
       setVisible(true);
-
-      // hide after 3 seconds
       setTimeout(() => setVisible(false), 3000);
     };
 
     window.addEventListener('beforeinstallprompt', handler);
-    return () => window.removeEventListener('beforeinstallprompt', handler);
+
+    // also log if it never fires after a delay
+    const checkTimer = setTimeout(() => {
+      console.log('[InstallPrompt] beforeinstallprompt has not fired yet after 5s');
+    }, 5000);
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handler);
+      clearTimeout(checkTimer);
+    };
   }, []);
 
   const handleInstall = async () => {
     if (!deferredPrompt) return;
     deferredPrompt.prompt();
-    await deferredPrompt.userChoice;
+    const choice = await deferredPrompt.userChoice;
+    console.log('[InstallPrompt] user choice:', choice);
     setDeferredPrompt(null);
     setVisible(false);
   };
