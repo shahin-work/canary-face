@@ -14,7 +14,7 @@ doc_date = "2026-03-06"
 
 def push_fida_saturday():
     print(f"🚀 Pushing Saturday attendance for {emp_id}...")
-    
+     
     db.collection(emp_id).document(doc_date).set({
         "employee_name": emp_name,
         "sessions": [
