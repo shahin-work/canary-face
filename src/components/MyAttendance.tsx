@@ -344,10 +344,7 @@ function EmployeePicker({
                 width: "100%", padding: "9px", borderRadius: 10, border: `1px solid ${BORDER}`,
                 background: SURF2, color: TEXT, fontSize: 15, fontWeight: 500,
                 cursor: "pointer", fontFamily: "inherit",
-            }}>Skip for now</button>
-            <p style={{ color: DIM, fontSize: 10, margin: 0, textAlign: "center", lineHeight: 1.5 }}>
-                Your choice is saved on this device only.
-            </p>
+            }}>Skip for now</button> 
         </div>
       </div>
     </Backdrop>

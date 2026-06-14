@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { initializeApp, getApps } from "firebase/app";
 import { getFirestore, collection, getDocs, doc, setDoc, getDoc } from "firebase/firestore";
 import * as XLSX from "xlsx-js-style";
+import logo from "../assets/react.png";
 
 const firebaseConfig = {
   apiKey: "YOUR_API_KEY",
@@ -18,6 +19,7 @@ const db    = getFirestore(fbApp);
 const HR_PASS  = "2024";
 const SESS_KEY = "hr_remote_ts";
 const SESS_MIN = 60;
+const NAME_KEY = "hr_user_name";   // HR person's display name (per device)
 
 function isAuthed() {
   const ts = localStorage.getItem(SESS_KEY);
@@ -26,6 +28,8 @@ function isAuthed() {
 }
 function setAuth()   { localStorage.setItem(SESS_KEY, Date.now().toString()); }
 function clearAuth() { localStorage.removeItem(SESS_KEY); }
+function getHrName(): string { return (localStorage.getItem(NAME_KEY) || "").trim(); }
+function saveHrName(n: string) { localStorage.setItem(NAME_KEY, n.trim()); }
 
 // ── Colours ───────────────────────────────────────────────────────────────────
 const BG      = "#060D2E";
@@ -60,19 +64,19 @@ function getDaysInRange(from: string, to: string): string[] {
 function initials(name: string) {
   return (name || "?").split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase();
 }
-
-const HOLIDAYS = new Set([
-  "2026-02-15","2026-03-20","2026-04-03","2026-04-05","2026-04-15",
-  "2026-05-01","2026-05-27","2026-08-15","2026-08-25","2026-08-26",
-  "2026-09-21","2026-10-02","2026-10-20","2026-11-08","2026-12-25",
-]);
-function isHoliday(d: string) { return HOLIDAYS.has(d); }
 function isWeekend(dateStr: string): boolean {
   const d = new Date(dateStr), dow = d.getDay();
   if (dow === 0) return true;
   if (dow === 6) return Math.ceil(d.getDate() / 7) % 2 === 0;
   return false;
 }
+const HOLIDAYS = new Set([
+  "2026-02-15","2026-03-20","2026-04-03","2026-04-05","2026-04-15",
+  "2026-05-01","2026-05-27","2026-08-15","2026-08-25","2026-08-26",
+  "2026-09-21","2026-10-02","2026-10-20","2026-11-08","2026-12-25",
+]);
+function isHoliday(d: string) { return HOLIDAYS.has(d); }
+ 
 function calcHours(sessions: any[]): number {
   let mins = 0;
   const toM = (t: string) => { const [h,m,s] = t.split(":").map(Number); return h*60+m+(s||0)/60; };
@@ -255,7 +259,7 @@ function ConfirmModal({
 // ── Export Modal ──────────────────────────────────────────────────────────────
 type ExportRange = "today" | "thisweek" | "thismonth" | "custom";
 
-function ExportModal({ onClose, onExport }: { onClose:()=>void; onExport:(from:string,to:string)=>void }) {
+function ExportModal({ onClose, onExport }: { onClose:()=>void; onExport:(from:string,to:string,theme:string)=>void }) {
   const now = new Date();
   const todayStr = toDateStr(now);
 
@@ -274,7 +278,7 @@ function ExportModal({ onClose, onExport }: { onClose:()=>void; onExport:(from:s
   const [selected, setSelected] = useState<ExportRange>("thisweek");
   const [customFrom, setCustomFrom] = useState(todayStr);
   const [customTo,   setCustomTo]   = useState(todayStr);
-
+  const [theme, setTheme] = useState<"filled"|"minimal">("filled");
   const getRange = () => {
     if (selected==="today")     return { from:todayStr, to:todayStr };
     if (selected==="thisweek")  return getWeekRange();
@@ -352,6 +356,28 @@ function ExportModal({ onClose, onExport }: { onClose:()=>void; onExport:(from:s
             </div>
           </div>
 
+          {/* Excel style picker */}
+          <div style={{marginBottom:16}}>
+            <Label>Excel Style</Label>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+              {([
+                { id:"minimal", label:"Clean" },
+                { id:"filled",  label:"Highlighted " },
+              ] as const).map(opt => (
+                <button key={opt.id} onClick={()=>setTheme(opt.id)} style={{
+                  background: theme===opt.id ? "rgba(74,222,128,0.1)" : "rgba(99,102,241,0.05)",
+                  border: `1px solid ${theme===opt.id ? GREEN+"55" : BORDER}`,
+                  borderRadius:11,padding:"11px 13px",cursor:"pointer",textAlign:"left",transition:"all 0.15s",
+                }}>
+                  <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:3}}>
+                    <span style={{color:theme===opt.id?GREEN:TEXT,fontWeight:700,fontSize:12,fontFamily:"'Sora',sans-serif"}}>{opt.label}</span>
+                    {theme===opt.id && <span style={{marginLeft:"auto",color:GREEN,fontSize:14}}>✓</span>}
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+
           {/* Custom range inputs */}
           {selected==="custom" && (
             <div style={{
@@ -402,7 +428,7 @@ function ExportModal({ onClose, onExport }: { onClose:()=>void; onExport:(from:s
               flex:1,padding:"10px",borderRadius:10,border:`1px solid ${BORDER}`,
               background:SURF,color:SUB,fontSize:12.5,fontWeight:600,cursor:"pointer",fontFamily:"'Sora',sans-serif",
             }}>Cancel</button>
-            <button onClick={()=>onExport(from,to)} style={{
+            <button onClick={()=>onExport(from,to,theme)} style={{
               flex:2,padding:"10px",borderRadius:10,border:"none",
               background:`linear-gradient(135deg,${GREEN},#22c55e)`,
               color:"#022c0a",fontSize:12.5,fontWeight:800,cursor:"pointer",fontFamily:"'Sora',sans-serif",
@@ -452,7 +478,7 @@ function HrLogin({ onLogin }: { onLogin: () => void }) {
           background:"rgba(236,72,153,0.1)",border:`1px solid ${MAGENTA}33`,
           display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,
         }}>🏠</div>
-        <h2 style={{color:TEXT,fontWeight:800,fontSize:17,margin:"0 0 4px"}}>HR Panel</h2>
+        <h2 style={{color:TEXT,fontWeight:800,fontSize:17,margin:"0 0 4px"}}>CanaryFace - HR Panel</h2>
         <p style={{color:SUB,fontSize:11,margin:"0 0 22px"}}>Enter 4-digit passcode</p>
         <div style={{display:"flex",gap:9,justifyContent:"center",marginBottom:18}}>
           {[0,1,2,3].map(i => (
@@ -500,16 +526,93 @@ function HrLogin({ onLogin }: { onLogin: () => void }) {
   );
 }
 
+// ── Name capture (asked once, then remembered on this device) ───────────────────
+function NameCapture({ initial = "", onSave, onBack }: {
+  initial?: string; onSave: (n: string) => void; onBack?: () => void;
+}) {
+  const [name, setName] = useState(initial);
+  const valid = name.trim().length >= 2;
+  const submit = () => { if (valid) onSave(name.trim()); };
+
+  return (
+    <div style={{minHeight:"100vh",background:BG,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Sora',sans-serif",padding:16}}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&family=JetBrains+Mono:wght@600;700&display=swap');
+        *,*::before,*::after{box-sizing:border-box;}
+      `}</style>
+      <div style={{
+        background:"linear-gradient(155deg,#0D1545 0%,#070F30 100%)",
+        border:`1px solid ${BORDER}`,borderRadius:20,padding:"36px 32px",
+        width:350,maxWidth:"100%",textAlign:"center",boxShadow:"0 24px 80px rgba(0,0,0,0.7)",
+      }}>
+        <div style={{
+          width:56,height:56,borderRadius:16,margin:"0 auto 18px",
+          background:"rgba(96,165,250,0.1)",border:`1px solid ${BLUE}33`,
+          display:"flex",alignItems:"center",justifyContent:"center",fontSize:24,
+        }}>👋</div>
+        <h2 style={{color:TEXT,fontWeight:800,fontSize:18,margin:"0 0 5px"}}>Welcome to HR Panel</h2>
+        <p style={{color:SUB,fontSize:11.5,margin:"0 0 22px",lineHeight:1.55}}>
+          Tell us your name to personalise your workspace. We'll remember it on this device.
+        </p>
+        <div style={{textAlign:"left",marginBottom:16}}>
+          <Label>Your Name</Label>
+          <input autoFocus value={name}
+            onChange={e=>setName(e.target.value)}
+            onKeyDown={e=>{ if(e.key==="Enter") submit(); }}
+            placeholder="e.g. Vandana"
+            maxLength={40}
+            style={{
+              width:"100%",background:SURF3,
+              border:`1px solid ${name.trim()?BLUE+"66":BORDER}`,
+              borderRadius:10,color:TEXT,fontSize:13.5,padding:"11px 13px",
+              outline:"none",fontFamily:"'Sora',sans-serif",
+            }}/>
+        </div>
+        <button onClick={submit} disabled={!valid} style={{
+          width:"100%",padding:"12px",borderRadius:11,border:"none",
+          background: valid ? `linear-gradient(135deg,${BLUE},#2563eb)` : `${BLUE}26`,
+          color: valid ? "#fff" : `${BLUE}99`,
+          fontSize:13.5,fontWeight:800,letterSpacing:0.3,
+          cursor: valid ? "pointer" : "not-allowed",fontFamily:"'Sora',sans-serif",
+        }}>Continue →</button>
+        {onBack && (
+          <button onClick={onBack} style={{
+            marginTop:12,background:"none",border:"none",color:DIM,fontSize:11,
+            cursor:"pointer",fontFamily:"'Sora',sans-serif",
+          }}>← Back</button>
+        )}
+        <p style={{color:DIM,fontSize:10,marginTop:16,marginBottom:0}}>Stored only on this browser</p>
+      </div>
+    </div>
+  );
+}
+
 export default function HrPanel() {
-  const [authed, setAuthed] = useState(isAuthed());
+  const [authed, setAuthed]       = useState(isAuthed());
+  const [hrName, setHrNameState]  = useState(getHrName());
+  const [editingName, setEditing] = useState(false);
+
   if (!authed) return <HrLogin onLogin={() => setAuthed(true)} />;
-  return <HrMain onLogout={() => { clearAuth(); setAuthed(false); }} />;
+
+  // ask for the name only the first time (or when the user chooses to change it)
+  if (!hrName || editingName)
+    return <NameCapture
+      initial={hrName}
+      onBack={hrName ? () => setEditing(false) : undefined}
+      onSave={(n) => { saveHrName(n); setHrNameState(n); setEditing(false); }}
+    />;
+
+  return <HrMain
+    hrName={hrName}
+    onChangeName={() => setEditing(true)}
+    onLogout={() => { clearAuth(); setAuthed(false); }}
+  />;
 }
 
 // ── HR Main ───────────────────────────────────────────────────────────────────
 type TabId = "remote" | "regularize";
 
-function HrMain({ onLogout }: { onLogout: () => void }) {
+function HrMain({ hrName, onLogout, onChangeName }: { hrName: string; onLogout: () => void; onChangeName: () => void }) {
   const [employees, setEmployees]     = useState<any[]>([]);
   const [loadingEmps, setLoadingEmps] = useState(true);
   const [empSearch, setEmpSearch]     = useState("");
@@ -597,6 +700,12 @@ function HrMain({ onLogout }: { onLogout: () => void }) {
   const fromStr = `${String(fromHour).padStart(2,"0")}:${String(fromMin).padStart(2,"0")}`;
   const toStr   = `${String(toHour).padStart(2,"0")}:${String(toMin).padStart(2,"0")}`;
 
+  // header / greeting meta
+  // const _hour      = new Date().getHours();
+  // const greeting   = _hour < 12 ? "Good morning" : _hour < 17 ? "Good afternoon" : "Good evening";
+  // const firstName  = (hrName || "there").split(" ")[0];
+  const todayLabel = new Date().toLocaleDateString("en-IN",{ weekday:"long", day:"2-digit", month:"long", year:"numeric" });
+
   // ── validate then open confirmation ──
   function requestSubmit() {
     if (selEmps.length === 0) { add("Select at least one employee", "error"); return; }
@@ -652,7 +761,7 @@ function HrMain({ onLogout }: { onLogout: () => void }) {
   }
 
   // ── Excel Export ─────────────────────────────────────────────────────────────
-  async function handleExport(from: string, to: string) {
+  async function handleExport(from: string, to: string, theme: string = "filled") {
     setShowExport(false);
     setExporting(true);
     add("Generating report, please wait…");
@@ -674,26 +783,73 @@ function HrMain({ onLogout }: { onLogout: () => void }) {
 
       const wb = XLSX.utils.book_new();
       const ws_data: any[][] = [];
+  
 
-      const styleAbsent    = { fill: { fgColor: { rgb: "7F1D1D" } }, font: { color: { rgb: "FCA5A5" }, bold: true }, alignment: { horizontal: "center" } };
-      const stylePresent8  = { fill: { fgColor: { rgb: "14532D" } }, font: { color: { rgb: "86EFAC" }, bold: true }, alignment: { horizontal: "center" } };
-      const stylePresent9  = { fill: { fgColor: { rgb: "22C55E" } }, font: { color: { rgb: "052E16" }, bold: true }, alignment: { horizontal: "center" } };
-      const styleRemote    = { fill: { fgColor: { rgb: "831843" } }, font: { color: { rgb: "F9A8D4" }, bold: true }, alignment: { horizontal: "center" } };
-      const styleHoliday   = { fill: { fgColor: { rgb: "1E1354" } }, font: { color: { rgb: "A5B4FC" }, bold: true }, alignment: { horizontal: "center" } };
-      const styleWeekend   = { fill: { fgColor: { rgb: "1E1B4B" } }, font: { color: { rgb: "6366F1" }, bold: true }, alignment: { horizontal: "center" } };
-      const styleDefault   = { fill: { patternType: "solid", fgColor: { rgb: "F0FDF4" } }, font: { color: { rgb: "052E16" } } };
+      // ── Borders visible on every table cell ──
+      const BORDER_COLOR = "000000"; // black thin gridlines
+      const borderAll = {
+        top:    { style: "thin", color: { rgb: BORDER_COLOR } },
+        bottom: { style: "thin", color: { rgb: BORDER_COLOR } },
+        left:   { style: "thin", color: { rgb: BORDER_COLOR } },
+        right:  { style: "thin", color: { rgb: BORDER_COLOR } },
+      };
+
+      // ── Two selectable looks. "filled" = coloured backgrounds (default),
+      //    "minimal" = white cells with coloured text. ──
+      const useFill = theme !== "minimal";
+
+      // coloured-background palette (used when useFill)
+      const FILL: Record<string,{bg:string;text:string}> = {
+        absent:   { bg: "ff6969", text: "000000" },
+        present7: { bg: "ffa8a8", text: "000000" },
+        present8: { bg: "89FFCA", text: "000000" },
+        weekend:  { bg: "CAFFDA", text: "000000" },
+        remote:   { bg: "ffc6dd", text: "000000" },
+        holiday:  { bg: "CAFFDA", text: "000000" },
+        default:  { bg: "CAFFDA", text: "000000" },
+      };
+      // text-only palette (used for the minimal look)
+      const TXT: Record<string,string> = {
+        absent:   "ff0000",
+        present7: "ff0000",
+        present8: "000000",
+        weekend:  "000000",
+        remote:   "000000",
+        holiday:  "000000",
+        default:  "000000",
+      };
+
+      const mkStyle = (key: string, center = true) => {
+        const s: any = { border: borderAll };
+        if (center) s.alignment = { horizontal: "center" };
+        if (useFill) {
+          s.fill = { patternType: "solid", fgColor: { rgb: FILL[key].bg } };
+          s.font = { color: { rgb: FILL[key].text } };
+        } else {
+          s.font = { color: { rgb: TXT[key] } };
+        }
+        return s;
+      };
+
+      const styleAbsent   = mkStyle("absent");
+      const stylePresent7 = mkStyle("present7");
+      const stylePresent8 = mkStyle("present8");
+      const styleWeekend  = mkStyle("weekend");
+      const styleRemote   = mkStyle("remote");
+      const styleHoliday  = mkStyle("holiday");
+      const styleDefault  = mkStyle("default", false);
       const cellStyles: Record<string, any> = {};
 
       const title = from===to
         ? `Attendance Report – ${fmtDateLabel(from)}`
         : `Attendance Report – ${fmtDateLabel(from)} to ${fmtDateLabel(to)}`;
-      ws_data.push([title]);
-      ws_data.push([]);
+      ws_data.push([title]);                 // row 1 (merged + centered below)
 
       const headers = ["Emp ID", "Employee Name", ...dates.map(d => fmtDateLabel(d)), "Total Hours"];
-      ws_data.push(headers);
-      const headerRowIndex = ws_data.length - 1;
-      const styleHeader = { fill: { fgColor: { rgb: "0F1848" } }, font: { color: { rgb: "EEF0FF" }, bold: true }, alignment: { horizontal: "center" } };
+      ws_data.push(headers);                 // row 2 → table starts here
+      const headerRowIndex = ws_data.length - 1; // = 1
+      const styleHeader = { fill: { fgColor: { rgb: "0F1848" } }, font: { color: { rgb: "EEF0FF" }, bold: true }, alignment: { horizontal: "center" }, border: borderAll };
+      const styleTitle  = { font: { bold: true, sz: 13, color: { rgb: "0F1848" } }, alignment: { horizontal: "center", vertical: "center" } };
 
       for (const { emp, days } of empData) {
         const row: any[] = [emp.emp_id, emp.name];
@@ -708,10 +864,10 @@ function HrMain({ onLogout }: { onLogout: () => void }) {
           if (date > todayD) { row.push(""); continue; }
           if (isHoliday(date)) {
             row.push("H");
-            cellStyles[cellAddr] = styleHoliday;
+            cellStyles[cellAddr] = styleHoliday; 
           } else if (isWeekend(date)) {
-            row.push("WE");
-            cellStyles[cellAddr] = styleWeekend;
+            row.push("W");
+            cellStyles[cellAddr] = styleWeekend;    
           } else {
             const dayData = days[date];
             if (dayData && dayData.sessions?.length > 0) {
@@ -719,13 +875,14 @@ function HrMain({ onLogout }: { onLogout: () => void }) {
               const isWfh = sessions.every((s: any) => s.wfh === true);
               const hrs = calcHours(sessions);
               totalHrs += hrs;
-              const hrsStr = hrs > 0 ? `(${hrs.toFixed(1)})` : "";
+              const hr1 = Math.round(hrs * 10) / 10;   // value as shown (1 decimal)
+              const isFull = hr1 >= 8;                  // 8.0 and above → no ()
               if (isWfh) {
-                row.push(`R${hrsStr}`);
+                row.push(isFull ? "R" : `R(${hr1.toFixed(1)})`);
                 cellStyles[cellAddr] = styleRemote;
               } else {
-                row.push(`P${hrsStr}`);
-                cellStyles[cellAddr] = hrs >= 8 ? stylePresent9 : stylePresent8;
+                row.push(isFull ? "P" : `P(${hr1.toFixed(1)})`);
+                cellStyles[cellAddr] = isFull ? stylePresent8 : stylePresent7;
               }
             } else {
               row.push("A");
@@ -738,7 +895,9 @@ function HrMain({ onLogout }: { onLogout: () => void }) {
       }
 
       ws_data.push([]);
-      ws_data.push(["Legend:", "P = Present", "R = Remote/WFH", "A = Absent", "H = Holiday", "WE = Weekend", "(x.x) = Hours worked"]);
+      const legendText = "Legend:   P = Present (≥8h)   ·   P(x.x) = Present below 8h   ·   R = Remote   ·   A = Absent   ·   H = Holiday   ·   W = Weekend";
+      ws_data.push([legendText]);
+      const legendRowIndex = ws_data.length - 1;
 
       const ws = XLSX.utils.aoa_to_sheet(ws_data);
 
@@ -767,16 +926,27 @@ function HrMain({ onLogout }: { onLogout: () => void }) {
         if (ws[addr]) ws[addr].s = style;
       }
 
+      // title → centered & bold across the whole table width
+      const titleAddr = XLSX.utils.encode_cell({ r: 0, c: 0 });
+      if (ws[titleAddr]) ws[titleAddr].s = styleTitle;
+
+      // legend → single cell spanning the row
+      const legendAddr = XLSX.utils.encode_cell({ r: legendRowIndex, c: 0 });
+      if (ws[legendAddr]) ws[legendAddr].s = { font: { italic: true, sz: 10, color: { rgb: "555555" } }, alignment: { horizontal: "left" } };
+
       const totalCols = headers.length;
-      ws["!merges"] = [{ s:{r:0,c:0}, e:{r:0,c:totalCols-1} }];
+      ws["!merges"] = [
+        { s:{r:0,             c:0}, e:{r:0,             c:totalCols-1} }, // title row
+        { s:{r:legendRowIndex,c:0}, e:{r:legendRowIndex,c:totalCols-1} }, // legend row
+      ];
 
       XLSX.utils.book_append_sheet(wb, ws, "Attendance");
 
       const safeTo   = to.replace(/-/g,"");
       const safeFrom = from.replace(/-/g,"");
       const fileName = from===to
-        ? `attendance_${safeFrom}.xlsx`
-        : `attendance_${safeFrom}_${safeTo}.xlsx`;
+        ? `Attendance Report ${safeFrom}.xlsx`
+        : `Attendance Report ${safeFrom}_${safeTo}.xlsx`;
 
       XLSX.writeFile(wb, fileName, { cellStyles: true });
       add(`Report downloaded: ${fileName} ✓`);
@@ -817,9 +987,13 @@ function HrMain({ onLogout }: { onLogout: () => void }) {
         .export-btn:hover{opacity:0.88;}
         @media (max-width: 720px) {
           .hr-header   { padding: 0 12px !important; }
-          .hr-page     { padding: 16px 12px !important; }
+          .hr-page     { padding: 16px 12px 40px !important; }
           .hr-form-body{ grid-template-columns: 1fr !important; padding: 18px 16px 20px !important; }
           .hr-tabs     { padding: 0 12px !important; }
+        }
+        @media (max-width: 600px) {
+          .hr-usertext { display:none !important; }
+          .hr-greet h1 { font-size:19px !important; }
         }
       `}</style>
 
@@ -856,17 +1030,35 @@ function HrMain({ onLogout }: { onLogout: () => void }) {
       }}>
         <div style={{display:"flex",alignItems:"center",gap:10}}>
           <div style={{
-            width:34,height:34,borderRadius:10,
-            background:"rgba(96,165,250,0.1)",border:`1px solid ${BLUE}33`,
-            display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,
-          }}>🛠</div>
+  width:34,
+  height:34,
+  borderRadius:10,
+  background:"rgba(96,165,250,0.1)",
+  border:`1px solid ${BLUE}33`,
+  display:"flex",
+  alignItems:"center",
+  justifyContent:"center",
+  overflow:"hidden",
+}}>
+  <img
+    src={logo}
+    alt="Canary Face"
+    style={{
+      width:22,
+      height:22,
+      objectFit:"contain",
+    }}
+  />
+</div>
           <div>
-            <div style={{color:TEXT,fontWeight:800,fontSize:14,lineHeight:1}}>HR Panel</div>
+            <div style={{color:TEXT,fontWeight:800,fontSize:14,lineHeight:1}}>CanaryFace - HR Panel</div>
             <div style={{color:BLUE,fontSize:9.5,marginTop:2,fontWeight:600,letterSpacing:0.3}}>Attendance Tools</div>
           </div>
         </div>
 
         <div style={{flex:1}}/>
+
+
 
         <button
           onClick={()=>setShowExport(true)}
@@ -879,21 +1071,58 @@ function HrMain({ onLogout }: { onLogout: () => void }) {
             color:GREEN,fontSize:12,fontWeight:700,fontFamily:"'Sora',sans-serif",whiteSpace:"nowrap",
           }}>
           <span style={{fontSize:13}}>⬇</span>
-          {exporting ? "Generating…" : "Export Excel"}
+          {exporting ? "Generating…" : "Export Attendance Report"}
         </button>
 
-        <div style={{width:1,height:22,background:BORDER}}/>
+          <div style={{
+            display:"flex",alignItems:"center",gap:8,
+            background:"rgba(99,102,241,0.06)",border:`1px solid ${BORDER}`,
+            borderRadius:10,padding:"7px 13px",
+          }}>
+            <span style={{fontSize:13}}>📅</span>
+            <span style={{color:SUB,fontSize:11,fontFamily:"'JetBrains Mono',monospace",whiteSpace:"nowrap"}}>{todayLabel}</span>
+          </div>
 
-        <button onClick={onLogout} style={{
+
+        <div style={{width:1,height:24,background:BORDER}}/>
+
+        {/* HR user chip — click to change name */}
+        <button onClick={onChangeName} title="Change your name" className="hr-userchip" style={{
+          display:"flex",alignItems:"center",gap:9,
+          background:"rgba(99,102,241,0.08)",border:`1px solid ${BORDER}`,
+          borderRadius:12,padding:"5px 12px 5px 6px",cursor:"pointer",fontFamily:"'Sora',sans-serif",
+        }}>
+          <span style={{
+            width:30,height:30,borderRadius:"50%",flexShrink:0,
+            background:`linear-gradient(135deg,${BLUE},${MAGENTA})`,
+            display:"flex",alignItems:"center",justifyContent:"center",
+            color:"#fff",fontWeight:800,fontSize:11,letterSpacing:0.3,
+          }}>{initials(hrName)}</span>
+          <span className="hr-usertext" style={{textAlign:"left",lineHeight:1.15}}>
+            <span style={{display:"block",color:TEXT,fontSize:12,fontWeight:700,whiteSpace:"nowrap"}}>{hrName}</span>
+            <span style={{display:"block",color:BLUE,fontSize:9,fontWeight:600,marginTop:1,letterSpacing:0.2}}>HR Administrator</span>
+          </span>
+        </button>
+
+        <button onClick={onLogout} title="Log out" style={{
           background:"rgba(248,113,113,0.08)",border:`1px solid ${RED}33`,
-          borderRadius:8,color:RED,fontSize:10.5,fontWeight:600,padding:"5px 12px",
-          cursor:"pointer",fontFamily:"'Sora',sans-serif",
+          borderRadius:9,color:RED,fontSize:10.5,fontWeight:700,padding:"7px 12px",
+          cursor:"pointer",fontFamily:"'Sora',sans-serif",whiteSpace:"nowrap",
         }}>Logout</button>
       </header>
 
       {/* ── Page ── */}
-      <div className="hr-page" style={{maxWidth:960,margin:"0 auto",padding:"24px 20px"}}>
-
+      <div className="hr-page" style={{maxWidth:1000,margin:"0 auto",padding:"26px 20px 44px"}}>
+        {/* Greeting / page title */}
+        <div className="hr-greet" style={{
+          display:"flex",alignItems:"flex-end",justifyContent:"space-between",
+          gap:14,flexWrap:"wrap",marginBottom:20,
+        }}>
+          <div> 
+            <p style={{color:SUB,fontSize:12}}>Regularise attendance, log remote work, and export reports.</p>
+          </div>
+        </div>
+        
         {/* ── Main card ── */}
         <div style={{
           background:`linear-gradient(155deg,${SURF2},${BG})`,
