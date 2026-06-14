@@ -1109,7 +1109,7 @@ maxWidth: 1500, margin: "0 auto", padding: "12px 8px",
         </div>
 
         {/* ── LEGEND ── */}
-        <div style={{ maxWidth: 1500, margin: "0 auto", padding: "0 10px 14px", display: "flex", gap: 15, flexWrap: "wrap", alignItems: "center", paddingLeft: 20 }}> 
+        <div style={{ maxWidth: 1500, margin: "0 auto", padding: "0 10px 14px", display: "flex", gap: 11, flexWrap: "wrap", alignItems: "center", paddingLeft: 20 }}> 
 
           {[
             { c: "#25ba5c",               l: "Present" },
