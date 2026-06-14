@@ -899,7 +899,8 @@ async function fetchTodayInOffice() {
               </div>
             )}
 
-            {/* hr badge */}
+            {/* hr badge — desktop / office device only */}
+            {!isPhone && (
             <div className="adm-wrap" style={{ flexShrink: 0 }}>
               <div style={{
                 display: "flex", alignItems: "center", gap: 6,
@@ -914,8 +915,10 @@ async function fetchTodayInOffice() {
               </div>
               <div className="adm-tip">Available for HR only. Manage employee records, leave requests, attendance regularizations, and attendance reports.</div>
             </div>
+            )}
  
-            {/* admin badge */}
+            {/* admin badge — desktop / office device only */}
+            {!isPhone && (
             <div className="adm-wrap" style={{ flexShrink: 0 }}>
               <div style={{
                 display: "flex", alignItems: "center", gap: 6,
@@ -930,6 +933,7 @@ async function fetchTodayInOffice() {
               </div>
               <div className="adm-tip">Available on the office device only.</div>
             </div>
+            )}
 
             {/* live clock */}
             <div className="att-clock" style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", flexShrink: 0 }}>
