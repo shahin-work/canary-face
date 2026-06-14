@@ -11,9 +11,9 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'masked-icon.svg'],
       manifest: {
-        name: 'Your App Name',
-        short_name: 'YourApp',
-        description: 'Your app description',
+        name: 'CanaryFace',
+        short_name: 'CanaryFace',
+        description: 'Face recognition attendance system',
         theme_color: '#06080F',
         background_color: '#06080F',
         display: 'standalone',
