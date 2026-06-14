@@ -195,8 +195,7 @@ function TimelineRow({ day, attendanceMap, today, hoveredDay, onHover }: {
   const hours    = hasSess ? calcHours(att!.sessions, day) : 0;
   const isHovered = hoveredDay === day;
 
-  const extraTime = att?.extra_time ?? null;
-  const lastSession = att?.sessions?.[att.sessions.length - 1];
+  const extraTime = att?.extra_time ?? null; 
   
 
   const state: "present"|"weekend"|"holiday"|"absent"|"future" =

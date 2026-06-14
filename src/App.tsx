@@ -7,6 +7,7 @@ import AdminPanel from "./components/AdminPanel";
 import HrPanel from "./components/HrPanel";
 import Guide from "./pages/Guide";
 import MyAttendance from "./components/MyAttendance";
+import InstallPrompt from './InstallPrompt'
 
 
 const MOBILE_BLOCK_ENABLED = false; // toggle: set false to allow mobile
@@ -108,7 +109,7 @@ function AppInner() {
   const isPhoneRoute =
     location.pathname === "/phone" ||
     location.pathname.startsWith("/phone/");
-    
+
   const isAdminRoute =
     /^\/(phone\/)?(console|hr)$/.test(location.pathname);
 
@@ -155,6 +156,7 @@ function AppInner() {
           <span style={{ color: "#FCA5A5", fontSize: 12, fontWeight: 600 }}>No internet connection</span>
         </div>
       )}
+            <InstallPrompt />
     </>
   );
 }
