@@ -379,10 +379,9 @@ export default function Attendance() {
     }, []);
 
     const isPhone = useMemo(() => {
-      const coarse = window.matchMedia?.("(pointer: coarse)").matches ?? false; // finger-first device
       const smallScreen = viewportW < 820;                                      // phone-sized screen
       const onPhoneRoute = location.pathname.startsWith("/phone");
-      return onPhoneRoute || (coarse && smallScreen);
+      return onPhoneRoute || smallScreen;
     }, [location.pathname, viewportW]);
 
   
@@ -1012,6 +1011,31 @@ async function fetchTodayInOffice() {
                   </svg>
               }
             </button>
+
+            {/* Install button — Android Chrome only */}
+            {installPromptEvent && (
+              <div className="adm-wrap" style={{ flexShrink: 0 }}>
+                <button
+                  onClick={handleInstallClick}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                    flexShrink: 0,
+                    background: SURF,
+                    border: `1px solid ${BORDER}`,
+                    borderRadius: 10,
+                    padding: "6px 12px",
+                    cursor: "pointer",
+                    color: SUB,
+                    fontSize: 11,
+                    fontWeight: 600,
+                  }}
+                >
+                  Install
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </header>
