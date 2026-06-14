@@ -47,8 +47,7 @@ function isWeekend(dateStr: string): boolean {
 function isFuture(_dateStr: string): boolean {
   return false; // always allow in development
 }
-
-
+ 
 function calcHours(sessions: Session[], forDate?: string): number {
   let mins = 0;
   const toMins = (t: string) => {
@@ -402,9 +401,18 @@ export default function Attendance() {
   const didAutoScroll = useRef(false);
 
   const [installPromptEvent, setInstallPromptEvent] = useState<any>(null);
+  const [showIosHint, setShowIosHint] = useState(false);
+
+  function isIos() {
+    return /iPhone|iPad|iPod/i.test(navigator.userAgent);
+  }
+  function isStandalone() {
+    return window.matchMedia?.('(display-mode: standalone)').matches
+      || (navigator as any).standalone === true;
+  }
 
   useEffect(() => {
-    if (!/Android/i.test(navigator.userAgent)) return;
+    if (isStandalone()) return;
     const handler = (e: Event) => {
       e.preventDefault();
       setInstallPromptEvent(e);
@@ -414,11 +422,19 @@ export default function Attendance() {
   }, []);
 
   async function handleInstallClick() {
-    if (!installPromptEvent) return;
-    installPromptEvent.prompt();
-    await installPromptEvent.userChoice;
-    setInstallPromptEvent(null);
+    if (installPromptEvent) {
+      installPromptEvent.prompt();
+      await installPromptEvent.userChoice;
+      setInstallPromptEvent(null);
+      return;
+    }
+    if (isIos()) {
+      setShowIosHint(true);
+      setTimeout(() => setShowIosHint(false), 4000);
+    }
   }
+
+  const showInstallButton = !isStandalone() && (installPromptEvent || isIos());
 
   const displayDates = useMemo(
     () => viewMode === "week" ? getWeekDates(weekOffset) : getMonthDates(monthOffset),
@@ -879,31 +895,6 @@ async function fetchTodayInOffice() {
                   How canaryface works
                 </div>
               </div>
-
-              {/* Install button — Android Chrome only */}
-              {installPromptEvent && (
-                <div className="adm-wrap" style={{ flexShrink: 0 }}>
-                  <button
-                    onClick={handleInstallClick}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 6,
-                      flexShrink: 0,
-                      background: SURF,
-                      border: `1px solid ${BORDER}`,
-                      borderRadius: 10,
-                      padding: "6px 12px",
-                      cursor: "pointer",
-                      color: SUB,
-                      fontSize: 11,
-                      fontWeight: 600,
-                    }}
-                  >
-                    Install
-                  </button>
-                </div>
-              )}
  
  
             {/* Add meeting — desktop / office device only */}
@@ -1012,30 +1003,28 @@ async function fetchTodayInOffice() {
               }
             </button>
 
-            {/* Install button — Android Chrome only */}
-            {installPromptEvent && (
+
+{showInstallButton && (
               <div className="adm-wrap" style={{ flexShrink: 0 }}>
                 <button
                   onClick={handleInstallClick}
                   style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 6,
-                    flexShrink: 0,
-                    background: SURF,
-                    border: `1px solid ${BORDER}`,
-                    borderRadius: 10,
-                    padding: "6px 12px",
-                    cursor: "pointer",
-                    color: SUB,
-                    fontSize: 11,
-                    fontWeight: 600,
+                    display: "flex", alignItems: "center", gap: 6, flexShrink: 0,
+                    background: SURF, border: `1px solid ${BORDER}`, borderRadius: 10,
+                    padding: "6px 12px", cursor: "pointer",
+                    color: SUB, fontSize: 11, fontWeight: 600,
                   }}
                 >
                   Install
                 </button>
+                {showIosHint && (
+                  <div className="adm-tip" style={{ display: "block" }}>
+                    Tap the Share icon, then "Add to Home Screen"
+                  </div>
+                )}
               </div>
             )}
+ 
           </div>
         </div>
       </header>
