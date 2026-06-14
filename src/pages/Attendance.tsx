@@ -1030,7 +1030,7 @@ maxWidth: 1500, margin: "0 auto", padding: "12px 8px",
         </div>
 
         {/* ── LEGEND ── */}
-        <div style={{ maxWidth: 1500, margin: "0 auto", padding: "0 10px 14px", display: "flex", gap: 7, flexWrap: "wrap", alignItems: "center", paddingLeft: 20 }}> 
+        <div style={{ maxWidth: 1500, margin: "0 auto", padding: "0 10px 14px", display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", paddingLeft: 20 }}> 
 
           {[
             { c: "#25ba5c",               l: "Present" },
@@ -1044,10 +1044,12 @@ maxWidth: 1500, margin: "0 auto", padding: "12px 8px",
               <span style={{ color: SUB, fontSize: 10.5 }}>{l}</span>
             </div>
           ))}
+          {!isPhone && (
           <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
             <div style={{ width: 18, height: 7, borderRadius: 2.5, background: "#1e1451", outline: "1px solid #FFD700", outlineOffset: 1 }} />
             <span style={{ color: SUB, fontSize: 10.5 }}>Today</span>
           </div>
+          )}
         </div>
 
         {/* ── GRID ── */}
