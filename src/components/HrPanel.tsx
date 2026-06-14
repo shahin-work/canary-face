@@ -61,6 +61,14 @@ function getDaysInRange(from: string, to: string): string[] {
   while (cur <= end) { dates.push(toDateStr(cur)); cur.setDate(cur.getDate() + 1); }
   return dates;
 }
+function getThisWeek(): string[] {
+  const n = new Date();
+  const dow = n.getDay();
+  const mon = new Date(n); mon.setDate(n.getDate() - (dow === 0 ? 6 : dow - 1));
+  const arr: string[] = [];
+  for (let i = 0; i < 7; i++) { const d = new Date(mon); d.setDate(mon.getDate() + i); arr.push(toDateStr(d)); }
+  return arr;
+}
 function initials(name: string) {
   return (name || "?").split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase();
 }
@@ -76,7 +84,7 @@ const HOLIDAYS = new Set([
   "2026-09-21","2026-10-02","2026-10-20","2026-11-08","2026-12-25",
 ]);
 function isHoliday(d: string) { return HOLIDAYS.has(d); }
- 
+
 function calcHours(sessions: any[]): number {
   let mins = 0;
   const toM = (t: string) => { const [h,m,s] = t.split(":").map(Number); return h*60+m+(s||0)/60; };
@@ -153,6 +161,162 @@ function TimeSelect({ label, hour, minute, onHour, onMinute, color }: {
           ))}
         </select>
       </div>
+    </div>
+  );
+}
+
+// ── Reusable dashboard pieces ───────────────────────────────────────────────────
+function StatCard({ icon, label, value, sub, color, loading }: {
+  icon: string; label: string; value: React.ReactNode; sub?: string; color: string; loading?: boolean;
+}) {
+  return (
+    <div style={{
+      background:SURF2, border:`1px solid ${BORDER}`, borderRadius:14,
+      padding:"15px 17px", display:"flex", flexDirection:"column", gap:11, minWidth:0,
+    }}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
+        <span style={{color:SUB,fontSize:10.5,fontWeight:700,letterSpacing:0.5,textTransform:"uppercase",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{label}</span>
+        <span style={{
+          width:30,height:30,borderRadius:9,flexShrink:0,
+          background:`${color}18`,border:`1px solid ${color}40`,
+          display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,
+        }}>{icon}</span>
+      </div>
+      <div style={{display:"flex",alignItems:"baseline",gap:8}}>
+        <span style={{color:TEXT,fontSize:30,fontWeight:800,lineHeight:1,fontFamily:"'Sora',sans-serif"}}>
+          {loading ? "—" : value}
+        </span>
+        {sub && !loading && <span style={{color,fontSize:11,fontWeight:700}}>{sub}</span>}
+      </div>
+    </div>
+  );
+}
+
+function Panel({ icon, title, right, children, bodyStyle }: {
+  icon?: string; title: string; right?: React.ReactNode; children: React.ReactNode; bodyStyle?: React.CSSProperties;
+}) {
+  return (
+    <div style={{
+      background:SURF2, border:`1px solid ${BORDER}`, borderRadius:14, overflow:"hidden",
+      display:"flex", flexDirection:"column",
+    }}>
+      <div style={{display:"flex",alignItems:"center",gap:9,padding:"13px 16px",borderBottom:`1px solid ${BORDER}`}}>
+        {icon && <span style={{fontSize:15}}>{icon}</span>}
+        <span style={{color:TEXT,fontWeight:700,fontSize:13}}>{title}</span>
+        {right && <span style={{marginLeft:"auto"}}>{right}</span>}
+      </div>
+      <div style={{padding:"14px 16px", ...(bodyStyle||{})}}>{children}</div>
+    </div>
+  );
+}
+
+function Pill({ children, color = SUB }: { children: React.ReactNode; color?: string }) {
+  return (
+    <span style={{
+      background:`${color}14`, border:`1px solid ${color}33`, color,
+      borderRadius:20, padding:"3px 10px", fontSize:10, fontWeight:700,
+      fontFamily:"'Sora',sans-serif", whiteSpace:"nowrap",
+    }}>{children}</span>
+  );
+}
+
+const HEAT: Record<string,{bg:string;fg:string}> = {
+  P:  { bg:"rgba(74,222,128,0.85)", fg:"#06210F" },
+  R:  { bg:"rgba(236,72,153,0.78)", fg:"#2A0716" },
+  A:  { bg:"rgba(248,113,113,0.85)", fg:"#330808" },
+  H:  { bg:"rgba(255,215,0,0.16)",  fg:"#FFD700" },
+  W:  { bg:"rgba(99,102,241,0.10)", fg:"#8090C0" },
+  "": { bg:"rgba(99,102,241,0.04)", fg:"#3A4A7A" },
+};
+
+function WeeklyHeatmap({ days, rows, loading }: {
+  days: { date:string; dow:string; label:string; isToday:boolean }[];
+  rows: { emp:any; cells:string[] }[];
+  loading: boolean;
+}) {
+  if (loading) return <div style={{padding:"34px 0",textAlign:"center",color:SUB,fontSize:12}}>Loading the week…</div>;
+  if (!rows.length) return <div style={{padding:"34px 0",textAlign:"center",color:SUB,fontSize:12}}>No employees found.</div>;
+  const cols = `158px repeat(${days.length}, minmax(38px,1fr))`;
+  return (
+    <div style={{overflowX:"auto"}}>
+      <div style={{minWidth: 158 + days.length*42}}>
+        {/* day header */}
+        <div style={{display:"grid",gridTemplateColumns:cols,gap:4,marginBottom:6}}>
+          <div/>
+          {days.map(d => (
+            <div key={d.date} style={{textAlign:"center"}}>
+              <div style={{color:d.isToday?BLUE:SUB,fontSize:9.5,fontWeight:700}}>{d.dow}</div>
+              <div style={{color:DIM,fontSize:8.5,fontFamily:"'JetBrains Mono',monospace"}}>{d.label}</div>
+            </div>
+          ))}
+        </div>
+        {/* rows */}
+        <div style={{display:"flex",flexDirection:"column",gap:4,maxHeight:300,overflowY:"auto",paddingRight:2}}>
+          {rows.map(r => (
+            <div key={r.emp.emp_id} style={{display:"grid",gridTemplateColumns:cols,gap:4,alignItems:"center"}}>
+              <div style={{display:"flex",alignItems:"center",gap:7,minWidth:0,paddingRight:4}}>
+                <span style={{
+                  width:22,height:22,borderRadius:"50%",flexShrink:0,background:BG,border:`1px solid ${BORDER}`,
+                  display:"flex",alignItems:"center",justifyContent:"center",color:SUB,fontSize:8,fontWeight:700,
+                }}>{initials(r.emp.name)}</span>
+                <span style={{color:TEXT,fontSize:11,fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{r.emp.name}</span>
+              </div>
+              {r.cells.map((st,i) => {
+                const h = HEAT[st] || HEAT[""];
+                return <div key={i} title={`${r.emp.name} · ${days[i].label}: ${st || "—"}`} style={{
+                  height:24,borderRadius:6,background:h.bg,color:h.fg,
+                  display:"flex",alignItems:"center",justifyContent:"center",fontSize:9.5,fontWeight:800,
+                }}>{st || "·"}</div>;
+              })}
+            </div>
+          ))}
+        </div>
+        {/* legend */}
+        <div style={{display:"flex",flexWrap:"wrap",gap:12,marginTop:13,paddingTop:11,borderTop:`1px solid ${BORDER}`}}>
+          {([["Office",HEAT.P.bg],["Remote",HEAT.R.bg],["Absent",HEAT.A.bg],["Holiday","rgba(255,215,0,0.45)"],["Weekend","rgba(99,102,241,0.28)"]] as const).map(([lab,col]) => (
+            <span key={lab} style={{display:"flex",alignItems:"center",gap:6}}>
+              <span style={{width:13,height:13,borderRadius:4,background:col,display:"inline-block"}}/>
+              <span style={{color:SUB,fontSize:10}}>{lab}</span>
+            </span>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MissingCheckouts({ rows, loading }: {
+  rows: { emp:any; date:string; check_in:string }[]; loading: boolean;
+}) {
+  if (loading) return <div style={{padding:"34px 0",textAlign:"center",color:SUB,fontSize:12}}>Loading…</div>;
+  if (!rows.length) return (
+    <div style={{padding:"30px 8px",textAlign:"center"}}>
+      <div style={{fontSize:26,marginBottom:8}}>✅</div>
+      <div style={{color:TEXT,fontSize:12.5,fontWeight:600}}>All checked out</div>
+      <div style={{color:SUB,fontSize:10.5,marginTop:3}}>No missing check-outs this week.</div>
+    </div>
+  );
+  return (
+    <div style={{display:"flex",flexDirection:"column",gap:8,maxHeight:336,overflowY:"auto",paddingRight:2}}>
+      {rows.map((r,i) => (
+        <div key={i} style={{
+          display:"flex",alignItems:"center",gap:10,
+          background:"rgba(248,113,113,0.06)",border:`1px solid ${RED}26`,borderRadius:10,padding:"9px 11px",
+        }}>
+          <span style={{
+            width:30,height:30,borderRadius:"50%",flexShrink:0,background:`${RED}1A`,border:`1px solid ${RED}40`,
+            display:"flex",alignItems:"center",justifyContent:"center",color:RED,fontSize:10,fontWeight:800,
+          }}>{initials(r.emp.name)}</span>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{color:TEXT,fontSize:12,fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{r.emp.name}</div>
+            <div style={{color:DIM,fontSize:9.5,fontFamily:"'JetBrains Mono',monospace"}}>{r.emp.emp_id} · {fmtDateLabel(r.date)}</div>
+          </div>
+          <div style={{textAlign:"right",flexShrink:0}}>
+            <div style={{color:GREEN,fontSize:11,fontWeight:700,fontFamily:"'JetBrains Mono',monospace"}}>In {r.check_in}</div>
+            <div style={{color:RED,fontSize:8.5,fontWeight:700,letterSpacing:0.4}}>NO CHECK-OUT</div>
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -362,7 +526,7 @@ function ExportModal({ onClose, onExport }: { onClose:()=>void; onExport:(from:s
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
               {([
                 { id:"minimal", label:"Clean" },
-                { id:"filled",  label:"Highlighted " },
+                { id:"filled",  label:"Highlighted" },
               ] as const).map(opt => (
                 <button key={opt.id} onClick={()=>setTheme(opt.id)} style={{
                   background: theme===opt.id ? "rgba(74,222,128,0.1)" : "rgba(99,102,241,0.05)",
@@ -475,10 +639,10 @@ function HrLogin({ onLogin }: { onLogin: () => void }) {
       }}>
         <div style={{
           width:52,height:52,borderRadius:15,margin:"0 auto 18px",
-          background:"rgba(236,72,153,0.1)",border:`1px solid ${MAGENTA}33`,
+          background:"rgba(96,165,250,0.1)",border:`1px solid ${BLUE}33`,
           display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,
-        }}>🏠</div>
-        <h2 style={{color:TEXT,fontWeight:800,fontSize:17,margin:"0 0 4px"}}>CanaryFace - HR Panel</h2>
+        }}>🔐</div>
+        <h2 style={{color:TEXT,fontWeight:800,fontSize:17,margin:"0 0 4px"}}>CanaryFace — HR Panel</h2>
         <p style={{color:SUB,fontSize:11,margin:"0 0 22px"}}>Enter 4-digit passcode</p>
         <div style={{display:"flex",gap:9,justifyContent:"center",marginBottom:18}}>
           {[0,1,2,3].map(i => (
@@ -621,6 +785,10 @@ function HrMain({ hrName, onLogout, onChangeName }: { hrName: string; onLogout: 
   const [exporting, setExporting]     = useState(false);
   const [activeTab, setActiveTab]     = useState<TabId>("regularize");
 
+  // weekly data for dashboard (empId -> date -> dayData)
+  const [weekData, setWeekData]       = useState<Record<string, Record<string, any>>>({});
+  const [loadingStats, setLoadingStats] = useState(true);
+
   // multi-select (supports bulk for both tabs)
   const [selEmps, setSelEmps] = useState<any[]>([]);
 
@@ -642,6 +810,9 @@ function HrMain({ hrName, onLogout, onChangeName }: { hrName: string; onLogout: 
   const accentDark = isRemote ? "#be185d" : "#2563eb";
   const tabIcon    = isRemote ? "🏠" : "🏢";
 
+  const week  = useMemo(() => getThisWeek(), []);
+  const today = toDateStr(new Date());
+
   useEffect(() => {
     (async () => {
       setLoadingEmps(true);
@@ -660,6 +831,28 @@ function HrMain({ hrName, onLogout, onChangeName }: { hrName: string; onLogout: 
       finally { setLoadingEmps(false); }
     })();
   }, []);
+
+  // fetch this week's attendance for all employees → powers KPIs, heatmap, missing check-outs
+  useEffect(() => {
+    if (!employees.length) return;
+    let cancelled = false;
+    (async () => {
+      setLoadingStats(true);
+      const result: Record<string, Record<string, any>> = {};
+      await Promise.all(employees.map(async (emp) => {
+        const days: Record<string, any> = {};
+        await Promise.all(week.map(async (date) => {
+          try {
+            const snap = await getDoc(doc(db, emp.emp_id, date));
+            if (snap.exists()) days[date] = snap.data();
+          } catch (_) {}
+        }));
+        result[emp.emp_id] = days;
+      }));
+      if (!cancelled) { setWeekData(result); setLoadingStats(false); }
+    })();
+    return () => { cancelled = true; };
+  }, [employees, week]);
 
   const filteredEmps = useMemo(() => employees.filter(e =>
     !empSearch || [e.name, e.emp_id, e.department]
@@ -701,10 +894,71 @@ function HrMain({ hrName, onLogout, onChangeName }: { hrName: string; onLogout: 
   const toStr   = `${String(toHour).padStart(2,"0")}:${String(toMin).padStart(2,"0")}`;
 
   // header / greeting meta
-  // const _hour      = new Date().getHours();
-  // const greeting   = _hour < 12 ? "Good morning" : _hour < 17 ? "Good afternoon" : "Good evening";
-  // const firstName  = (hrName || "there").split(" ")[0];
+  const _hour      = new Date().getHours();
+  const greeting   = _hour < 12 ? "Good morning" : _hour < 17 ? "Good afternoon" : "Good evening";
+  const firstName  = (hrName || "there").split(" ")[0];
   const todayLabel = new Date().toLocaleDateString("en-IN",{ weekday:"long", day:"2-digit", month:"long", year:"numeric" });
+
+  // ── dashboard derivations ──
+  const dayStatus = useCallback((empId: string, date: string): string => {
+    if (isHoliday(date)) return "H";
+    if (isWeekend(date)) return "W";
+    if (date > today) return "";
+    const dd = weekData[empId]?.[date];
+    if (dd && dd.sessions?.length > 0) {
+      const wfh = dd.sessions.every((s:any) => s.wfh === true);
+      return wfh ? "R" : "P";
+    }
+    return "A";
+  }, [weekData, today]);
+
+  const stats = useMemo(() => {
+    const workday = !isWeekend(today) && !isHoliday(today);
+    let present = 0, remote = 0, absent = 0;
+    employees.forEach(emp => {
+      const dd = weekData[emp.emp_id]?.[today];
+      if (dd && dd.sessions?.length > 0) {
+        const wfh = dd.sessions.every((s:any) => s.wfh === true);
+        if (wfh) remote++; else present++;
+      } else if (workday) {
+        absent++;
+      }
+    });
+    const total = employees.length;
+    const rate  = total ? Math.round(((present + remote) / total) * 100) : 0;
+    return { present, remote, absent, total, rate, workday };
+  }, [employees, weekData, today]);
+
+  const heatDays = useMemo(() => week.map(d => ({
+    date: d,
+    dow: new Date(d).toLocaleDateString("en-IN", { weekday:"short" }),
+    label: new Date(d).toLocaleDateString("en-IN", { day:"2-digit", month:"short" }),
+    isToday: d === today,
+  })), [week, today]);
+
+  const heatRows = useMemo(() => employees.map(emp => ({
+    emp, cells: week.map(d => dayStatus(emp.emp_id, d)),
+  })), [employees, week, dayStatus]);
+
+  const missing = useMemo(() => {
+    const out: { emp:any; date:string; check_in:string }[] = [];
+    employees.forEach(emp => {
+      week.forEach(date => {
+        if (date > today) return;
+        const dd = weekData[emp.emp_id]?.[date];
+        if (!dd?.sessions) return;
+        dd.sessions.forEach((s:any) => {
+          if (s.check_in && (!s.check_out || s.check_out === "")) {
+            out.push({ emp, date, check_in: s.check_in });
+          }
+        });
+      });
+    });
+    out.sort((a,b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+    return out;
+  }, [employees, weekData, week, today]);
+
+  const weekLabel = `${fmtDateLabel(week[0])} – ${fmtDateLabel(week[6])}`;
 
   // ── validate then open confirmation ──
   function requestSubmit() {
@@ -783,7 +1037,6 @@ function HrMain({ hrName, onLogout, onChangeName }: { hrName: string; onLogout: 
 
       const wb = XLSX.utils.book_new();
       const ws_data: any[][] = [];
-  
 
       // ── Borders visible on every table cell ──
       const BORDER_COLOR = "000000"; // black thin gridlines
@@ -798,7 +1051,6 @@ function HrMain({ hrName, onLogout, onChangeName }: { hrName: string; onLogout: 
       //    "minimal" = white cells with coloured text. ──
       const useFill = theme !== "minimal";
 
-      // coloured-background palette (used when useFill)
       const FILL: Record<string,{bg:string;text:string}> = {
         absent:   { bg: "ff6969", text: "000000" },
         present7: { bg: "ffa8a8", text: "000000" },
@@ -808,7 +1060,6 @@ function HrMain({ hrName, onLogout, onChangeName }: { hrName: string; onLogout: 
         holiday:  { bg: "CAFFDA", text: "000000" },
         default:  { bg: "CAFFDA", text: "000000" },
       };
-      // text-only palette (used for the minimal look)
       const TXT: Record<string,string> = {
         absent:   "ff0000",
         present7: "ff0000",
@@ -864,10 +1115,10 @@ function HrMain({ hrName, onLogout, onChangeName }: { hrName: string; onLogout: 
           if (date > todayD) { row.push(""); continue; }
           if (isHoliday(date)) {
             row.push("H");
-            cellStyles[cellAddr] = styleHoliday; 
+            cellStyles[cellAddr] = styleHoliday;
           } else if (isWeekend(date)) {
             row.push("W");
-            cellStyles[cellAddr] = styleWeekend;    
+            cellStyles[cellAddr] = styleWeekend;
           } else {
             const dayData = days[date];
             if (dayData && dayData.sessions?.length > 0) {
@@ -904,7 +1155,7 @@ function HrMain({ hrName, onLogout, onChangeName }: { hrName: string; onLogout: 
       const colWidths = [
         { wch: 12 }, { wch: 22 },
         ...dates.map(() => ({ wch: 10 })),
-        { wch: 9 }, { wch: 9 }, { wch: 9 }, { wch: 12 },
+        { wch: 12 },
       ];
       ws["!cols"] = colWidths;
 
@@ -926,18 +1177,16 @@ function HrMain({ hrName, onLogout, onChangeName }: { hrName: string; onLogout: 
         if (ws[addr]) ws[addr].s = style;
       }
 
-      // title → centered & bold across the whole table width
       const titleAddr = XLSX.utils.encode_cell({ r: 0, c: 0 });
       if (ws[titleAddr]) ws[titleAddr].s = styleTitle;
 
-      // legend → single cell spanning the row
       const legendAddr = XLSX.utils.encode_cell({ r: legendRowIndex, c: 0 });
       if (ws[legendAddr]) ws[legendAddr].s = { font: { italic: true, sz: 10, color: { rgb: "555555" } }, alignment: { horizontal: "left" } };
 
       const totalCols = headers.length;
       ws["!merges"] = [
-        { s:{r:0,             c:0}, e:{r:0,             c:totalCols-1} }, // title row
-        { s:{r:legendRowIndex,c:0}, e:{r:legendRowIndex,c:totalCols-1} }, // legend row
+        { s:{r:0,             c:0}, e:{r:0,             c:totalCols-1} },
+        { s:{r:legendRowIndex,c:0}, e:{r:legendRowIndex,c:totalCols-1} },
       ];
 
       XLSX.utils.book_append_sheet(wb, ws, "Attendance");
@@ -975,7 +1224,7 @@ function HrMain({ hrName, onLogout, onChangeName }: { hrName: string; onLogout: 
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=JetBrains+Mono:wght@600;700&display=swap');
         *,*::before,*::after{box-sizing:border-box;}
-        ::-webkit-scrollbar{width:4px;height:4px;}
+        ::-webkit-scrollbar{width:6px;height:6px;}
         ::-webkit-scrollbar-track{background:transparent;}
         ::-webkit-scrollbar-thumb{background:rgba(99,102,241,0.3);border-radius:3px;}
         option{background:#0B1340;color:#EEF0FF;}
@@ -985,15 +1234,22 @@ function HrMain({ hrName, onLogout, onChangeName }: { hrName: string; onLogout: 
         .tab-btn{transition:all 0.15s;}
         .save-btn:hover:not(:disabled){opacity:0.9;}
         .export-btn:hover{opacity:0.88;}
-        @media (max-width: 720px) {
+        .hr-kpis     { display:grid; grid-template-columns:repeat(4,1fr); gap:14; }
+        .hr-analytics{ display:grid; grid-template-columns:minmax(0,1.55fr) minmax(0,1fr); gap:16; align-items:start; }
+        @media (max-width: 980px) {
+          .hr-analytics{ grid-template-columns:1fr !important; }
+        }
+        @media (max-width: 760px) {
           .hr-header   { padding: 0 12px !important; }
-          .hr-page     { padding: 16px 12px 40px !important; }
+          .hr-page     { padding: 16px 12px 44px !important; }
+          .hr-kpis     { grid-template-columns:1fr 1fr !important; }
           .hr-form-body{ grid-template-columns: 1fr !important; padding: 18px 16px 20px !important; }
           .hr-tabs     { padding: 0 12px !important; }
+          .hr-datepill { display:none !important; }
         }
         @media (max-width: 600px) {
           .hr-usertext { display:none !important; }
-          .hr-greet h1 { font-size:19px !important; }
+          .hr-greet h1 { font-size:20px !important; }
         }
       `}</style>
 
@@ -1021,44 +1277,28 @@ function HrMain({ hrName, onLogout, onChangeName }: { hrName: string; onLogout: 
         />
       )}
 
-      {/* ── Header ── */}
+      {/* ── Top bar ── */}
       <header className="hr-header" style={{
-        background:"linear-gradient(180deg,rgba(10,18,64,0.98),rgba(6,13,46,0.95))",
+        background:"rgba(8,15,46,0.85)",
         borderBottom:`1px solid ${BORDER}`,padding:"0 24px",
-        display:"flex",alignItems:"center",gap:12,minHeight:58,
-        position:"sticky",top:0,zIndex:40,backdropFilter:"blur(12px)",
+        display:"flex",alignItems:"center",gap:12,minHeight:60,
+        position:"sticky",top:0,zIndex:40,backdropFilter:"blur(14px)",
       }}>
         <div style={{display:"flex",alignItems:"center",gap:10}}>
           <div style={{
-  width:34,
-  height:34,
-  borderRadius:10,
-  background:"rgba(96,165,250,0.1)",
-  border:`1px solid ${BLUE}33`,
-  display:"flex",
-  alignItems:"center",
-  justifyContent:"center",
-  overflow:"hidden",
-}}>
-  <img
-    src={logo}
-    alt="Canary Face"
-    style={{
-      width:22,
-      height:22,
-      objectFit:"contain",
-    }}
-  />
-</div>
+            width:34,height:34,borderRadius:10,
+            background:"rgba(96,165,250,0.1)",border:`1px solid ${BLUE}33`,
+            display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",
+          }}>
+            <img src={logo} alt="Canary Face" style={{width:22,height:22,objectFit:"contain"}}/>
+          </div>
           <div>
-            <div style={{color:TEXT,fontWeight:800,fontSize:14,lineHeight:1}}>CanaryFace - HR Panel</div>
+            <div style={{color:TEXT,fontWeight:800,fontSize:14,lineHeight:1}}>CanaryFace — HR Panel</div>
             <div style={{color:BLUE,fontSize:9.5,marginTop:2,fontWeight:600,letterSpacing:0.3}}>Attendance Tools</div>
           </div>
         </div>
 
         <div style={{flex:1}}/>
-
-
 
         <button
           onClick={()=>setShowExport(true)}
@@ -1067,24 +1307,23 @@ function HrMain({ hrName, onLogout, onChangeName }: { hrName: string; onLogout: 
           style={{
             display:"flex",alignItems:"center",gap:7,
             background:"rgba(74,222,128,0.08)",border:`1px solid ${GREEN}44`,
-            borderRadius:10,padding:"7px 14px",cursor:"pointer",transition:"all 0.15s",
+            borderRadius:10,padding:"8px 14px",cursor:"pointer",transition:"all 0.15s",
             color:GREEN,fontSize:12,fontWeight:700,fontFamily:"'Sora',sans-serif",whiteSpace:"nowrap",
           }}>
           <span style={{fontSize:13}}>⬇</span>
-          {exporting ? "Generating…" : "Export Attendance Report"}
+          {exporting ? "Generating…" : "Export Report"}
         </button>
 
-          <div style={{
-            display:"flex",alignItems:"center",gap:8,
-            background:"rgba(99,102,241,0.06)",border:`1px solid ${BORDER}`,
-            borderRadius:10,padding:"7px 13px",
-          }}>
-            <span style={{fontSize:13}}>📅</span>
-            <span style={{color:SUB,fontSize:11,fontFamily:"'JetBrains Mono',monospace",whiteSpace:"nowrap"}}>{todayLabel}</span>
-          </div>
+        <div className="hr-datepill" style={{
+          display:"flex",alignItems:"center",gap:7,
+          background:"rgba(99,102,241,0.06)",border:`1px solid ${BORDER}`,
+          borderRadius:10,padding:"8px 13px",
+        }}>
+          <span style={{fontSize:13}}>📅</span>
+          <span style={{color:SUB,fontSize:11,fontFamily:"'JetBrains Mono',monospace",whiteSpace:"nowrap"}}>{todayLabel}</span>
+        </div>
 
-
-        <div style={{width:1,height:24,background:BORDER}}/>
+        <div style={{width:1,height:26,background:BORDER}}/>
 
         {/* HR user chip — click to change name */}
         <button onClick={onChangeName} title="Change your name" className="hr-userchip" style={{
@@ -1106,33 +1345,48 @@ function HrMain({ hrName, onLogout, onChangeName }: { hrName: string; onLogout: 
 
         <button onClick={onLogout} title="Log out" style={{
           background:"rgba(248,113,113,0.08)",border:`1px solid ${RED}33`,
-          borderRadius:9,color:RED,fontSize:10.5,fontWeight:700,padding:"7px 12px",
+          borderRadius:9,color:RED,fontSize:10.5,fontWeight:700,padding:"8px 12px",
           cursor:"pointer",fontFamily:"'Sora',sans-serif",whiteSpace:"nowrap",
         }}>Logout</button>
       </header>
 
       {/* ── Page ── */}
-      <div className="hr-page" style={{maxWidth:1000,margin:"0 auto",padding:"26px 20px 44px"}}>
-        {/* Greeting / page title */}
-        <div className="hr-greet" style={{
-          display:"flex",alignItems:"flex-end",justifyContent:"space-between",
-          gap:14,flexWrap:"wrap",marginBottom:20,
-        }}>
-          <div> 
-            <p style={{color:SUB,fontSize:12}}>Regularise attendance, log remote work, and export reports.</p>
-          </div>
+      <div className="hr-page" style={{maxWidth:1180,margin:"0 auto",padding:"24px 22px 56px"}}>
+
+        {/* Greeting */}
+        <div className="hr-greet" style={{marginBottom:20}}>
+          <h1 style={{color:TEXT,fontSize:23,fontWeight:800,margin:0,letterSpacing:-0.3,lineHeight:1.15}}>
+            {greeting}, {firstName} <span style={{fontSize:21}}>👋</span>
+          </h1>
+          <p style={{color:SUB,fontSize:12.5,margin:"7px 0 0"}}>
+            Here's today's attendance at a glance, plus your tools to fix records and export reports.
+          </p>
         </div>
-        
-        {/* ── Main card ── */}
-        <div style={{
-          background:`linear-gradient(155deg,${SURF2},${BG})`,
-          border:`1px solid ${BORDER}`,borderRadius:16,
-          boxShadow:"0 12px 40px rgba(0,0,0,0.4)",overflow:"hidden",
-        }}>
+
+        {/* KPI cards */}
+        <div className="hr-kpis" style={{marginBottom:18}}>
+          <StatCard icon="👥" label="Total Employees" color={BLUE}    loading={loadingStats} value={stats.total} />
+          <StatCard icon="🏢" label="Present Today"   color={GREEN}   loading={loadingStats} value={stats.present} sub={stats.total ? `${stats.rate}% on duty` : undefined} />
+          <StatCard icon="🏠" label="Remote Today"    color={MAGENTA} loading={loadingStats} value={stats.remote} />
+          <StatCard icon="🚫" label="Absent Today"    color={RED}     loading={loadingStats} value={stats.absent} sub={stats.workday ? undefined : "Off day"} />
+        </div>
+
+        {/* Analytics: weekly heatmap + missing check-outs */}
+        <div className="hr-analytics" style={{marginBottom:18}}>
+          <Panel icon="🗓" title="Weekly Attendance" right={<Pill color={BLUE}>{weekLabel}</Pill>}>
+            <WeeklyHeatmap days={heatDays} rows={heatRows} loading={loadingStats} />
+          </Panel>
+          <Panel icon="⏰" title="Missing Check-out · This Week" right={<Pill color={missing.length ? RED : GREEN}>{missing.length}</Pill>}>
+            <MissingCheckouts rows={missing} loading={loadingStats} />
+          </Panel>
+        </div>
+
+        {/* Attendance tools (regularize / remote) */}
+        <Panel icon="🛠" title="Attendance Tools" bodyStyle={{padding:0}}>
           {/* Tabs */}
           <div className="hr-tabs" style={{
             display:"flex",borderBottom:`1px solid ${BORDER}`,
-            background:"rgba(6,13,46,0.6)",padding:"0 20px",
+            background:"rgba(6,13,46,0.5)",padding:"0 18px",
           }}>
             {TABS.map(tab => {
               const on = activeTab === tab.id;
@@ -1143,7 +1397,7 @@ function HrMain({ hrName, onLogout, onChangeName }: { hrName: string; onLogout: 
                   onClick={()=>setActiveTab(tab.id)}
                   style={{
                     display:"flex",alignItems:"center",gap:7,
-                    padding:"14px 16px",border:"none",cursor:"pointer",
+                    padding:"13px 16px",border:"none",cursor:"pointer",
                     background:"transparent",fontFamily:"'Sora',sans-serif",
                     fontSize:12.5,fontWeight:700,
                     color: on ? tabAccent : SUB,
@@ -1158,7 +1412,7 @@ function HrMain({ hrName, onLogout, onChangeName }: { hrName: string; onLogout: 
 
           {/* Context strip explaining the active mode */}
           <div style={{
-            padding:"10px 22px",borderBottom:`1px solid ${BORDER}`,
+            padding:"10px 20px",borderBottom:`1px solid ${BORDER}`,
             background:`${accent}0A`,display:"flex",alignItems:"center",gap:9,
           }}>
             <span style={{fontSize:14}}>{isRemote ? "🏠" : "🏢"}</span>
@@ -1170,7 +1424,7 @@ function HrMain({ hrName, onLogout, onChangeName }: { hrName: string; onLogout: 
           </div>
 
           {/* Form body */}
-          <div className="hr-form-body" style={{padding:"22px 22px 24px",display:"grid",gridTemplateColumns:"1fr 1fr",gap:18,alignItems:"start"}}>
+          <div className="hr-form-body" style={{padding:"20px 20px 22px",display:"grid",gridTemplateColumns:"1fr 1fr",gap:18,alignItems:"start"}}>
 
             {/* ── LEFT ── */}
             <div style={{display:"flex",flexDirection:"column",gap:16}}>
@@ -1428,7 +1682,7 @@ function HrMain({ hrName, onLogout, onChangeName }: { hrName: string; onLogout: 
               </button>
             </div>
           </div>
-        </div>
+        </Panel>
       </div>
     </div>
   );

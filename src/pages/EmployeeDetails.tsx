@@ -194,7 +194,10 @@ function TimelineRow({ day, attendanceMap, today, hoveredDay, onHover }: {
   const hasSess  = !!(att && att.sessions.length > 0);
   const hours    = hasSess ? calcHours(att!.sessions, day) : 0;
   const isHovered = hoveredDay === day;
-  const extraTime = att?.extra_time ?? null;  // ← ADD THIS
+
+  const extraTime = att?.extra_time ?? null;
+  const lastSession = att?.sessions?.[att.sessions.length - 1];
+  
 
   const state: "present"|"weekend"|"holiday"|"absent"|"future" =
     hasSess ? "present" :
@@ -343,6 +346,7 @@ function TimelineRow({ day, attendanceMap, today, hoveredDay, onHover }: {
           const sessHours = calcSessionHours(s, day);
           const sessHoursStr = sessHours > 0 ? fmtHM(sessHours) : "";
           const midPct = (inPct + (s.check_out ? timeToPercent(s.check_out) : (isToday ? nowPct : inPct + 1.5))) / 2;
+ 
 
           return (
             <div key={i} style={{ position:"absolute", inset:0, pointerEvents:"none" }}>
@@ -360,6 +364,24 @@ function TimelineRow({ day, attendanceMap, today, hoveredDay, onHover }: {
                   zIndex:1,
                 transition:"height 0.12s, box-shadow 0.12s",
               }}/>
+
+              {/* Checkout not recorded — only for the last session of a past day with no check_out */}
+              {(s.check_out === undefined || s.check_out === null) && !isToday && i === att.sessions.length - 1 && (
+                <span style={{
+                  position:"absolute",
+                  left: "100%",
+                  top:"calc(50% - 20px)",
+                  transform:"translateX(-100%)",
+                  fontSize:12, fontWeight:700,
+                  color: C.red,
+                  fontFamily:"'Sora',sans-serif",
+                  letterSpacing:2,
+                  whiteSpace:"nowrap",
+                  zIndex:10,
+                  pointerEvents:"none",
+                  opacity: isHovered ? 1 : 0.85,
+                }}>Check-Out Not Recorded</span>
+              )}
 
               {/* Session duration label — shown inside/above the green bar on hover */}
               {isHovered && sessHoursStr && width > 3 && (
@@ -518,7 +540,7 @@ function TimelineRow({ day, attendanceMap, today, hoveredDay, onHover }: {
                   marginTop: 2, letterSpacing: 0.3,
                 }}>-{display}</div>
               );
-            })()}
+            })()} 
           </>
         ) : (
           <div style={{ fontSize:11, color: isHovered ? C.sub : C.dim, transition:"color 0.12s" }}>—</div>

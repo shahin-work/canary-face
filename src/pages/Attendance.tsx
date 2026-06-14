@@ -912,7 +912,7 @@ async function fetchTodayInOffice() {
                 </svg>
                 <span style={{ color: YELLOW, fontSize: 10.5, fontWeight: 700, letterSpacing: 0.5 }}>HR PANEL</span>
               </div>
-              <div className="adm-tip">Available for HR personnel only. Manage employee records, leave requests, attendance regularizations, and workforce administration.</div>
+              <div className="adm-tip">Available for HR only. Manage employee records, leave requests, attendance regularizations, and attendance reports.</div>
             </div>
  
             {/* admin badge */}

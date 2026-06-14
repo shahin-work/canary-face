@@ -172,7 +172,7 @@ export default function Guide() {
             <a className="cf-link cf-link-plain" href="mailto:vandana@canarydigital.ai">
               vandana@canarydigital.ai
             </a>
-            ). For platform, account, or access-related matters, please contact Admin. Any record can be
+            ). For Canary Face platform, device, or access-related matters, please contact Admin. Any record can be
             reviewed and adjusted for you.
           </p>
         </section>
