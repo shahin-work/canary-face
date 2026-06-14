@@ -32,18 +32,7 @@ function isWeekend(dateStr: string): boolean {
   if (dow === 6) return Math.ceil(d.getDate() / 7) % 2 === 0;
   return false;
 }
-
-// function isWeekend(dateStr: string): boolean {
-//   const d = new Date(dateStr);
-//   const dow = d.getDay();
-
-//   return dow === 0; // Only Sunday is weekend
-// }
-
-// in prod
-// function isFuture(dateStr: string): boolean {
-//   return dateStr > toDateStr(new Date());
-// }
+ 
 function isFuture(_dateStr: string): boolean {
   return false; // always allow in development
 }
@@ -399,43 +388,8 @@ export default function Attendance() {
   const [inOffice, setInOffice] = useState<{ emp_id: string; name: string; profile_image?: string; checkIn?: string }[]>([]);
   const [meetingOpen,  setMeetingOpen] = useState(false);
   const didAutoScroll = useRef(false);
-
-  const [installPromptEvent, setInstallPromptEvent] = useState<any>(null);
-  const [showIosHint, setShowIosHint] = useState(false);
-
-  function isIos() {
-    return /iPhone|iPad|iPod/i.test(navigator.userAgent);
-  }
-  function isStandalone() {
-    return window.matchMedia?.('(display-mode: standalone)').matches
-      || (navigator as any).standalone === true;
-  }
-
-  useEffect(() => {
-    if (isStandalone()) return;
-    const handler = (e: Event) => {
-      e.preventDefault();
-      setInstallPromptEvent(e);
-    };
-    window.addEventListener("beforeinstallprompt", handler);
-    return () => window.removeEventListener("beforeinstallprompt", handler);
-  }, []);
-
-  async function handleInstallClick() {
-    if (installPromptEvent) {
-      installPromptEvent.prompt();
-      await installPromptEvent.userChoice;
-      setInstallPromptEvent(null);
-      return;
-    }
-    if (isIos()) {
-      setShowIosHint(true);
-      setTimeout(() => setShowIosHint(false), 4000);
-    }
-  }
-
-  const showInstallButton = !isStandalone() && (installPromptEvent || isIos());
-
+ 
+ 
   const displayDates = useMemo(
     () => viewMode === "week" ? getWeekDates(weekOffset) : getMonthDates(monthOffset),
     [viewMode, weekOffset, monthOffset]
@@ -1002,28 +956,6 @@ async function fetchTodayInOffice() {
                   </svg>
               }
             </button>
-
-
-{showInstallButton && (
-              <div className="adm-wrap" style={{ flexShrink: 0 }}>
-                <button
-                  onClick={handleInstallClick}
-                  style={{
-                    display: "flex", alignItems: "center", gap: 6, flexShrink: 0,
-                    background: SURF, border: `1px solid ${BORDER}`, borderRadius: 10,
-                    padding: "6px 12px", cursor: "pointer",
-                    color: SUB, fontSize: 11, fontWeight: 600,
-                  }}
-                >
-                  Install
-                </button>
-                {showIosHint && (
-                  <div className="adm-tip" style={{ display: "block" }}>
-                    Tap the Share icon, then "Add to Home Screen"
-                  </div>
-                )}
-              </div>
-            )}
  
           </div>
         </div>

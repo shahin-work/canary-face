@@ -13,6 +13,11 @@ function isAndroid() {
   return /Android/i.test(navigator.userAgent);
 }
 
+function isChrome() {
+  // Chrome on Android — exclude other Chromium-based browsers if needed
+  return /Chrome/i.test(navigator.userAgent) && !/Edg|OPR|SamsungBrowser/i.test(navigator.userAgent);
+}
+
 function isStandalone() {
   return window.matchMedia?.('(display-mode: standalone)').matches
     || (navigator as any).standalone === true;
@@ -20,51 +25,28 @@ function isStandalone() {
 
 export default function InstallPrompt() {
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
-  const [visible, setVisible] = useState(false);
+  const [dismissed, setDismissed] = useState(false);
 
   useEffect(() => {
-    if (!isAndroid()) {
-      console.log('[InstallPrompt] not Android, skipping');
-      return;
-    }
-    if (isStandalone()) {
-      console.log('[InstallPrompt] already installed/standalone, skipping');
-      return;
-    }
-
-    console.log('[InstallPrompt] Android detected, listening for beforeinstallprompt');
+    if (!isAndroid() || !isChrome()) return;
+    if (isStandalone()) return;
 
     const handler = (e: Event) => {
-      console.log('[InstallPrompt] beforeinstallprompt fired!', e);
       e.preventDefault();
       setDeferredPrompt(e);
-      setVisible(true);
-      setTimeout(() => setVisible(false), 3000);
     };
-
     window.addEventListener('beforeinstallprompt', handler);
-
-    // also log if it never fires after a delay
-    const checkTimer = setTimeout(() => {
-      console.log('[InstallPrompt] beforeinstallprompt has not fired yet after 5s');
-    }, 5000);
-
-    return () => {
-      window.removeEventListener('beforeinstallprompt', handler);
-      clearTimeout(checkTimer);
-    };
+    return () => window.removeEventListener('beforeinstallprompt', handler);
   }, []);
 
   const handleInstall = async () => {
     if (!deferredPrompt) return;
     deferredPrompt.prompt();
-    const choice = await deferredPrompt.userChoice;
-    console.log('[InstallPrompt] user choice:', choice);
+    await deferredPrompt.userChoice;
     setDeferredPrompt(null);
-    setVisible(false);
   };
 
-  if (!visible || !deferredPrompt) return null;
+  if (!deferredPrompt || dismissed) return null;
 
   return (
     <div style={{
@@ -76,13 +58,13 @@ export default function InstallPrompt() {
       background: C.surf2,
       border: `1px solid ${C.yellow}33`,
       borderRadius: 12,
-      padding: "10px 14px",
+      padding: "10px 12px 10px 14px",
       display: "flex",
       alignItems: "center",
-      gap: 12,
+      gap: 10,
       boxShadow: `0 4px 32px rgba(0,0,0,0.6), 0 0 0 1px ${C.yellow}18`,
       animation: "toastIn 0.22s cubic-bezier(0.34,1.56,0.64,1)",
-      maxWidth: "90vw",
+      maxWidth: "92vw",
       fontFamily: "'Sora',sans-serif",
     }}>
       <span style={{ fontSize: 12, fontWeight: 600, color: C.text, whiteSpace: "nowrap" }}>
@@ -101,9 +83,30 @@ export default function InstallPrompt() {
           cursor: "pointer",
           flexShrink: 0,
           fontFamily: "'Sora',sans-serif",
+          whiteSpace: "nowrap",
         }}
       >
         Install
+      </button>
+      <button
+        onClick={() => setDismissed(true)}
+        aria-label="Dismiss"
+        style={{
+          background: "transparent",
+          border: "none",
+          color: C.sub,
+          cursor: "pointer",
+          padding: 4,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          flexShrink: 0,
+          marginLeft: 2,
+        }}
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+          <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+        </svg>
       </button>
       <style>{`
         @keyframes toastIn{from{opacity:0;transform:translate(-50%, 12px)}to{opacity:1;transform:translate(-50%, 0)}}
