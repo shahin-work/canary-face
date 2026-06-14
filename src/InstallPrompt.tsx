@@ -68,7 +68,7 @@ export default function InstallPrompt() {
       fontFamily: "'Sora',sans-serif",
     }}>
       <span style={{ fontSize: 12, fontWeight: 600, color: C.text, whiteSpace: "nowrap" }}>
-        Install this app for quick access
+        Install CanaryFace
       </span>
       <button
         onClick={handleInstall}
