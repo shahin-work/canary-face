@@ -752,8 +752,8 @@ function HrMain({ hrName, onLogout, onChangeName }: { hrName: string; onLogout: 
   const [nav, setNav]                 = useState<NavId>("dashboard");
 
   // weekly data for dashboard (empId -> date -> dayData)
-  const [weekData, setWeekData]       = useState<Record<string, Record<string, any>>>({});
-  const [loadingStats, setLoadingStats] = useState(true);
+  const [weekData]       = useState<Record<string, Record<string, any>>>({});
+  const [loadingStats] = useState(true);
 
   // multi-select (supports bulk for both tabs)
   const [selEmps, setSelEmps] = useState<any[]>([]);
@@ -838,9 +838,9 @@ function HrMain({ hrName, onLogout, onChangeName }: { hrName: string; onLogout: 
   const toStr   = `${String(toHour).padStart(2,"0")}:${String(toMin).padStart(2,"0")}`;
 
   // header / greeting meta
-  const _hour      = new Date().getHours();
-  const greeting   = _hour < 12 ? "Good morning" : _hour < 17 ? "Good afternoon" : "Good evening";
-  const firstName  = (hrName || "there").split(" ")[0];
+  // const _hour      = new Date().getHours();
+  // const greeting   = _hour < 12 ? "Good morning" : _hour < 17 ? "Good afternoon" : "Good evening";
+  // const firstName  = (hrName || "there").split(" ")[0];
   const todayLabel = new Date().toLocaleDateString("en-IN",{ weekday:"long", day:"2-digit", month:"long", year:"numeric" });
 
   // ── dashboard derivations ──
@@ -884,24 +884,7 @@ function HrMain({ hrName, onLogout, onChangeName }: { hrName: string; onLogout: 
     emp, cells: week.map(d => dayStatus(emp.emp_id, d)),
   })), [employees, week, dayStatus]);
 
-  const missing = useMemo(() => {
-    const out: { emp:any; date:string; check_in:string }[] = [];
-    employees.forEach(emp => {
-      week.forEach(date => {
-        if (date > today) return;
-        const dd = weekData[emp.emp_id]?.[date];
-        if (!dd?.sessions) return;
-        dd.sessions.forEach((s:any) => {
-          if (s.check_in && (!s.check_out || s.check_out === "")) {
-            out.push({ emp, date, check_in: s.check_in });
-          }
-        });
-      });
-    });
-    out.sort((a,b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
-    return out;
-  }, [employees, weekData, week, today]);
-
+   
   const weekLabel = `${fmtDateLabel(week[0])} – ${fmtDateLabel(week[6])}`;
 
   // ── validate then open confirmation ──
