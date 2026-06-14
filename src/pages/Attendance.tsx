@@ -162,6 +162,7 @@ const TEXT   = "#EEF0FF";
 const SUB    = "#8090C0";
 const DIM    = "#4A5A8A";
 const YELLOW = "#FFD700";
+const BLUE   = "#a4beff";
 
 // ─── Toast ───────────────────────────────────────────────────────────────────
 const TOAST_DURATION = 3200;
@@ -741,7 +742,7 @@ async function fetchTodayInOffice() {
           box-shadow: 0 12px 36px rgba(0,0,0,0.6);
         }
         .io-wrap:hover .io-tip, .wfh-wrap:hover .io-tip { display: block; }
-        .meetbtn:hover { background: rgba(255,215,0,0.14) !important; }
+        .meetbtn:hover { background: rgba(79,142,247,0.14) !important; }
         @keyframes toast-bar { from{width:100%} to{width:0%} }
         @keyframes sk { 0%,100%{opacity:.35} 50%{opacity:.6} }
       `}</style>
@@ -862,8 +863,8 @@ async function fetchTodayInOffice() {
                     alignItems: "center",
                     gap: 6,
                     flexShrink: 0,
-                    background: "rgba(255,215,0,0.07)",
-                    border: `1px solid ${YELLOW}44`,
+                    background: "rgba(79,142,247,0.07)",
+                    border: `1px solid ${BLUE}44`,
                     borderRadius: 10,
                     padding: "6px 12px",
                     cursor: "pointer",
@@ -871,10 +872,10 @@ async function fetchTodayInOffice() {
                   }}
                 >
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
-                    <rect x="3" y="5" width="18" height="16" rx="2" stroke={YELLOW} strokeWidth="1.8" />
+                    <rect x="3" y="5" width="18" height="16" rx="2" stroke={BLUE} strokeWidth="1.8" />
                     <path
                       d="M16 3v4M8 3v4M3 10h18M12 13v4M10 15h4"
-                      stroke={YELLOW}
+                      stroke={BLUE}
                       strokeWidth="1.8"
                       strokeLinecap="round"
                     />
@@ -892,14 +893,14 @@ async function fetchTodayInOffice() {
             <div className="adm-wrap" style={{ flexShrink: 0 }}>
               <div style={{
                 display: "flex", alignItems: "center", gap: 6,
-                background: "rgba(255,215,0,0.07)", border: `1px solid ${YELLOW}44`,
+                background: "rgba(79,142,247,0.07)", border: `1px solid ${BLUE}44`,
                 borderRadius: 10, padding: "5px 12px", cursor: "default",
               }}>
                 <svg width="11" height="11" viewBox="0 0 24 24" fill="none">
-                  <circle cx="12" cy="8" r="4" stroke={YELLOW} strokeWidth="2"/>
-                  <path d="M4 20c0-4 3.6-7 8-7s8 3 8 7" stroke={YELLOW} strokeWidth="2" strokeLinecap="round"/>
+                  <circle cx="12" cy="8" r="4" stroke={BLUE} strokeWidth="2"/>
+                  <path d="M4 20c0-4 3.6-7 8-7s8 3 8 7" stroke={BLUE} strokeWidth="2" strokeLinecap="round"/>
                 </svg>
-                <span style={{ color: YELLOW, fontSize: 10.5, fontWeight: 700, letterSpacing: 0.5 }}>HR PANEL</span>
+                <span style={{ color: BLUE, fontSize: 10.5, fontWeight: 700, letterSpacing: 0.5 }}>HR PANEL</span>
               </div>
               <div className="adm-tip">Available for HR only. Manage employee records, leave requests, attendance regularizations, and attendance reports.</div>
             </div>
@@ -910,28 +911,19 @@ async function fetchTodayInOffice() {
             <div className="adm-wrap" style={{ flexShrink: 0 }}>
               <div style={{
                 display: "flex", alignItems: "center", gap: 6,
-                background: "rgba(255,215,0,0.07)", border: `1px solid ${YELLOW}44`,
+                background: "rgba(79,142,247,0.07)", border: `1px solid ${BLUE}44`,
                 borderRadius: 10, padding: "5px 12px", cursor: "default",
               }}>
                 <svg width="11" height="11" viewBox="0 0 24 24" fill="none">
-                  <circle cx="12" cy="8" r="4" stroke={YELLOW} strokeWidth="2"/>
-                  <path d="M4 20c0-4 3.6-7 8-7s8 3 8 7" stroke={YELLOW} strokeWidth="2" strokeLinecap="round"/>
+                  <circle cx="12" cy="8" r="4" stroke={BLUE} strokeWidth="2"/>
+                  <path d="M4 20c0-4 3.6-7 8-7s8 3 8 7" stroke={BLUE} strokeWidth="2" strokeLinecap="round"/>
                 </svg>
-                <span style={{ color: YELLOW, fontSize: 10.5, fontWeight: 700, letterSpacing: 0.5 }}>ADMIN</span>
+                <span style={{ color: BLUE, fontSize: 10.5, fontWeight: 700, letterSpacing: 0.5 }}>ADMIN</span>
               </div>
               <div className="adm-tip">Available on the office device only.</div>
             </div>
             )}
 
-            {/* live clock */}
-            <div className="att-clock" style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", flexShrink: 0 }}>
-              <span style={{ color: TEXT, fontWeight: 700, fontSize: 10, marginTop: 4, fontFamily: "'JetBrains Mono',monospace", letterSpacing: 0.8, lineHeight: 1 }}>
-                {timeStr}
-              </span>
-              <span style={{ color: DIM, fontSize: 9, marginTop: 2, whiteSpace: "nowrap" }}>{dateStr}</span>
-            </div>
-
-            <div style={{ width: 1, height: 22, background: BORDER, flexShrink: 0 }} />
 
             {/* refresh */}
             <button
@@ -952,10 +944,20 @@ async function fetchTodayInOffice() {
                 ? <div className="spin" />
                 : <svg className="ri" width="14" height="14" viewBox="0 0 24 24" fill="none">
                     <path d="M4 4v5h.582m0 0a8.001 8.001 0 0115.356 2m.062-7L20 9h-5M20 20v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m-.062 7L4 15h5"
-                      stroke={YELLOW} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                      stroke={BLUE} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                   </svg>
               }
             </button>
+            {/* live clock */}
+            <div className="att-clock" style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", flexShrink: 0 }}>
+              <span style={{ color: TEXT, fontWeight: 700, fontSize: 10, marginTop: 4, fontFamily: "'JetBrains Mono',monospace", letterSpacing: 0.8, lineHeight: 1 }}>
+                {timeStr}
+              </span>
+              <span style={{ color: DIM, fontSize: 9, marginTop: 2, whiteSpace: "nowrap" }}>{dateStr}</span>
+            </div>
+
+            <div style={{ width: 1, height: 22, background: BORDER, flexShrink: 0 }} />
+
  
           </div>
         </div>

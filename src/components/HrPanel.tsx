@@ -172,7 +172,8 @@ function StatCard({ icon, label, value, sub, color, loading }: {
   return (
     <div style={{
       background:SURF2, border:`1px solid ${BORDER}`, borderRadius:14,
-      padding:"15px 17px", display:"flex", flexDirection:"column", gap:11, minWidth:0,
+      padding:"17px 18px", display:"flex", flexDirection:"column", gap:12, minWidth:0,
+      boxShadow:"0 1px 2px rgba(0,0,0,0.18)",
     }}>
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
         <span style={{color:SUB,fontSize:10.5,fontWeight:700,letterSpacing:0.5,textTransform:"uppercase",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{label}</span>
@@ -284,42 +285,7 @@ function WeeklyHeatmap({ days, rows, loading }: {
     </div>
   );
 }
-
-function MissingCheckouts({ rows, loading }: {
-  rows: { emp:any; date:string; check_in:string }[]; loading: boolean;
-}) {
-  if (loading) return <div style={{padding:"34px 0",textAlign:"center",color:SUB,fontSize:12}}>Loading…</div>;
-  if (!rows.length) return (
-    <div style={{padding:"30px 8px",textAlign:"center"}}>
-      <div style={{fontSize:26,marginBottom:8}}>✅</div>
-      <div style={{color:TEXT,fontSize:12.5,fontWeight:600}}>All checked out</div>
-      <div style={{color:SUB,fontSize:10.5,marginTop:3}}>No missing check-outs this week.</div>
-    </div>
-  );
-  return (
-    <div style={{display:"flex",flexDirection:"column",gap:8,maxHeight:336,overflowY:"auto",paddingRight:2}}>
-      {rows.map((r,i) => (
-        <div key={i} style={{
-          display:"flex",alignItems:"center",gap:10,
-          background:"rgba(248,113,113,0.06)",border:`1px solid ${RED}26`,borderRadius:10,padding:"9px 11px",
-        }}>
-          <span style={{
-            width:30,height:30,borderRadius:"50%",flexShrink:0,background:`${RED}1A`,border:`1px solid ${RED}40`,
-            display:"flex",alignItems:"center",justifyContent:"center",color:RED,fontSize:10,fontWeight:800,
-          }}>{initials(r.emp.name)}</span>
-          <div style={{flex:1,minWidth:0}}>
-            <div style={{color:TEXT,fontSize:12,fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{r.emp.name}</div>
-            <div style={{color:DIM,fontSize:9.5,fontFamily:"'JetBrains Mono',monospace"}}>{r.emp.emp_id} · {fmtDateLabel(r.date)}</div>
-          </div>
-          <div style={{textAlign:"right",flexShrink:0}}>
-            <div style={{color:GREEN,fontSize:11,fontWeight:700,fontFamily:"'JetBrains Mono',monospace"}}>In {r.check_in}</div>
-            <div style={{color:RED,fontSize:8.5,fontWeight:700,letterSpacing:0.4}}>NO CHECK-OUT</div>
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
+  
 
 // ── Confirm Modal (used before applying regularize / remote, esp. bulk) ─────────
 function ConfirmModal({
@@ -774,7 +740,7 @@ export default function HrPanel() {
 }
 
 // ── HR Main ───────────────────────────────────────────────────────────────────
-type TabId = "remote" | "regularize";
+type NavId = "dashboard" | "regularize" | "remote";
 
 function HrMain({ hrName, onLogout, onChangeName }: { hrName: string; onLogout: () => void; onChangeName: () => void }) {
   const [employees, setEmployees]     = useState<any[]>([]);
@@ -783,7 +749,7 @@ function HrMain({ hrName, onLogout, onChangeName }: { hrName: string; onLogout: 
   const [showEmpDrop, setShowEmpDrop] = useState(false);
   const [showExport, setShowExport]   = useState(false);
   const [exporting, setExporting]     = useState(false);
-  const [activeTab, setActiveTab]     = useState<TabId>("regularize");
+  const [nav, setNav]                 = useState<NavId>("dashboard");
 
   // weekly data for dashboard (empId -> date -> dayData)
   const [weekData, setWeekData]       = useState<Record<string, Record<string, any>>>({});
@@ -805,7 +771,7 @@ function HrMain({ hrName, onLogout, onChangeName }: { hrName: string; onLogout: 
 
   const { items, add, remove } = useToast();
 
-  const isRemote   = activeTab === "remote";
+  const isRemote   = nav === "remote";
   const accent     = isRemote ? MAGENTA : BLUE;
   const accentDark = isRemote ? "#be185d" : "#2563eb";
   const tabIcon    = isRemote ? "🏠" : "🏢";
@@ -831,29 +797,7 @@ function HrMain({ hrName, onLogout, onChangeName }: { hrName: string; onLogout: 
       finally { setLoadingEmps(false); }
     })();
   }, []);
-
-  // fetch this week's attendance for all employees → powers KPIs, heatmap, missing check-outs
-  useEffect(() => {
-    if (!employees.length) return;
-    let cancelled = false;
-    (async () => {
-      setLoadingStats(true);
-      const result: Record<string, Record<string, any>> = {};
-      await Promise.all(employees.map(async (emp) => {
-        const days: Record<string, any> = {};
-        await Promise.all(week.map(async (date) => {
-          try {
-            const snap = await getDoc(doc(db, emp.emp_id, date));
-            if (snap.exists()) days[date] = snap.data();
-          } catch (_) {}
-        }));
-        result[emp.emp_id] = days;
-      }));
-      if (!cancelled) { setWeekData(result); setLoadingStats(false); }
-    })();
-    return () => { cancelled = true; };
-  }, [employees, week]);
-
+ 
   const filteredEmps = useMemo(() => employees.filter(e =>
     !empSearch || [e.name, e.emp_id, e.department]
       .some((v: string) => v?.toLowerCase().includes(empSearch.toLowerCase()))
@@ -1210,9 +1154,10 @@ function HrMain({ hrName, onLogout, onChangeName }: { hrName: string; onLogout: 
     permanent:YELLOW, consultant:BLUE, intern:"#C084FC", guest:TEAL,
   };
 
-  const TABS: { id: TabId; label: string; icon: string }[] = [
-    { id: "regularize", label: "Regularize Office", icon: "🏢" },
-    { id: "remote",     label: "Log Remote Work",   icon: "🏠" },
+  const NAV: { id: NavId; label: string; icon: string; color: string }[] = [
+    { id: "dashboard",  label: "Dashboard",        icon: "📊", color: GREEN   },
+    { id: "regularize", label: "Regularize Attendance",        icon: "🏢", color: BLUE    },
+    { id: "remote",     label: "Log Remote Work",   icon: "🏠", color: MAGENTA },
   ];
 
   const submitLabel = isRemote
@@ -1234,22 +1179,24 @@ function HrMain({ hrName, onLogout, onChangeName }: { hrName: string; onLogout: 
         .tab-btn{transition:all 0.15s;}
         .save-btn:hover:not(:disabled){opacity:0.9;}
         .export-btn:hover{opacity:0.88;}
-        .hr-kpis     { display:grid; grid-template-columns:repeat(4,1fr); gap:14; }
-        .hr-analytics{ display:grid; grid-template-columns:minmax(0,1.55fr) minmax(0,1fr); gap:16; align-items:start; }
+        .hr-kpis     { display:grid; grid-template-columns:repeat(4,1fr); gap:16px; }
+        .hr-analytics{ display:grid; grid-template-columns:minmax(0,1.55fr) minmax(0,1fr); gap:16px; align-items:start; }
         @media (max-width: 980px) {
           .hr-analytics{ grid-template-columns:1fr !important; }
         }
         @media (max-width: 760px) {
-          .hr-header   { padding: 0 12px !important; }
-          .hr-page     { padding: 16px 12px 44px !important; }
-          .hr-kpis     { grid-template-columns:1fr 1fr !important; }
-          .hr-form-body{ grid-template-columns: 1fr !important; padding: 18px 16px 20px !important; }
-          .hr-tabs     { padding: 0 12px !important; }
+          .hr-header   { padding: 0 14px !important; }
+          .hr-page     { padding: 20px 14px 48px !important; }
+          .hr-kpis     { grid-template-columns:1fr 1fr !important; gap:12px !important; }
+          .hr-form-body{ grid-template-columns: 1fr !important; gap:18px !important; }
           .hr-datepill { display:none !important; }
         }
         @media (max-width: 600px) {
           .hr-usertext { display:none !important; }
           .hr-greet h1 { font-size:20px !important; }
+        }
+        @media (max-width: 420px) {
+          .hr-kpis     { grid-template-columns:1fr !important; }
         }
       `}</style>
 
@@ -1350,81 +1297,98 @@ function HrMain({ hrName, onLogout, onChangeName }: { hrName: string; onLogout: 
         }}>Logout</button>
       </header>
 
+      {/* ── Top navbar ── */}
+      <nav className="hr-nav" style={{
+        position:"sticky",top:60,zIndex:39,
+        background:"rgba(8,15,46,0.9)",borderBottom:`1px solid ${BORDER}`,
+        backdropFilter:"blur(12px)",padding:"0 22px",overflowX:"auto",
+      }}>
+        <div style={{maxWidth:1180,margin:"0 auto",display:"flex",gap:2}}>
+          {NAV.map(n => {
+            const on = nav === n.id;
+            return (
+              <button key={n.id}
+                className="tab-btn"
+                onClick={()=>setNav(n.id)}
+                style={{
+                  display:"flex",alignItems:"center",gap:8,whiteSpace:"nowrap",
+                  padding:"14px 16px",border:"none",background:"transparent",cursor:"pointer",
+                  fontFamily:"'Sora',sans-serif",fontSize:13,fontWeight:700,
+                  color: on ? n.color : SUB,
+                  borderBottom: on ? `2px solid ${n.color}` : "2px solid transparent",
+                  marginBottom:-1,transition:"all 0.15s",
+                }}>
+                <span style={{fontSize:15}}>{n.icon}</span>{n.label}
+              </button>
+            );
+          })}
+        </div>
+      </nav>
+
       {/* ── Page ── */}
       <div className="hr-page" style={{maxWidth:1180,margin:"0 auto",padding:"24px 22px 56px"}}>
 
+        {/* ===== DASHBOARD ===== */}
+        {nav === "dashboard" && (<>
         {/* Greeting */}
-        <div className="hr-greet" style={{marginBottom:20}}>
-          <h1 style={{color:TEXT,fontSize:23,fontWeight:800,margin:0,letterSpacing:-0.3,lineHeight:1.15}}>
-            {greeting}, {firstName} <span style={{fontSize:21}}>👋</span>
-          </h1>
+        <div className="hr-greet" style={{marginBottom:22}}>
+ 
           <p style={{color:SUB,fontSize:12.5,margin:"7px 0 0"}}>
-            Here's today's attendance at a glance, plus your tools to fix records and export reports.
+            Here's today's attendance at a glance — use the tabs above to fix records.
           </p>
         </div>
 
         {/* KPI cards */}
-        <div className="hr-kpis" style={{marginBottom:18}}>
-          <StatCard icon="👥" label="Total Employees" color={BLUE}    loading={loadingStats} value={stats.total} />
-          <StatCard icon="🏢" label="Present Today"   color={GREEN}   loading={loadingStats} value={stats.present} sub={stats.total ? `${stats.rate}% on duty` : undefined} />
+        <div className="hr-kpis" style={{marginBottom:16}}>
+          <StatCard icon="👥" label="Total KSUM Employees" color={BLUE}    loading={loadingStats} value={stats.total} />
+          <StatCard icon="🏢" label="Present Today"   color={GREEN}   loading={loadingStats} value={stats.present} />
           <StatCard icon="🏠" label="Remote Today"    color={MAGENTA} loading={loadingStats} value={stats.remote} />
           <StatCard icon="🚫" label="Absent Today"    color={RED}     loading={loadingStats} value={stats.absent} sub={stats.workday ? undefined : "Off day"} />
         </div>
 
-        {/* Analytics: weekly heatmap + missing check-outs */}
-        <div className="hr-analytics" style={{marginBottom:18}}>
-          <Panel icon="🗓" title="Weekly Attendance" right={<Pill color={BLUE}>{weekLabel}</Pill>}>
+        {/* Analytics: weekly heatmap */}
+        <div className="hr-analytics">
+          <Panel  title="Weekly Attendance" right={<Pill color={BLUE}>{weekLabel}</Pill>}>
             <WeeklyHeatmap days={heatDays} rows={heatRows} loading={loadingStats} />
-          </Panel>
-          <Panel icon="⏰" title="Missing Check-out · This Week" right={<Pill color={missing.length ? RED : GREEN}>{missing.length}</Pill>}>
-            <MissingCheckouts rows={missing} loading={loadingStats} />
-          </Panel>
+          </Panel> 
         </div>
+        </>)}
 
-        {/* Attendance tools (regularize / remote) */}
-        <Panel icon="🛠" title="Attendance Tools" bodyStyle={{padding:0}}>
-          {/* Tabs */}
-          <div className="hr-tabs" style={{
-            display:"flex",borderBottom:`1px solid ${BORDER}`,
-            background:"rgba(6,13,46,0.5)",padding:"0 18px",
+        {/* ===== REGULARIZE / REMOTE ===== */}
+        {(nav === "regularize" || nav === "remote") && (
+        <div>
+          {/* Section heading */}
+          <div className="hr-toolbar" style={{
+            display:"flex",alignItems:"center",gap:11,
+            paddingBottom:14,marginBottom:18,borderBottom:`1px solid ${BORDER}`,
           }}>
-            {TABS.map(tab => {
-              const on = activeTab === tab.id;
-              const tabAccent = tab.id === "remote" ? MAGENTA : BLUE;
-              return (
-                <button key={tab.id}
-                  className="tab-btn"
-                  onClick={()=>setActiveTab(tab.id)}
-                  style={{
-                    display:"flex",alignItems:"center",gap:7,
-                    padding:"13px 16px",border:"none",cursor:"pointer",
-                    background:"transparent",fontFamily:"'Sora',sans-serif",
-                    fontSize:12.5,fontWeight:700,
-                    color: on ? tabAccent : SUB,
-                    borderBottom: on ? `2px solid ${tabAccent}` : "2px solid transparent",
-                    transition:"all 0.15s",marginBottom:-1,
-                  }}>
-                  <span>{tab.icon}</span>{tab.label}
-                </button>
-              );
-            })}
+            <span style={{
+              width:38,height:38,borderRadius:11,flexShrink:0,
+              background:`${accent}18`,border:`1px solid ${accent}40`,
+              display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,
+            }}>{tabIcon}</span>
+            <div>
+              <h2 style={{color:TEXT,fontWeight:800,fontSize:16,margin:0,lineHeight:1.15}}>
+                {isRemote ? "Log Remote Work" : "Regularize Attendance"}
+              </h2>
+              <p style={{color:SUB,fontSize:11,margin:"3px 0 0"}}>
+                {isRemote ? "Mark selected people as working from home." : "Mark selected people as present in office."}
+              </p>
+            </div>
           </div>
 
-          {/* Context strip explaining the active mode */}
-          <div style={{
-            padding:"10px 20px",borderBottom:`1px solid ${BORDER}`,
-            background:`${accent}0A`,display:"flex",alignItems:"center",gap:9,
-          }}>
-            <span style={{fontSize:14}}>{isRemote ? "🏠" : "🏢"}</span>
-            <span style={{color:SUB,fontSize:11.5,lineHeight:1.5}}>
+          {/* Inline mode note (no box) */}
+          <div style={{display:"flex",alignItems:"flex-start",gap:8,marginBottom:18}}>
+            <span style={{fontSize:14,lineHeight:1.4}}>{isRemote ? "🏠" : "🏢"}</span>
+            <span style={{color:SUB,fontSize:11.5,lineHeight:1.55}}>
               {isRemote
                 ? "Logs the selected people as working from home for the chosen dates."
                 : "Marks the selected people as present in office — use when face-scan was missed (network drop, off-site meeting, etc.). Counts as a normal in-office day."}
             </span>
           </div>
 
-          {/* Form body */}
-          <div className="hr-form-body" style={{padding:"20px 20px 22px",display:"grid",gridTemplateColumns:"1fr 1fr",gap:18,alignItems:"start"}}>
+          {/* Form body — flows directly on the page, no surrounding card */}
+          <div className="hr-form-body" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:24,alignItems:"start"}}>
 
             {/* ── LEFT ── */}
             <div style={{display:"flex",flexDirection:"column",gap:16}}>
@@ -1682,7 +1646,8 @@ function HrMain({ hrName, onLogout, onChangeName }: { hrName: string; onLogout: 
               </button>
             </div>
           </div>
-        </Panel>
+        </div>
+        )}
       </div>
     </div>
   );
