@@ -402,6 +402,25 @@ export default function Attendance() {
   const [meetingOpen,  setMeetingOpen] = useState(false);
   const didAutoScroll = useRef(false);
 
+  const [installPromptEvent, setInstallPromptEvent] = useState<any>(null);
+
+  useEffect(() => {
+    if (!/Android/i.test(navigator.userAgent)) return;
+    const handler = (e: Event) => {
+      e.preventDefault();
+      setInstallPromptEvent(e);
+    };
+    window.addEventListener("beforeinstallprompt", handler);
+    return () => window.removeEventListener("beforeinstallprompt", handler);
+  }, []);
+
+  async function handleInstallClick() {
+    if (!installPromptEvent) return;
+    installPromptEvent.prompt();
+    await installPromptEvent.userChoice;
+    setInstallPromptEvent(null);
+  }
+
   const displayDates = useMemo(
     () => viewMode === "week" ? getWeekDates(weekOffset) : getMonthDates(monthOffset),
     [viewMode, weekOffset, monthOffset]
@@ -861,6 +880,31 @@ async function fetchTodayInOffice() {
                   How canaryface works
                 </div>
               </div>
+
+              {/* Install button — Android Chrome only */}
+              {installPromptEvent && (
+                <div className="adm-wrap" style={{ flexShrink: 0 }}>
+                  <button
+                    onClick={handleInstallClick}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
+                      flexShrink: 0,
+                      background: SURF,
+                      border: `1px solid ${BORDER}`,
+                      borderRadius: 10,
+                      padding: "6px 12px",
+                      cursor: "pointer",
+                      color: SUB,
+                      fontSize: 11,
+                      fontWeight: 600,
+                    }}
+                  >
+                    Install
+                  </button>
+                </div>
+              )}
  
  
             {/* Add meeting — desktop / office device only */}
