@@ -61,10 +61,10 @@ function getDaysInRange(from: string, to: string): string[] {
   while (cur <= end) { dates.push(toDateStr(cur)); cur.setDate(cur.getDate() + 1); }
   return dates;
 }
-function getThisWeek(): string[] {
+function getWeekByOffset(offset: number): string[] {
   const n = new Date();
   const dow = n.getDay();
-  const mon = new Date(n); mon.setDate(n.getDate() - (dow === 0 ? 6 : dow - 1));
+  const mon = new Date(n); mon.setDate(n.getDate() - (dow === 0 ? 6 : dow - 1) + offset * 7);
   const arr: string[] = [];
   for (let i = 0; i < 7; i++) { const d = new Date(mon); d.setDate(mon.getDate() + i); arr.push(toDateStr(d)); }
   return arr;
@@ -285,7 +285,7 @@ function WeeklyHeatmap({ days, rows, loading }: {
     </div>
   );
 }
-  
+
 
 // ── Confirm Modal (used before applying regularize / remote, esp. bulk) ─────────
 function ConfirmModal({
@@ -750,10 +750,14 @@ function HrMain({ hrName, onLogout, onChangeName }: { hrName: string; onLogout: 
   const [showExport, setShowExport]   = useState(false);
   const [exporting, setExporting]     = useState(false);
   const [nav, setNav]                 = useState<NavId>("dashboard");
+  const [weekOffset, setWeekOffset]   = useState(0);   // 0 = current week
 
-  // weekly data for dashboard (empId -> date -> dayData)
-  const [weekData]       = useState<Record<string, Record<string, any>>>({});
-  const [loadingStats] = useState(true);
+  // today's data → KPI cards (always today, independent of week navigation)
+  const [todayData, setTodayData]       = useState<Record<string, any>>({});
+  const [loadingToday, setLoadingToday] = useState(true);
+  // selected-week data → heatmap + not-checked-out list
+  const [weekData, setWeekData]         = useState<Record<string, Record<string, any>>>({});
+  const [loadingWeek, setLoadingWeek]   = useState(true);
 
   // multi-select (supports bulk for both tabs)
   const [selEmps, setSelEmps] = useState<any[]>([]);
@@ -776,8 +780,8 @@ function HrMain({ hrName, onLogout, onChangeName }: { hrName: string; onLogout: 
   const accentDark = isRemote ? "#be185d" : "#2563eb";
   const tabIcon    = isRemote ? "🏠" : "🏢";
 
-  const week  = useMemo(() => getThisWeek(), []);
   const today = toDateStr(new Date());
+  const week  = useMemo(() => getWeekByOffset(weekOffset), [weekOffset]);
 
   useEffect(() => {
     (async () => {
@@ -797,7 +801,47 @@ function HrMain({ hrName, onLogout, onChangeName }: { hrName: string; onLogout: 
       finally { setLoadingEmps(false); }
     })();
   }, []);
- 
+
+  // fetch TODAY's attendance for the KPI cards (independent of week navigation)
+  useEffect(() => {
+    if (employees.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      setLoadingToday(true);
+      const map: Record<string, any> = {};
+      await Promise.all(employees.map(async (emp) => {
+        try {
+          const snap = await getDoc(doc(db, emp.emp_id, today));
+          if (snap.exists()) map[emp.emp_id] = snap.data();
+        } catch (_) {}
+      }));
+      if (!cancelled) { setTodayData(map); setLoadingToday(false); }
+    })();
+    return () => { cancelled = true; };
+  }, [employees, today]);
+
+  // fetch the SELECTED week's attendance for the heatmap + not-checked-out list
+  useEffect(() => {
+    if (employees.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      setLoadingWeek(true);
+      const map: Record<string, Record<string, any>> = {};
+      await Promise.all(employees.map(async (emp) => {
+        map[emp.emp_id] = {};
+        await Promise.all(week.map(async (date) => {
+          if (date > today) return;
+          try {
+            const snap = await getDoc(doc(db, emp.emp_id, date));
+            if (snap.exists()) map[emp.emp_id][date] = snap.data();
+          } catch (_) {}
+        }));
+      }));
+      if (!cancelled) { setWeekData(map); setLoadingWeek(false); }
+    })();
+    return () => { cancelled = true; };
+  }, [employees, week, today]);
+
   const filteredEmps = useMemo(() => employees.filter(e =>
     !empSearch || [e.name, e.emp_id, e.department]
       .some((v: string) => v?.toLowerCase().includes(empSearch.toLowerCase()))
@@ -860,7 +904,7 @@ function HrMain({ hrName, onLogout, onChangeName }: { hrName: string; onLogout: 
     const workday = !isWeekend(today) && !isHoliday(today);
     let present = 0, remote = 0, absent = 0;
     employees.forEach(emp => {
-      const dd = weekData[emp.emp_id]?.[today];
+      const dd = todayData[emp.emp_id];
       if (dd && dd.sessions?.length > 0) {
         const wfh = dd.sessions.every((s:any) => s.wfh === true);
         if (wfh) remote++; else present++;
@@ -871,7 +915,7 @@ function HrMain({ hrName, onLogout, onChangeName }: { hrName: string; onLogout: 
     const total = employees.length;
     const rate  = total ? Math.round(((present + remote) / total) * 100) : 0;
     return { present, remote, absent, total, rate, workday };
-  }, [employees, weekData, today]);
+  }, [employees, todayData, today]);
 
   const heatDays = useMemo(() => week.map(d => ({
     date: d,
@@ -884,8 +928,29 @@ function HrMain({ hrName, onLogout, onChangeName }: { hrName: string; onLogout: 
     emp, cells: week.map(d => dayStatus(emp.emp_id, d)),
   })), [employees, week, dayStatus]);
 
-   
-  const weekLabel = `${fmtDateLabel(week[0])} – ${fmtDateLabel(week[6])}`;
+  const missing = useMemo(() => {
+    const out: { emp:any; date:string; check_in:string }[] = [];
+    employees.forEach(emp => {
+      week.forEach(date => {
+        if (date > today) return;
+        const dd = weekData[emp.emp_id]?.[date];
+        if (!dd?.sessions) return;
+        dd.sessions.forEach((s:any) => {
+          if (s.check_in && (!s.check_out || s.check_out === "")) {
+            out.push({ emp, date, check_in: s.check_in });
+          }
+        });
+      });
+    });
+    out.sort((a,b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+    return out;
+  }, [employees, weekData, week, today]);
+
+  const weekRange = `${fmtDateLabel(week[0])} – ${fmtDateLabel(week[6])}`;
+  const weekLabel = weekOffset === 0 ? "This Week"
+    : weekOffset === -1 ? "Last Week"
+    : weekOffset === 1 ? "Next Week"
+    : weekRange;
 
   // ── validate then open confirmation ──
   function requestSubmit() {
@@ -1138,14 +1203,23 @@ function HrMain({ hrName, onLogout, onChangeName }: { hrName: string; onLogout: 
   };
 
   const NAV: { id: NavId; label: string; icon: string; color: string }[] = [
-    { id: "dashboard",  label: "Dashboard",        icon: "📊", color: GREEN   },
-    { id: "regularize", label: "Regularize Attendance",        icon: "🏢", color: BLUE    },
-    { id: "remote",     label: "Log Remote Work",   icon: "🏠", color: MAGENTA },
+    { id: "dashboard",  label: "Dashboard",            icon: "📊", color: GREEN   },
+    { id: "regularize", label: "Regularize Attendance", icon: "🏢", color: BLUE    },
+    { id: "remote",     label: "Log Remote Work",       icon: "🏠", color: MAGENTA },
   ];
 
   const submitLabel = isRemote
     ? (totalRecords > 1 ? `Log Remote · ${totalRecords} records` : "Log Remote Work")
     : (totalRecords > 1 ? `Regularize · ${totalRecords} records` : "Regularize Attendance");
+
+  const wkBtn = (dis: boolean): React.CSSProperties => ({
+    width:26,height:26,borderRadius:7,flexShrink:0,
+    border:`1px solid ${BORDER}`,background:"rgba(96,165,250,0.08)",
+    color: dis ? DIM : BLUE, fontSize:16,fontWeight:800,lineHeight:1,
+    cursor: dis ? "not-allowed" : "pointer", opacity: dis ? 0.5 : 1,
+    display:"flex",alignItems:"center",justifyContent:"center",
+    fontFamily:"'Sora',sans-serif",
+  });
 
   return (
     <div style={{minHeight:"100vh",background:BG,fontFamily:"'Sora',sans-serif",color:TEXT}}>
@@ -1162,11 +1236,9 @@ function HrMain({ hrName, onLogout, onChangeName }: { hrName: string; onLogout: 
         .tab-btn{transition:all 0.15s;}
         .save-btn:hover:not(:disabled){opacity:0.9;}
         .export-btn:hover{opacity:0.88;}
+        .wk-nav:hover:not(:disabled){background:rgba(96,165,250,0.18) !important;}
         .hr-kpis     { display:grid; grid-template-columns:repeat(4,1fr); gap:16px; }
-        .hr-analytics{ display:grid; grid-template-columns:minmax(0,1.55fr) minmax(0,1fr); gap:16px; align-items:start; }
-        @media (max-width: 980px) {
-          .hr-analytics{ grid-template-columns:1fr !important; }
-        }
+        .hr-analytics{ display:flex; flex-direction:column; gap:16px; }
         @media (max-width: 760px) {
           .hr-header   { padding: 0 14px !important; }
           .hr-page     { padding: 20px 14px 48px !important; }
@@ -1286,7 +1358,7 @@ function HrMain({ hrName, onLogout, onChangeName }: { hrName: string; onLogout: 
         background:"rgba(8,15,46,0.9)",borderBottom:`1px solid ${BORDER}`,
         backdropFilter:"blur(12px)",padding:"0 22px",overflowX:"auto",
       }}>
-        <div style={{maxWidth:1180,margin:"0 auto",display:"flex",gap:2}}>
+        <div style={{maxWidth:1500,margin:"0 auto",display:"flex",gap:2}}>
           {NAV.map(n => {
             const on = nav === n.id;
             return (
@@ -1309,13 +1381,12 @@ function HrMain({ hrName, onLogout, onChangeName }: { hrName: string; onLogout: 
       </nav>
 
       {/* ── Page ── */}
-      <div className="hr-page" style={{maxWidth:1180,margin:"0 auto",padding:"24px 22px 56px"}}>
+      <div className="hr-page" style={{maxWidth:1500,margin:"0 auto",padding:"24px 22px 56px"}}>
 
         {/* ===== DASHBOARD ===== */}
         {nav === "dashboard" && (<>
         {/* Greeting */}
         <div className="hr-greet" style={{marginBottom:22}}>
- 
           <p style={{color:SUB,fontSize:12.5,margin:"7px 0 0"}}>
             Here's today's attendance at a glance — use the tabs above to fix records.
           </p>
@@ -1323,23 +1394,82 @@ function HrMain({ hrName, onLogout, onChangeName }: { hrName: string; onLogout: 
 
         {/* KPI cards */}
         <div className="hr-kpis" style={{marginBottom:16}}>
-          <StatCard icon="👥" label="Total KSUM Employees" color={BLUE}    loading={loadingStats} value={stats.total} />
-          <StatCard icon="🏢" label="Present Today"   color={GREEN}   loading={loadingStats} value={stats.present} />
-          <StatCard icon="🏠" label="Remote Today"    color={MAGENTA} loading={loadingStats} value={stats.remote} />
-          <StatCard icon="🚫" label="Absent Today"    color={RED}     loading={loadingStats} value={stats.absent} sub={stats.workday ? undefined : "Off day"} />
+          <StatCard icon="👥" label="Total KSUM Employees" color={BLUE}    loading={loadingToday} value={stats.total} />
+          <StatCard icon="🏢" label="Present Today"        color={GREEN}   loading={loadingToday} value={stats.present} sub={stats.total ? `${stats.rate}% on duty` : undefined} />
+          <StatCard icon="🏠" label="Remote Today"         color={MAGENTA} loading={loadingToday} value={stats.remote} />
+          <StatCard icon="🚫" label="Absent Today"         color={RED}     loading={loadingToday} value={stats.absent} sub={stats.workday ? undefined : "Off day"} />
         </div>
 
-        {/* Analytics: weekly heatmap */}
+        {/* Analytics: weekly heatmap (full width) + not-checked-out (full width) */}
         <div className="hr-analytics">
-          <Panel  title="Weekly Attendance" right={<Pill color={BLUE}>{weekLabel}</Pill>}>
-            <WeeklyHeatmap days={heatDays} rows={heatRows} loading={loadingStats} />
-          </Panel> 
+          <Panel
+            icon="🗓"
+            title="Weekly Attendance"
+            right={
+              <div style={{display:"flex",alignItems:"center",gap:7}}>
+                <button onClick={()=>setWeekOffset(o=>o-1)} title="Previous week" className="wk-nav" style={wkBtn(false)}>‹</button>
+                <span style={{
+                  minWidth:118,textAlign:"center",color:SUB,fontSize:11,fontWeight:700,whiteSpace:"nowrap",
+                }}>
+                  {weekLabel}
+                  <span style={{color:DIM,fontWeight:500,fontFamily:"'JetBrains Mono',monospace"}}> · {weekRange}</span>
+                </span>
+                <button onClick={()=>setWeekOffset(o=>Math.min(0,o+1))} disabled={weekOffset>=0} title="Next week" className="wk-nav" style={wkBtn(weekOffset>=0)}>›</button>
+              </div>
+            }
+          >
+            <WeeklyHeatmap days={heatDays} rows={heatRows} loading={loadingWeek} />
+          </Panel>
+
+          <Panel
+            icon="⏰"
+            title="Not Checked-out"
+            right={<Pill color={missing.length ? RED : GREEN}>{missing.length} {missing.length===1?"person":"people"}</Pill>}
+          >
+            {loadingWeek ? (
+              <div style={{padding:"26px 0",textAlign:"center",color:SUB,fontSize:12}}>Checking the week…</div>
+            ) : missing.length === 0 ? (
+              <div style={{padding:"22px 0",textAlign:"center",color:SUB,fontSize:12}}>
+                ✅ Everyone checked out properly this week.
+              </div>
+            ) : (
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(244px,1fr))",gap:10}}>
+                {missing.map((m,i) => {
+                  const c = TYPE_COLORS[m.emp.type] || YELLOW;
+                  const dLabel = new Date(m.date).toLocaleDateString("en-IN",{weekday:"short",day:"2-digit",month:"short"});
+                  return (
+                    <div key={i} style={{
+                      display:"flex",alignItems:"center",gap:10,
+                      background:"rgba(248,113,113,0.05)",border:`1px solid ${RED}26`,
+                      borderRadius:11,padding:"10px 12px",
+                    }}>
+                      <span style={{
+                        width:30,height:30,borderRadius:"50%",flexShrink:0,overflow:"hidden",background:BG,
+                        border:`1.5px solid ${c}55`,display:"flex",alignItems:"center",justifyContent:"center",
+                        fontSize:9,fontWeight:700,color:c,
+                      }}>
+                        {m.emp.profile_image ? <img src={m.emp.profile_image} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/> : initials(m.emp.name)}
+                      </span>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{color:TEXT,fontSize:12,fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{m.emp.name}</div>
+                        <div style={{color:DIM,fontSize:9.5,fontFamily:"'JetBrains Mono',monospace"}}>{dLabel}</div>
+                      </div>
+                      <div style={{textAlign:"right",flexShrink:0}}>
+                        <div style={{color:GREEN,fontSize:11,fontWeight:700,fontFamily:"'JetBrains Mono',monospace"}}>{m.check_in.slice(0,5)}</div>
+                        <div style={{color:RED,fontSize:8.5,fontWeight:700,letterSpacing:0.3}}>NO CHECK-OUT</div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </Panel>
         </div>
         </>)}
 
         {/* ===== REGULARIZE / REMOTE ===== */}
         {(nav === "regularize" || nav === "remote") && (
-        <div>
+        <div style={{maxWidth:1080}}>
           {/* Section heading */}
           <div className="hr-toolbar" style={{
             display:"flex",alignItems:"center",gap:11,
