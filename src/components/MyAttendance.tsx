@@ -653,7 +653,7 @@ function SummaryModal({
         border: liveAccent === GREEN
           ? `1px solid ${GREEN}44`
           : liveAccent === RED
-          ? `1px solid ${RED}`
+          ? `1px solid ${RED}60`
           : undefined,
       }}>        {/* header */}
         <div style={{ padding: "14px 22px 12px", borderBottom: `1px solid ${BORDER}`, display: "flex", alignItems: "center", gap: 12 }}>
