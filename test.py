@@ -42,8 +42,8 @@ db = firestore.client()
 
 # ── what to write ─────────────────────────────────────────────────────────────
 EMP_ID     = "CDAI014"          # the employee's collection name
-START_DATE = "2026-06-16"       # from
-END_DATE   = "2026-12-30"       # to (this week's Sunday) — change if needed
+START_DATE = "2026-06-17"       # from
+END_DATE   = "2026-12-21"       # to (this week's Sunday) — change if needed
 CHECK_IN   = "17:50:00"
 CHECK_OUT  = "18:00:00"
 SESSION_NO = 100                # hard-coded, same for every day

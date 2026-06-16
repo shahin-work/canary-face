@@ -25,17 +25,33 @@ const fmtTime = (t: string) => t.slice(0,5);
 const getInitials = (name: string) => name.split(" ").map(n=>n[0]).join("").slice(0,2).toUpperCase();
 
 function calcHours(sessions: Session[], forDate?: string): number {
-  let mins = 0;
-  if (!Array.isArray(sessions) || sessions.length === 0) return 0;   // guard
+  if (!Array.isArray(sessions) || sessions.length === 0) return 0;
   const now = new Date(), todayStr = toDateStr(now);
-  const nowMins = now.getHours()*60 + now.getMinutes();
+  const nowMins = now.getHours() * 60 + now.getMinutes();
+
+  const intervals: [number, number][] = [];
   for (const s of sessions) {
     if (!s || !s.check_in) continue;
-    if (s.check_out) mins += toMins(s.check_out) - toMins(s.check_in);
-    else if (!forDate || forDate === todayStr) mins += Math.max(0, nowMins - toMins(s.check_in));
+    const start = toMins(s.check_in);
+    let end: number;
+    if (s.check_out) end = toMins(s.check_out);
+    else if (!forDate || forDate === todayStr) end = nowMins;
+    else continue;
+    if (end > start) intervals.push([start, end]);
   }
-  return Math.round((mins/60)*100)/100;
-}
+  if (intervals.length === 0) return 0;
+
+  intervals.sort((a, b) => a[0] - b[0]);
+  let total = 0;
+  let [curStart, curEnd] = intervals[0];
+  for (let i = 1; i < intervals.length; i++) {
+    const [s, e] = intervals[i];
+    if (s <= curEnd) { if (e > curEnd) curEnd = e; }
+    else { total += curEnd - curStart; curStart = s; curEnd = e; }
+  }
+  total += curEnd - curStart;
+  return Math.round((total / 60) * 100) / 100;
+} 
 
 function calcSessionHours(s: Session, forDate: string): number {
   const now = new Date(), todayStr = toDateStr(now);

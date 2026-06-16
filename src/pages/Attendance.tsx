@@ -33,9 +33,8 @@ function isWeekend(dateStr: string): boolean {
   return false;
 }
   
- 
-function calcHours(sessions: Session[], forDate?: string): number {
-  let mins = 0;
+ function calcHours(sessions: Session[], forDate?: string): number {
+  if (!Array.isArray(sessions) || sessions.length === 0) return 0;
   const toMins = (t: string) => {
     const [h, m, s] = t.split(":").map(Number);
     return h * 60 + m + (s || 0) / 60;
@@ -44,18 +43,28 @@ function calcHours(sessions: Session[], forDate?: string): number {
   const todayStr = toDateStr(now);
   const nowMins = now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60;
 
+  const intervals: [number, number][] = [];
   for (const s of sessions) {
-    if (!s.check_in) continue;
-    const inMins = toMins(s.check_in);
-    if (s.check_out) {
-      mins += Math.max(0, toMins(s.check_out) - inMins);
-    } else {
-      if (!forDate || forDate === todayStr) {
-        mins += Math.max(0, nowMins - inMins);
-      }
-    }
+    if (!s || !s.check_in) continue;
+    const start = toMins(s.check_in);
+    let end: number;
+    if (s.check_out) end = toMins(s.check_out);
+    else if (!forDate || forDate === todayStr) end = nowMins;
+    else continue;
+    if (end > start) intervals.push([start, end]);
   }
-  return Math.round((mins / 60) * 100) / 100;
+  if (intervals.length === 0) return 0;
+
+  intervals.sort((a, b) => a[0] - b[0]);
+  let total = 0;
+  let [curStart, curEnd] = intervals[0];
+  for (let i = 1; i < intervals.length; i++) {
+    const [s, e] = intervals[i];
+    if (s <= curEnd) { if (e > curEnd) curEnd = e; }
+    else { total += curEnd - curStart; curStart = s; curEnd = e; }
+  }
+  total += curEnd - curStart;
+  return Math.round((total / 60) * 100) / 100;
 }
 
 function AnimatedLogo() {

@@ -75,6 +75,7 @@ function LogoLoader({ label = "Loading your attendance…" }: { label?: string }
     </div>
   );
 }
+
 function calcHours(sessions: any[], forDate?: string): number {
   let mins = 0;
   const toMins = (t: string) => {
