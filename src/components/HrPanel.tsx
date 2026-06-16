@@ -166,15 +166,25 @@ function TimeSelect({ label, hour, minute, onHour, onMinute, color }: {
 }
 
 // ── Reusable dashboard pieces ───────────────────────────────────────────────────
-function StatCard({ icon, label, value, sub, color, loading }: {
-  icon: string; label: string; value: React.ReactNode; sub?: string; color: string; loading?: boolean;
+function StatCard({ icon, label, value, sub, color, loading, people, alignRight }: {
+  icon: string; label: string; value: React.ReactNode; sub?: string; color: string;
+  loading?: boolean; people?: any[]; alignRight?: boolean;
 }) {
+  const [hover, setHover]   = useState(false);
+  const [pinned, setPinned] = useState(false);   // clicked-open state
+  const hasList = !loading && !!people && people.length > 0;
+  const open = hasList && (hover || pinned);
+
   return (
-    <div style={{
-      background:SURF2, border:`1px solid ${BORDER}`, borderRadius:14,
-      padding:"17px 18px", display:"flex", flexDirection:"column", gap:12, minWidth:0,
-      boxShadow:"0 1px 2px rgba(0,0,0,0.18)",
-    }}>
+    <div
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      style={{
+        position:"relative",
+        background:SURF2, border:`1px solid ${open ? color+"66" : BORDER}`, borderRadius:14,
+        padding:"17px 18px", display:"flex", flexDirection:"column", gap:12, minWidth:0,
+        boxShadow:"0 1px 2px rgba(0,0,0,0.18)", transition:"border 0.15s",
+      }}>
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
         <span style={{color:SUB,fontSize:10.5,fontWeight:700,letterSpacing:0.5,textTransform:"uppercase",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{label}</span>
         <span style={{
@@ -183,12 +193,74 @@ function StatCard({ icon, label, value, sub, color, loading }: {
           display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,
         }}>{icon}</span>
       </div>
+
       <div style={{display:"flex",alignItems:"baseline",gap:8}}>
         <span style={{color:TEXT,fontSize:30,fontWeight:800,lineHeight:1,fontFamily:"'Sora',sans-serif"}}>
           {loading ? "—" : value}
         </span>
         {sub && !loading && <span style={{color,fontSize:11,fontWeight:700}}>{sub}</span>}
+
+        {/* down-arrow toggle — only when there's a list */}
+        {hasList && (
+          <button
+            onClick={() => setPinned(p => !p)}
+            title="Show who"
+            style={{
+              marginLeft:"auto", width:26, height:26, borderRadius:8, flexShrink:0,
+              background:`${color}14`, border:`1px solid ${color}33`, color,
+              cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center",
+              fontSize:13, lineHeight:1,
+              transform: open ? "rotate(180deg)" : "rotate(0deg)",
+              transition:"transform 0.18s, background 0.15s",
+            }}>▾</button>
+        )}
       </div>
+
+      {/* dropdown / popover with the actual people */}
+      {open && (
+        <div style={{
+          position:"absolute", top:"100%", zIndex:60,
+          ...(alignRight ? { right:0 } : { left:0 }),
+          paddingTop:8,   // transparent bridge so the gap doesn't break the hover
+        }}>
+          <div style={{
+            minWidth:210, maxWidth:300, maxHeight:280, overflowY:"auto",
+            background:SURF2, border:`1px solid ${color}55`, borderRadius:12,
+            boxShadow:"0 16px 44px rgba(0,0,0,0.6)", padding:8,
+          }}>
+            <div style={{
+              display:"flex", alignItems:"center", justifyContent:"space-between", gap:8,
+              padding:"4px 6px 8px", borderBottom:`1px solid ${BORDER}`, marginBottom:6,
+            }}>
+              <span style={{color:SUB,fontSize:9.5,fontWeight:700,letterSpacing:0.6,textTransform:"uppercase"}}>
+                {label} · {people!.length}
+              </span>
+              {pinned && (
+                <button onClick={() => setPinned(false)} style={{
+                  background:"none", border:"none", color:DIM, fontSize:15, cursor:"pointer", lineHeight:1,
+                }}>×</button>
+              )}
+            </div>
+            {people!.map((emp:any) => (
+              <div key={emp.emp_id} style={{display:"flex",alignItems:"center",gap:8,padding:"5px 6px",borderRadius:8}}>
+                <span style={{
+                  width:24,height:24,borderRadius:"50%",flexShrink:0,overflow:"hidden",background:BG,
+                  border:`1.5px solid ${color}55`,display:"flex",alignItems:"center",justifyContent:"center",
+                  fontSize:8,fontWeight:700,color,
+                }}>
+                  {emp.profile_image
+                    ? <img src={emp.profile_image} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+                    : initials(emp.name)}
+                </span>
+                <div style={{minWidth:0}}>
+                  <div style={{color:TEXT,fontSize:11.5,fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{emp.name}</div>
+                  <div style={{color:DIM,fontSize:8.5,fontFamily:"'JetBrains Mono',monospace"}}>{emp.emp_id}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -222,7 +294,8 @@ function Pill({ children, color = SUB }: { children: React.ReactNode; color?: st
 }
 
 const HEAT: Record<string,{bg:string;fg:string}> = {
-  P:  { bg:"rgba(74,222,128,0.85)", fg:"#06210F" },
+  P8: { bg:"rgba(74,222,128,0.85)", fg:"#06210F" },   // ≥8h → light green, shows "P"
+  P:  { bg:"rgba(21,128,61,0.95)",  fg:"#EAFFF0" },    // <8h → dark green, shows "P(x.x)"
   R:  { bg:"rgba(236,72,153,0.78)", fg:"#2A0716" },
   A:  { bg:"rgba(248,113,113,0.85)", fg:"#330808" },
   H:  { bg:"rgba(255,215,0,0.16)",  fg:"#FFD700" },
@@ -237,7 +310,8 @@ function WeeklyHeatmap({ days, rows, loading }: {
 }) {
   if (loading) return <div style={{padding:"34px 0",textAlign:"center",color:SUB,fontSize:12}}>Loading the week…</div>;
   if (!rows.length) return <div style={{padding:"34px 0",textAlign:"center",color:SUB,fontSize:12}}>No employees found.</div>;
-  const cols = `158px repeat(${days.length}, minmax(38px,1fr))`;
+  const cols = `158px repeat(${days.length}, minmax(30px, 200px))`;
+
   return (
     <div style={{overflowX:"auto"}}>
       <div style={{minWidth: 158 + days.length*42}}>
@@ -247,7 +321,7 @@ function WeeklyHeatmap({ days, rows, loading }: {
           {days.map(d => (
             <div key={d.date} style={{textAlign:"center"}}>
               <div style={{color:d.isToday?BLUE:SUB,fontSize:9.5,fontWeight:700}}>{d.dow}</div>
-              <div style={{color:DIM,fontSize:8.5,fontFamily:"'JetBrains Mono',monospace"}}>{d.label}</div>
+              <div style={{color:DIM,fontSize:9.1,fontFamily:"'JetBrains Mono',monospace"}}>{d.label}</div>
             </div>
           ))}
         </div>
@@ -258,16 +332,20 @@ function WeeklyHeatmap({ days, rows, loading }: {
               <div style={{display:"flex",alignItems:"center",gap:7,minWidth:0,paddingRight:4}}>
                 <span style={{
                   width:22,height:22,borderRadius:"50%",flexShrink:0,background:BG,border:`1px solid ${BORDER}`,
-                  display:"flex",alignItems:"center",justifyContent:"center",color:SUB,fontSize:8,fontWeight:700,
+                  display:"flex",alignItems:"center",justifyContent:"center",color:SUB,fontSize:11,fontWeight:700,
                 }}>{initials(r.emp.name)}</span>
                 <span style={{color:TEXT,fontSize:11,fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{r.emp.name}</span>
               </div>
               {r.cells.map((st,i) => {
-                const h = HEAT[st] || HEAT[""];
-                return <div key={i} title={`${r.emp.name} · ${days[i].label}: ${st || "—"}`} style={{
+                const isUnder8 = st.startsWith("P(");          // dark-green under-8 cell
+                const key = st === "P8" ? "P8" : isUnder8 ? "P" : st;
+                const h = HEAT[key] || HEAT[""];
+                const display = st === "P8" ? "P" : (st || "·");
+                return <div key={i} title={`${r.emp.name} · ${days[i].label}: ${display}`} style={{
                   height:24,borderRadius:6,background:h.bg,color:h.fg,
-                  display:"flex",alignItems:"center",justifyContent:"center",fontSize:9.5,fontWeight:800,
-                }}>{st || "·"}</div>;
+                  display:"flex",alignItems:"center",justifyContent:"center",
+                  fontSize: isUnder8 ? 11 : 9.5, fontWeight:800,
+                }}>{display}</div>;
               })}
             </div>
           ))}
@@ -888,34 +966,39 @@ function HrMain({ hrName, onLogout, onChangeName }: { hrName: string; onLogout: 
   const todayLabel = new Date().toLocaleDateString("en-IN",{ weekday:"long", day:"2-digit", month:"long", year:"numeric" });
 
   // ── dashboard derivations ──
-  const dayStatus = useCallback((empId: string, date: string): string => {
+const dayStatus = useCallback((empId: string, date: string): string => {
     if (isHoliday(date)) return "H";
     if (isWeekend(date)) return "W";
     if (date > today) return "";
     const dd = weekData[empId]?.[date];
     if (dd && dd.sessions?.length > 0) {
       const wfh = dd.sessions.every((s:any) => s.wfh === true);
-      return wfh ? "R" : "P";
+      if (wfh) return "R";
+      const hrs = calcHours(dd.sessions);
+      if (hrs >= 8) return "P8";                       // full day → light green, just "P"
+      return `P(${(Math.round(hrs*10)/10).toFixed(1)})`; // under 8 → dark green, "P(7.6)"
     }
     return "A";
   }, [weekData, today]);
 
-  const stats = useMemo(() => {
-    const workday = !isWeekend(today) && !isHoliday(today);
-    let present = 0, remote = 0, absent = 0;
-    employees.forEach(emp => {
-      const dd = todayData[emp.emp_id];
-      if (dd && dd.sessions?.length > 0) {
-        const wfh = dd.sessions.every((s:any) => s.wfh === true);
-        if (wfh) remote++; else present++;
-      } else if (workday) {
-        absent++;
-      }
-    });
-    const total = employees.length;
-    const rate  = total ? Math.round(((present + remote) / total) * 100) : 0;
-    return { present, remote, absent, total, rate, workday };
-  }, [employees, todayData, today]);
+const stats = useMemo(() => {
+  const workday = !isWeekend(today) && !isHoliday(today);
+  let present = 0, remote = 0, absent = 0;
+  const presentList: any[] = [], remoteList: any[] = [], absentList: any[] = [];
+  employees.forEach(emp => {
+    const dd = todayData[emp.emp_id];
+    if (dd && dd.sessions?.length > 0) {
+      const wfh = dd.sessions.every((s:any) => s.wfh === true);
+      if (wfh) { remote++;  remoteList.push(emp); }
+      else     { present++; presentList.push(emp); }
+    } else if (workday) {
+      absent++; absentList.push(emp);
+    }
+  });
+  const total = employees.length;
+  const rate  = total ? Math.round(((present + remote) / total) * 100) : 0;
+  return { present, remote, absent, total, rate, workday, presentList, remoteList, absentList };
+}, [employees, todayData, today]);
 
   // only days up to today (hide future days in the heatmap)
   const visibleDays = useMemo(() => week.filter(d => d <= today), [week, today]);
@@ -931,23 +1014,29 @@ function HrMain({ hrName, onLogout, onChangeName }: { hrName: string; onLogout: 
     emp, cells: visibleDays.map(d => dayStatus(emp.emp_id, d)),
   })), [employees, visibleDays, dayStatus]);
 
-  const missing = useMemo(() => {
-    const out: { emp:any; date:string; check_in:string }[] = [];
-    employees.forEach(emp => {
-      week.forEach(date => {
-        if (date > today) return;
-        const dd = weekData[emp.emp_id]?.[date];
-        if (!dd?.sessions) return;
-        dd.sessions.forEach((s:any) => {
-          if (s.check_in && (!s.check_out || s.check_out === "")) {
-            out.push({ emp, date, check_in: s.check_in });
+  // group "no check-out" people under each working day of the week
+  const missingByDay = useMemo(() => {
+    return week
+      .filter(d => d <= today && !isWeekend(d) && !isHoliday(d))   // working days only, up to today
+      .map(date => {
+        const people: { emp:any; check_in:string }[] = [];
+        employees.forEach(emp => {
+          const dd = weekData[emp.emp_id]?.[date];
+          const ss = dd?.sessions;
+          if (!ss || ss.length === 0) return;
+          const last = ss[ss.length - 1];                          // only the last session of the day
+          if (last.check_in && (!last.check_out || last.check_out === "")) {
+            people.push({ emp, check_in: last.check_in });
           }
         });
+        return { date, people };
       });
-    });
-    out.sort((a,b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
-    return out;
   }, [employees, weekData, week, today]);
+
+  const missingTotal = useMemo(
+    () => missingByDay.reduce((n, d) => n + d.people.length, 0),
+    [missingByDay]
+  );
 
   const weekRange = `${fmtDateLabel(week[0])} – ${fmtDateLabel(week[6])}`;
   const weekLabel = weekOffset === 0 ? "This Week"
@@ -1398,10 +1487,10 @@ function HrMain({ hrName, onLogout, onChangeName }: { hrName: string; onLogout: 
 
         {/* KPI cards */}
         <div className="hr-kpis" style={{marginBottom:16}}>
-          <StatCard icon="👥" label="Total KSUM Employees" color={BLUE}    loading={loadingToday} value={stats.total} />
-          <StatCard icon="🏢" label="Present Today"        color={GREEN}   loading={loadingToday} value={stats.present} sub={stats.total ? `${stats.rate}% on duty` : undefined} />
-          <StatCard icon="🏠" label="Remote Today"         color={MAGENTA} loading={loadingToday} value={stats.remote} />
-          <StatCard icon="🚫" label="Absent Today"         color={RED}     loading={loadingToday} value={stats.absent} sub={stats.workday ? undefined : "Off day"} />
+          <StatCard icon="👥" label="Total KSUM Employees" color={BLUE}    loading={loadingToday} value={stats.total}   people={employees} />
+          <StatCard icon="🏢" label="Present Today"        color={GREEN}   loading={loadingToday} value={stats.present} sub={stats.total ? `${stats.rate}% on duty` : undefined} people={stats.presentList} />
+          <StatCard icon="🏠" label="Remote Today"         color={MAGENTA} loading={loadingToday} value={stats.remote}  people={stats.remoteList} />
+          <StatCard icon="🚫" label="Absent Today"         color={RED}     loading={loadingToday} value={stats.absent}  sub={stats.workday ? undefined : "Off day"} people={stats.absentList} alignRight />
         </div>
 
         {/* Analytics: weekly heatmap (full width) + not-checked-out (full width) */}
@@ -1425,42 +1514,77 @@ function HrMain({ hrName, onLogout, onChangeName }: { hrName: string; onLogout: 
             <WeeklyHeatmap days={heatDays} rows={heatRows} loading={loadingWeek} />
           </Panel>
 
-          <Panel
+<Panel
             icon="⏰"
             title="Not Checked-out"
-            right={<Pill color={missing.length ? RED : GREEN}>{missing.length} {missing.length===1?"person":"people"}</Pill>}
+            right={<Pill color={missingTotal ? RED : GREEN}>{missingTotal} {missingTotal===1?"person":"people"}</Pill>}
           >
             {loadingWeek ? (
               <div style={{padding:"26px 0",textAlign:"center",color:SUB,fontSize:12}}>Checking the week…</div>
-            ) : missing.length === 0 ? (
+            ) : missingTotal === 0 ? (
               <div style={{padding:"22px 0",textAlign:"center",color:SUB,fontSize:12}}>
                 ✅ Everyone checked out properly this week.
               </div>
             ) : (
-              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(244px,1fr))",gap:10}}>
-                {missing.map((m,i) => {
-                  const c = TYPE_COLORS[m.emp.type] || YELLOW;
-                  const dLabel = new Date(m.date).toLocaleDateString("en-IN",{weekday:"short",day:"2-digit",month:"short"});
+              <div style={{
+                display:"grid",
+                gridTemplateColumns:`repeat(${missingByDay.length}, minmax(150px, 220px))`,
+                gap:10, overflowX:"auto", justifyContent:"start",
+              }}>
+                {missingByDay.map(({ date, people }) => {
+                  const dow  = new Date(date).toLocaleDateString("en-IN",{weekday:"short"});
+                  const dlab = new Date(date).toLocaleDateString("en-IN",{day:"2-digit",month:"short"});
+                  const isTodayCol = date === today;
                   return (
-                    <div key={i} style={{
-                      display:"flex",alignItems:"center",gap:10,
-                      background:"rgba(248,113,113,0.05)",border:`1px solid ${RED}26`,
-                      borderRadius:11,padding:"10px 12px",
+                    <div key={date} style={{
+                      background:"rgba(99,102,241,0.04)",
+                      border:`1px solid ${isTodayCol ? BLUE+"55" : BORDER}`,
+                      borderRadius:11, overflow:"hidden", minWidth:0,
                     }}>
-                      <span style={{
-                        width:30,height:30,borderRadius:"50%",flexShrink:0,overflow:"hidden",background:BG,
-                        border:`1.5px solid ${c}55`,display:"flex",alignItems:"center",justifyContent:"center",
-                        fontSize:9,fontWeight:700,color:c,
+                      {/* column header = day + date */}
+                      <div style={{
+                        padding:"8px 10px", borderBottom:`1px solid ${BORDER}`,
+                        display:"flex", alignItems:"center", justifyContent:"space-between", gap:6,
+                        background: isTodayCol ? "rgba(96,165,250,0.08)" : "transparent",
                       }}>
-                        {m.emp.profile_image ? <img src={m.emp.profile_image} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/> : initials(m.emp.name)}
-                      </span>
-                      <div style={{flex:1,minWidth:0}}>
-                        <div style={{color:TEXT,fontSize:12,fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{m.emp.name}</div>
-                        <div style={{color:DIM,fontSize:9.5,fontFamily:"'JetBrains Mono',monospace"}}>{dLabel}</div>
+                        <div>
+                          <div style={{color:isTodayCol?BLUE:TEXT,fontSize:11,fontWeight:700}}>{dow}</div>
+                          <div style={{color:DIM,fontSize:9,fontFamily:"'JetBrains Mono',monospace"}}>{dlab}</div>
+                        </div>
+                        <span style={{
+                          color: people.length ? RED : GREEN,
+                          background: people.length ? `${RED}14` : `${GREEN}14`,
+                          border:`1px solid ${(people.length?RED:GREEN)}33`,
+                          borderRadius:20, padding:"1px 7px", fontSize:9.5, fontWeight:800, flexShrink:0,
+                        }}>{people.length}</span>
                       </div>
-                      <div style={{textAlign:"right",flexShrink:0}}>
-                        <div style={{color:GREEN,fontSize:11,fontWeight:700,fontFamily:"'JetBrains Mono',monospace"}}>{m.check_in.slice(0,5)}</div>
-                        <div style={{color:RED,fontSize:8.5,fontWeight:700,letterSpacing:0.3}}>NO CHECK-OUT</div>
+
+                      {/* people in that day */}
+                      <div style={{padding:"8px", display:"flex", flexDirection:"column", gap:6}}>
+                        {people.length === 0 ? (
+                          <div style={{color:DIM,fontSize:10,textAlign:"center",padding:"10px 0"}}>—</div>
+                        ) : people.map((m,i) => {
+                          const c = TYPE_COLORS[m.emp.type] || YELLOW;
+                          return (
+                            <div key={i} style={{
+                              display:"flex",alignItems:"center",gap:8,
+                              background:"rgba(248,113,113,0.05)",border:`1px solid ${RED}26`,
+                              borderRadius:9, padding:"6px 8px",
+                            }}>
+                              <span style={{
+                                width:24,height:24,borderRadius:"50%",flexShrink:0,overflow:"hidden",background:BG,
+                                border:`1.5px solid ${c}55`,display:"flex",alignItems:"center",justifyContent:"center",
+                                fontSize:8,fontWeight:700,color:c,
+                              }}>
+                                {m.emp.profile_image ? <img src={m.emp.profile_image} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/> : initials(m.emp.name)}
+                              </span>
+                              <div style={{flex:1,minWidth:0}}>
+                                <div style={{color:TEXT,fontSize:11,fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{m.emp.name}</div>
+                                <div style={{color:GREEN,fontSize:9,fontWeight:700,fontFamily:"'JetBrains Mono',monospace"}}>in {m.check_in.slice(0,5)}</div>
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                   );
