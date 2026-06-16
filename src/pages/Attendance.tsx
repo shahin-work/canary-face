@@ -32,10 +32,7 @@ function isWeekend(dateStr: string): boolean {
   if (dow === 6) return Math.ceil(d.getDate() / 7) % 2 === 0;
   return false;
 }
- 
-function isFuture(_dateStr: string): boolean {
-  return false; // always allow in development
-}
+  
  
 function calcHours(sessions: Session[], forDate?: string): number {
   let mins = 0;

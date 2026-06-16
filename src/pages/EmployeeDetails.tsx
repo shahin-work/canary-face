@@ -652,10 +652,7 @@ export default function EmployeeDetails() {
   }, [attendance]);
 
   // ── Stats ──────────────────────────────────────────────────────────────────
-  const workDays   = attendance.filter(a => !isNonWorking(a.date) && a.date <= today);
-  const totalDays  = workDays.length;
-  const totalHours = workDays.reduce((s,d) => s + calcHours(d.sessions ?? [], d.date), 0);  const avgHours   = totalDays > 0 ? Math.round((totalHours/totalDays)*100)/100 : 0;
-
+ 
   const todayAtt      = attendanceMap.get(today);
   const todayHours    = todayAtt ? calcHours(todayAtt.sessions, today) : 0;
   const isCurrentlyIn = todayAtt ? !todayAtt.sessions[todayAtt.sessions.length-1]?.check_out : false;
