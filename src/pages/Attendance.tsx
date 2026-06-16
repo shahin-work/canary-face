@@ -955,8 +955,8 @@ async function fetchTodayInOffice() {
               }
             </button>
             {/* live clock */}
-            <div className="att-clock" style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", flexShrink: 0 }}>
-              <span style={{ color: TEXT, fontWeight: 700, fontSize: 10, marginTop: 4, fontFamily: "'JetBrains Mono',monospace", letterSpacing: 0.8, lineHeight: 1 }}>
+{/* live clock — click to open HR */}
+            <div className="att-clock" onClick={() => navigate(isPhone ? "/phone/hr" : "/hr")} style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", flexShrink: 0, cursor: "default" }}>              <span style={{ color: TEXT, fontWeight: 700, fontSize: 10, marginTop: 4, fontFamily: "'JetBrains Mono',monospace", letterSpacing: 0.8, lineHeight: 1 }}>
                 {timeStr}
               </span>
               <span style={{ color: DIM, fontSize: 9, marginTop: 2, whiteSpace: "nowrap" }}>{dateStr}</span>

@@ -74,18 +74,18 @@ function fmtHMShort(h: number): string {
 
 
 function presentBarColor(h: number): string {
-  if (h === 0)  return "#19601D";
-  if (h < 1)    return "#19601D";
-  if (h < 2)    return "#19601D";
-  if (h < 3)    return "#19601D";
-  if (h < 4)    return "#19601D";
-  if (h < 5)    return "#218027";
-  if (h < 6)    return "#228529";
-  if (h < 7)    return "#2ba433";
-  if (h < 8)    return "#2dac35";
-  if (h < 9)    return "#39de44";
-  if (h < 10)   return "#3ce748";
-  return "#3ce748";
+  if (h === 0)  return "#041e05";
+  if (h < 1)    return "#0c4a0f";
+  if (h < 2)    return "#0c4a0f";
+  if (h < 3)    return "#0c4a0f";
+  if (h < 4)    return "#0c4a0f";
+  if (h < 5)    return "#0c4a0f";
+  if (h < 6)    return "#29862f";
+  if (h < 7)    return "#29862f";
+  if (h < 8)    return "#29862f";
+  if (h < 9)    return "#49f154";
+  if (h < 10)   return "#49f154";
+  return "#49f154";
 }
 
 // Mon-first week grid padding: (getDay()+6)%7 → 0=Mon…6=Sun

@@ -492,11 +492,12 @@ function TodaySessionTimeline({ sessions }: { sessions: any[] }) {
               <div style={{
                 position: "absolute", left: `${inPct}%`, width: `${width}%`,
                 top: "50%", transform: "translateY(-50%)",
-                height: isHovered ? 6 : 4, borderRadius: 4,
+                height: active ? (isHovered ? 7 : 5) : (isHovered ? 6 : 4), borderRadius: 4,
                 background: active
-                  ? `linear-gradient(90deg,${color}AA,${color},${color}EE)`
+                  ? `linear-gradient(90deg, ${color}33 0%, ${color}88 45%, ${color} 78%, ${YELLOW} 100%)`
                   : `linear-gradient(90deg,${color}AA,${color})`,
-                boxShadow: isHovered ? `0 0 10px ${color}77` : `0 0 4px ${color}44`,
+                boxShadow: active ? "none" : (isHovered ? `0 0 10px ${color}77` : `0 0 4px ${color}44`),
+                animation: active ? "ma-live-bar-glow 1.4s ease-in-out infinite" : undefined,
                 transition: "height 0.12s, box-shadow 0.12s",
               }} />
 
@@ -642,7 +643,19 @@ function SummaryModal({
 
   return (
     <Backdrop onClose={onClose} tint={liveAccent === GREEN ? "in" : liveAccent === RED ? "out" : null}>
-<div className="ma-card ma-card-summary" style={{ width: "min(880px, 95vw)" }}>        {/* header */}
+<div className="ma-card ma-card-summary" style={{
+        width: "min(880px, 95vw)",
+        background: liveAccent === GREEN
+          ? `linear-gradient(160deg, ${GREEN}1f 0%, #0B2018 50%, ${BG} 100%)`
+          : liveAccent === RED
+          ? `linear-gradient(160deg, ${RED}1f 0%, #200B0E 50%, ${BG} 100%)`
+          : undefined,
+        border: liveAccent === GREEN
+          ? `1px solid ${GREEN}44`
+          : liveAccent === RED
+          ? `1px solid ${RED}`
+          : undefined,
+      }}>        {/* header */}
         <div style={{ padding: "14px 22px 12px", borderBottom: `1px solid ${BORDER}`, display: "flex", alignItems: "center", gap: 12 }}>
           <AvatarRing emp={me} size={40} color={liveAccent || "rgba(99,102,241,0.4)"} spinning={refreshing} />
           <div style={{ flex: 1, minWidth: 0 }}>
@@ -732,7 +745,7 @@ function SummaryModal({
                         background: accent,
                         border: `1px solid ${accent}`,
                         borderRadius: 44, padding: "18px 39px 18px 18px",
-                        boxShadow: `0 6px 16px ${accent}40, inset 0 1px 1px rgba(255,255,255,0.25), inset 0 -3px 6px rgba(0,0,0,0.18)`,
+                        animation: `${isCurrentlyIn ? "ma-chip-glow-green" : "ma-chip-glow-red"} 1.8s ease-in-out infinite`,
                       }}>
                         <div className="ma-status-dot" style={{
                           width: 38, height: 38, borderRadius: "50%", flexShrink: 0,
@@ -795,7 +808,7 @@ function SummaryModal({
         <div style={{ padding: "10px 22px 14px", borderTop: `1px solid ${BORDER}`, display: "flex", flexDirection: "column", gap: 8 }}>
           
           <button onClick={onSwitch} style={{
-            background: "none", border: "none", color: TEXT, fontSize: 12,
+            background: "none", border: "none", color: TEXT, fontSize: 16,
             cursor: "pointer", fontFamily: "inherit", padding: 0,
             textDecoration: "underline", textAlign: "center", width: "100%",
           }}>Not you? Switch profile</button>
@@ -951,7 +964,19 @@ export default function MyAttendance() {
         @keyframes ma-scale { from{opacity:0;transform:translateY(8px) scale(0.98)} to{opacity:1;transform:translateY(0) scale(1)} }
         @keyframes ma-sk { 0%,100%{opacity:.35} 50%{opacity:.6} }
         @keyframes ma-pulse { 0%,100%{opacity:0.7;transform:translateY(-50%) scale(1)} 50%{opacity:1;transform:translateY(-50%) scale(1.3)} }
-        @keyframes ma-spin { to { transform: rotate(360deg); } }
+        @keyframes ma-live-bar-glow {
+          0%,100% { filter: drop-shadow(0 0 3px ${YELLOW}66); }
+          50%     { filter: drop-shadow(0 0 9px ${YELLOW}); }
+        }
+          @keyframes ma-spin { to { transform: rotate(360deg); } }
+        @keyframes ma-chip-glow-green {
+          0%,100% { box-shadow: 0 6px 16px ${GREEN}40, 0 0 10px ${GREEN}55, inset 0 1px 1px rgba(255,255,255,0.25), inset 0 -3px 6px rgba(0,0,0,0.18); }
+          50%     { box-shadow: 0 6px 22px ${GREEN}80, 0 0 28px ${GREEN}cc, inset 0 1px 1px rgba(255,255,255,0.25), inset 0 -3px 6px rgba(0,0,0,0.18); }
+        }
+        @keyframes ma-chip-glow-red {
+          0%,100% { box-shadow: 0 6px 16px ${RED}40, 0 0 10px ${RED}55, inset 0 1px 1px rgba(255,255,255,0.25), inset 0 -3px 6px rgba(0,0,0,0.18); }
+          50%     { box-shadow: 0 6px 22px ${RED}80, 0 0 28px ${RED}cc, inset 0 1px 1px rgba(255,255,255,0.25), inset 0 -3px 6px rgba(0,0,0,0.18); }
+        }
         @keyframes ma-flicker {
           0%, 28%, 52%, 100% { opacity: 0; }
           10%, 40% { opacity: 1; }
