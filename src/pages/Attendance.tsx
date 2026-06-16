@@ -462,7 +462,7 @@ async function fetchTodayInOffice() {
               if (date < DATA_START) return { date, status: "future" as const };
               if (isHoliday(date))   return { date, status: "holiday" as const };
               if (isWeekend(date))   return { date, status: "weekend" as const };
-              if (isFuture(date))    return { date, status: "future"  as const };
+              if (date > today)      return { date, status: "future"  as const };
 
               try {
                 const snap = await getDoc(doc(db, emp.emp_id, date));

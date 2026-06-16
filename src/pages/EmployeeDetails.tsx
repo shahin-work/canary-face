@@ -321,7 +321,7 @@ function TimelineRow({ day, attendanceMap, today, hoveredDay, onHover }: {
         })()}
 
         {/* Sessions */}
-        {att?.sessions.map((s, i) => {
+        {!isFutureDay && att?.sessions.map((s, i) => {
             const isMeeting    = (s as any).meeting === true;
             const isWfhSession = (s as any).wfh === true;
             const isReg        = (s as any).regularized === true;
@@ -652,7 +652,7 @@ export default function EmployeeDetails() {
   }, [attendance]);
 
   // ── Stats ──────────────────────────────────────────────────────────────────
-  const workDays   = attendance.filter(a => !isNonWorking(a.date));
+  const workDays   = attendance.filter(a => !isNonWorking(a.date) && a.date <= today);
   const totalDays  = workDays.length;
   const totalHours = workDays.reduce((s,d) => s + calcHours(d.sessions ?? [], d.date), 0);  const avgHours   = totalDays > 0 ? Math.round((totalHours/totalDays)*100)/100 : 0;
 
@@ -674,11 +674,47 @@ export default function EmployeeDetails() {
     </div>
   );
 
+
+  // ── Hours for the viewed month: actual vs expected (8h × working days up to today) ──
+  const monthWorkingDays = monthDates.filter(d => !isNonWorking(d) && d <= today);
+  const expectedHours    = monthWorkingDays.length * 8;
+  const monthActualHours = monthDates.reduce((s, d) => {
+    if (isNonWorking(d) || d > today) return s;          // skip weekends/holidays + future
+    const a = attendanceMap.get(d);
+    return s + (a ? calcHours(a.sessions ?? [], d) : 0);
+  }, 0);
+  const monthActualRounded = Math.round(monthActualHours * 10) / 10;
+
+
+  // ── This-month day stats ──
+  const monthDaysWorked = monthDates.filter(
+    d => !isNonWorking(d) && d <= today && (attendanceMap.get(d)?.sessions?.length ?? 0) > 0
+  );
+  const monthPresentDays = monthDaysWorked.length;
+  const monthAvg = monthPresentDays > 0 ? Math.round((monthActualHours / monthPresentDays) * 100) / 100 : 0;
+
+  const daysUnder8 = monthDaysWorked.filter(d => {
+    const h = calcHours(attendanceMap.get(d)!.sessions ?? [], d);
+    return h > 0 && h < 8;
+  }).length;
+
+  const daysNoCheckout = monthDates.filter(d => {
+    if (d > today) return false;
+    const ss = attendanceMap.get(d)?.sessions;
+    if (!ss || ss.length === 0) return false;
+    return !ss[ss.length - 1].check_out;   // last session has no check-out
+  }).length;
+
+  const regDays = monthDaysWorked.filter(d => (attendanceMap.get(d)!.sessions ?? []).some((s:any)=>s.source==="hr"||s.regularized===true)).length;
+
   const INSIGHTS = [
-    { label:"Total Present",    value:totalDays,                          unit:"days", sub:"all time",                           color:C.green,  icon:<svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M20 6L9 17l-5-5" stroke={C.green} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/></svg> },
-    { label:"Total Hours",      value:Math.round(totalHours*100)/100,       unit:"hrs",  sub:"all sessions",                       color:C.yellow, icon:<svg width="12" height="12" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke={C.yellow} strokeWidth="1.8"/><path d="M12 7v5l3 3" stroke={C.yellow} strokeWidth="1.8" strokeLinecap="round"/></svg> },
-    { label:"Avg / Day",        value:avgHours,                           unit:"hrs",  sub:`over ${totalDays} days`,             color:C.blue,   icon:<svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M3 12h18M3 6h18M3 18h18" stroke={C.blue} strokeWidth="1.8" strokeLinecap="round"/></svg> },
-  ];
+      { label:"Hours This Month", value: monthActualRounded, unit:`/ ${expectedHours}h`, sub:`${monthWorkingDays.length} working days`, color:C.yellow, icon:<svg width="12" height="12" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke={C.yellow} strokeWidth="1.8"/><path d="M12 7v5l3 3" stroke={C.yellow} strokeWidth="1.8" strokeLinecap="round"/></svg> },
+      { label:"Avg / Day", value: monthAvg, unit:"hrs", sub:`over ${monthPresentDays} present days`, color:C.blue, icon:<svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M3 12h18M3 6h18M3 18h18" stroke={C.blue} strokeWidth="1.8" strokeLinecap="round"/></svg> },
+      { label:"Days Under 8h", value: daysUnder8, unit:"days", sub:"short days this month", color:C.orange, icon:<svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M12 3v9l5 3" stroke={C.orange} strokeWidth="1.8" strokeLinecap="round"/><path d="M5 19h14" stroke={C.orange} strokeWidth="1.8" strokeLinecap="round"/></svg> },
+      { label:"No Check-out Days", value: daysNoCheckout, unit:"days", sub:"missing checkout", color:C.red, icon:<svg width="12" height="12" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke={C.red} strokeWidth="1.8"/><path d="M15 9l-6 6M9 9l6 6" stroke={C.red} strokeWidth="1.8" strokeLinecap="round"/></svg> },
+      { label:"Regularized",    value: regDays,       unit:"days",sub:"HR-marked",          color:C.regGreen, icon:<svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M20 6L9 17l-5-5" stroke={C.regGreen} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/></svg> },
+   
+    ];
 
   // Hour labels for ruler: 9 to 21, no AM/PM
   const rulerHours = [9,10,11,12,13,14,15,16,17,18,19,20,21];

@@ -917,16 +917,19 @@ function HrMain({ hrName, onLogout, onChangeName }: { hrName: string; onLogout: 
     return { present, remote, absent, total, rate, workday };
   }, [employees, todayData, today]);
 
-  const heatDays = useMemo(() => week.map(d => ({
+  // only days up to today (hide future days in the heatmap)
+  const visibleDays = useMemo(() => week.filter(d => d <= today), [week, today]);
+
+  const heatDays = useMemo(() => visibleDays.map(d => ({
     date: d,
     dow: new Date(d).toLocaleDateString("en-IN", { weekday:"short" }),
     label: new Date(d).toLocaleDateString("en-IN", { day:"2-digit", month:"short" }),
     isToday: d === today,
-  })), [week, today]);
+  })), [visibleDays, today]);
 
   const heatRows = useMemo(() => employees.map(emp => ({
-    emp, cells: week.map(d => dayStatus(emp.emp_id, d)),
-  })), [employees, week, dayStatus]);
+    emp, cells: visibleDays.map(d => dayStatus(emp.emp_id, d)),
+  })), [employees, visibleDays, dayStatus]);
 
   const missing = useMemo(() => {
     const out: { emp:any; date:string; check_in:string }[] = [];
@@ -1012,7 +1015,8 @@ function HrMain({ hrName, onLogout, onChangeName }: { hrName: string; onLogout: 
     setExporting(true);
     add("Generating report, please wait…");
     try {
-      const dates = getDaysInRange(from, to);
+      const todayStr = toDateStr(new Date());
+      const dates = getDaysInRange(from, to).filter(d => d <= todayStr);  // never export future days
 
       const empData: any[] = await Promise.all(
         employees.map(async (emp) => {
