@@ -169,3 +169,76 @@ export default function App() {
     </BrowserRouter>
   );
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// import React, { useState } from "react";
+// import emailjs from "@emailjs/browser";
+
+// export default function App() {
+//   const [sending, setSending] = useState(false);
+
+//   const sendEmail = async () => {
+//     try {
+//       setSending(true);
+
+//       const result = await emailjs.send(
+//         "service_skoy7lm",
+//         "template_lhb9bjw",
+//         {
+//           name: "Shahin",
+//           email: "shahincanary@gmail.com",
+//           subject: "React EmailJS Test",
+//           message: "Hello from React + EmailJS",
+//         },
+//         "yRqB12zhJfiYANARr"
+//       );
+
+//       console.log("SUCCESS:", result);
+//       alert("Email sent successfully!");
+//     } catch (error) {
+//       console.error("EMAIL ERROR:", error);
+//       alert("Failed to send email. Check console.");
+//     } finally {
+//       setSending(false);
+//     }
+//   };
+
+//   return (
+//     <div
+//       style={{
+//         height: "100vh",
+//         display: "flex",
+//         justifyContent: "center",
+//         alignItems: "center",
+//       }}
+//     >
+//       <button
+//         onClick={sendEmail}
+//         disabled={sending}
+//         style={{
+//           padding: "16px 24px",
+//           fontSize: "16px",
+//           cursor: "pointer",
+//         }}
+//       >
+//         {sending ? "Sending..." : "Send Email"}
+//       </button>
+//     </div>
+//   );
+// }

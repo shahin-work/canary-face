@@ -5,7 +5,8 @@ import EmployeeCard from "../components/EmployeeCard";
 import type { EmployeeCardData, DayStatus, Session } from "../components/EmployeeCard";
 import logo from "../assets/react.png";
 import logo2 from "../assets/react1.png";
-import AddMeeting from "../components/AddMeeting"; 
+import AddMeeting from "../components/AddMeeting";
+import Regularization from "../components/Regularization";
 import { useNavigate, useLocation } from "react-router-dom";
 import { DATA_START } from "../App";
 // ─── constants ───────────────────────────────────────────────────────────────
@@ -168,7 +169,6 @@ const TEXT   = "#EEF0FF";
 const SUB    = "#8090C0";
 const DIM    = "#4A5A8A";
 const YELLOW = "#FFD700";
-const BLUE   = "#a4beff";
 
 // ─── Toast ───────────────────────────────────────────────────────────────────
 const TOAST_DURATION = 3200;
@@ -394,6 +394,7 @@ export default function Attendance() {
   const [isLive,       setIsLive]      = useState(false);
   const [inOffice, setInOffice] = useState<{ emp_id: string; name: string; profile_image?: string; checkIn?: string }[]>([]);
   const [meetingOpen,  setMeetingOpen] = useState(false);
+  const [regOpen,      setRegOpen]     = useState(false);
   const didAutoScroll = useRef(false);
  
  
@@ -616,6 +617,22 @@ async function fetchTodayInOffice() {
     [cards, today]
   );
 
+  const outEmployees = useMemo(
+    () =>
+      cards
+        .filter(
+          c =>
+            !inOffice.some(p => p.emp_id === c.emp_id) &&
+            !wfhPeople.some(p => p.emp_id === c.emp_id)
+        )
+        .map(c => ({
+          emp_id: c.emp_id,
+          name: c.name,
+          profile_image: c.profile_image,
+        })),
+    [cards, inOffice, wfhPeople]
+  );
+
   // ── Navigation caps ──
   const now = new Date();
   const currentMonday = (() => {
@@ -765,6 +782,12 @@ async function fetchTodayInOffice() {
         }}
       />
 
+      <Regularization
+        open={regOpen}
+        onClose={() => setRegOpen(false)}
+        onSaved={(msg) => setToast(msg)}
+      />
+
       {/* ══ HEADER ══ */}
       <header style={{
         background: "linear-gradient(180deg,rgba(10,18,64,0.98) 0%,rgba(6,13,46,0.95) 100%)",
@@ -821,43 +844,87 @@ async function fetchTodayInOffice() {
                   </div>
                 </>
               )}
-            </div>
- 
-              <div className="adm-wrap" style={{ flexShrink: 0 }}>
-                <button
-                  onClick={() => navigate(isPhone ? "/phone/guide" : "/guide")}
+
+              <div style={{ width: 1, height: 13, background: "rgba(99,102,241,0.25)" }} />
+
+                <div
+                  className="io-wrap"
                   style={{
                     display: "flex",
                     alignItems: "center",
-                    gap: 6,
-                    flexShrink: 0,
-                    background: SURF,
-                    border: `1px solid ${BORDER}`,
-                    borderRadius: 10,
-                    padding: "6px 12px",
-                    cursor: "pointer",
-                    color: SUB,
-                    fontSize: 11,
-                    fontWeight: 600,
+                    gap: 5,
+                    cursor: "default"
                   }}
                 >
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
-                    <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="1.8" />
-                    <path
-                      d="M12 17v.01M12 14c0-2 2-2 2-4a2 2 0 10-4 0"
-                      stroke="currentColor"
-                      strokeWidth="1.8"
-                      strokeLinecap="round"
-                    />
-                  </svg>
-                </button>
+                  <div
+                    style={{
+                      width: 6,
+                      height: 6,
+                      borderRadius: "50%",
+                      background: "#EF4444",
+                      boxShadow: "0 0 6px #EF4444"
+                    }}
+                  />
 
-                <div className="adm-tip">
-                  How canaryface works
+                  <span style={{ color: "#EF4444", fontWeight: 700 }}>
+                    {outEmployees.length}
+                  </span>
+
+                  <span style={{ color: SUB }}>out</span>
+
+                  <div className="io-tip">
+                    <p
+                      style={{
+                        fontSize: 9,
+                        fontWeight: 700,
+                        color: "#EF4444",
+                        letterSpacing: 0.6,
+                        textTransform: "uppercase",
+                        margin: "0 0 7px",
+                        paddingLeft: 2
+                      }}
+                    >
+                      Out of Office
+                    </p>
+
+                    <PeopleList
+                      people={outEmployees}
+                      empty="Everyone is currently working."
+                    />
+                  </div>
                 </div>
-              </div>
+            </div>
  
  
+            {/* Regularization — available everywhere (employee self-service) */}
+            <div className="adm-wrap" style={{ flexShrink: 0 }}>
+              <button
+                onClick={() => setRegOpen(true)}
+                className="meetbtn"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  flexShrink: 0,
+                  background: "rgba(255,215,0,0.07)",
+                  border: `1px solid ${YELLOW}44`,
+                  borderRadius: 10,
+                  padding: "6px 12px",
+                  cursor: "pointer",
+                  transition: "all 0.15s",
+                }}
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
+                  <path d="M9 11l3 3L22 4" stroke={YELLOW} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                  <path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11" stroke={YELLOW} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+                {!isPhone && (
+                  <span style={{ color: YELLOW, fontSize: 11, fontWeight: 600 }}>Regularize</span>
+                )}
+              </button>
+              <div className="adm-tip">Attendance regularization — request a missed check-in / check-out correction</div>
+            </div>
+
             {/* Add meeting — desktop / office device only */}
             {!isPhone && (
               <div className="adm-wrap" style={{ flexShrink: 0 }}>
@@ -869,8 +936,8 @@ async function fetchTodayInOffice() {
                     alignItems: "center",
                     gap: 6,
                     flexShrink: 0,
-                    background: "rgba(79,142,247,0.07)",
-                    border: `1px solid ${BLUE}44`,
+                    background: "rgba(255,215,0,0.07)",
+                    border: `1px solid ${YELLOW}44`,
                     borderRadius: 10,
                     padding: "6px 12px",
                     cursor: "pointer",
@@ -878,14 +945,17 @@ async function fetchTodayInOffice() {
                   }}
                 >
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
-                    <rect x="3" y="5" width="18" height="16" rx="2" stroke={BLUE} strokeWidth="1.8" />
+                    <rect x="3" y="5" width="18" height="16" rx="2" stroke={YELLOW} strokeWidth="1.8" />
                     <path
                       d="M16 3v4M8 3v4M3 10h18M12 13v4M10 15h4"
-                      stroke={BLUE}
+                      stroke={YELLOW}
                       strokeWidth="1.8"
                       strokeLinecap="round"
                     />
                   </svg>
+                  {!isPhone && (
+                  <span style={{ color: YELLOW, fontSize: 11, fontWeight: 600 }}>Add Meeting</span>
+                )}
                 </button>
 
                 <div className="adm-tip">
@@ -894,42 +964,96 @@ async function fetchTodayInOffice() {
               </div>
             )}
 
-            {/* hr badge — desktop / office device only */}
-            {!isPhone && (
-            <div className="adm-wrap" style={{ flexShrink: 0 }}>
-              <div style={{
-                display: "flex", alignItems: "center", gap: 6,
-                background: "rgba(79,142,247,0.07)", border: `1px solid ${BLUE}44`,
-                borderRadius: 10, padding: "5px 12px", cursor: "default",
-              }}>
-                <svg width="11" height="11" viewBox="0 0 24 24" fill="none">
-                  <circle cx="12" cy="8" r="4" stroke={BLUE} strokeWidth="2"/>
-                  <path d="M4 20c0-4 3.6-7 8-7s8 3 8 7" stroke={BLUE} strokeWidth="2" strokeLinecap="round"/>
-                </svg>
-                <span style={{ color: BLUE, fontSize: 10.5, fontWeight: 700, letterSpacing: 0.5 }}>HR PANEL</span>
-              </div>
-              <div className="adm-tip">Available for HR only. Manage employee records, leave requests, attendance regularizations, and attendance reports.</div>
-            </div>
-            )}
- 
-            {/* admin badge — desktop / office device only */}
-            {!isPhone && (
-            <div className="adm-wrap" style={{ flexShrink: 0 }}>
-              <div style={{
-                display: "flex", alignItems: "center", gap: 6,
-                background: "rgba(79,142,247,0.07)", border: `1px solid ${BLUE}44`,
-                borderRadius: 10, padding: "5px 12px", cursor: "default",
-              }}>
-                <svg width="11" height="11" viewBox="0 0 24 24" fill="none">
-                  <circle cx="12" cy="8" r="4" stroke={BLUE} strokeWidth="2"/>
-                  <path d="M4 20c0-4 3.6-7 8-7s8 3 8 7" stroke={BLUE} strokeWidth="2" strokeLinecap="round"/>
-                </svg>
-                <span style={{ color: BLUE, fontSize: 10.5, fontWeight: 700, letterSpacing: 0.5 }}>ADMIN</span>
-              </div>
-              <div className="adm-tip">Available on the office device only.</div>
-            </div>
-            )}
 
+
+            {/* guide / help */
+            
+              <div className="adm-wrap" style={{ flexShrink: 0 }}>
+                <button
+                  // onClick={() => navigate(isPhone ? "/phone/guide" : "/guide")}
+                  className="meetbtn"
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                    flexShrink: 0,
+                    background: "rgba(255,215,0,0.07)",
+                    border: `1px solid ${YELLOW}44`,
+                    borderRadius: 10,
+                    padding: "6px 12px",
+                    cursor: "pointer",
+                    color: YELLOW,
+                    fontSize: 11,
+                    fontWeight: 600,
+                    transition: "all 0.15s",
+                  }}
+                >
+                  
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
+                    <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="1.8" />
+                    <path
+                      d="M12 17v.01M12 14c0-2 2-2 2-4a2 2 0 10-4 0"
+                      stroke="currentColor"
+                      strokeWidth="1.8"
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                  
+                  {!isPhone && (
+                  <span style={{ color: YELLOW, fontSize: 11, fontWeight: 600 }}>Report Issue</span>
+                )}
+                </button>
+
+                <div className="adm-tip">
+                     Report attendance, device, or workplace issues.
+                </div>
+              </div>
+                }
+
+
+            {/* guide / help */
+            
+              <div className="adm-wrap" style={{ flexShrink: 0 }}>
+                <button
+                  onClick={() => navigate(isPhone ? "/phone/guide" : "/guide")}
+                  className="meetbtn"
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                    flexShrink: 0,
+                    background: "rgba(255,215,0,0.07)",
+                    border: `1px solid ${YELLOW}44`,
+                    borderRadius: 10,
+                    padding: "6px 12px",
+                    cursor: "pointer",
+                    color: YELLOW,
+                    fontSize: 11,
+                    fontWeight: 600,
+                    transition: "all 0.15s",
+                  }}
+                >
+                  
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
+                    <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="1.8" />
+                    <path
+                      d="M12 17v.01M12 14c0-2 2-2 2-4a2 2 0 10-4 0"
+                      stroke="currentColor"
+                      strokeWidth="1.8"
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                  
+                  {!isPhone && (
+                  <span style={{ color: YELLOW, fontSize: 11, fontWeight: 600 }}>Guide</span>
+                )}
+                </button>
+
+                <div className="adm-tip">
+                  How canaryface works
+                </div>
+              </div>
+}
 
             {/* refresh */}
             <button
@@ -940,9 +1064,18 @@ async function fetchTodayInOffice() {
               }}
               disabled={loading} title="Refresh" className="rbtn"
               style={{
-                width: 33, height: 33, borderRadius: 9, border: `1px solid ${BORDER}`,
-                background: SURF, display: "flex", alignItems: "center", justifyContent: "center",
-                cursor: "pointer", flexShrink: 0, transition: "transform 0.15s",
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                background: "rgba(255,215,0,0.07)",
+                border: `1px solid ${YELLOW}44`,
+                borderRadius: 10,
+                padding: "6px 12px",
+                cursor: "pointer",
+                color: YELLOW,
+                fontSize: 11,
+                fontWeight: 600,
+                flexShrink: 0,
               }}
               onMouseEnter={e => (e.currentTarget.style.transform = "scale(1.08)")}
               onMouseLeave={e => (e.currentTarget.style.transform = "scale(1)")}>
@@ -950,12 +1083,18 @@ async function fetchTodayInOffice() {
                 ? <div className="spin" />
                 : <svg className="ri" width="14" height="14" viewBox="0 0 24 24" fill="none">
                     <path d="M4 4v5h.582m0 0a8.001 8.001 0 0115.356 2m.062-7L20 9h-5M20 20v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m-.062 7L4 15h5"
-                      stroke={BLUE} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                      stroke={YELLOW} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                   </svg>
+                  
               }
+              
+                  {!isPhone && (
+                  <span style={{ color: YELLOW, fontSize: 11, fontWeight: 600 }}>Refresh</span>
+                )}
             </button>
+ 
             {/* live clock */}
-{/* live clock — click to open HR */}
+            {/* live clock — click to open HR */}
             <div className="att-clock" onClick={() => navigate(isPhone ? "/phone/hr" : "/hr")} style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", flexShrink: 0, cursor: "default" }}>              <span style={{ color: TEXT, fontWeight: 700, fontSize: 10, marginTop: 4, fontFamily: "'JetBrains Mono',monospace", letterSpacing: 0.8, lineHeight: 1 }}>
                 {timeStr}
               </span>
@@ -964,7 +1103,6 @@ async function fetchTodayInOffice() {
 
             <div style={{ width: 1, height: 22, background: BORDER, flexShrink: 0 }} />
 
- 
           </div>
         </div>
       </header>
@@ -973,7 +1111,7 @@ async function fetchTodayInOffice() {
       <div className="page-bg" style={{ minHeight: "calc(100vh - 57px)" }}>
         {/* ── TOOLBAR ── */}
         <div style={{
-maxWidth: 1500, margin: "0 auto", padding: "12px 8px",
+        maxWidth: 1500, margin: "0 auto", padding: "12px 8px",
           display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap",
         }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>

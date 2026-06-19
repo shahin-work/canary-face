@@ -646,6 +646,7 @@ export default function EmployeeDetails() {
 
       days.sort((a, b) => b.date.localeCompare(a.date));
 
+      console.log("days loaded", days);
       setAttendance(days);
 
     } catch (e) {
@@ -725,7 +726,20 @@ export default function EmployeeDetails() {
       { label:"Avg / Day", value: monthAvg, unit:"hrs", sub:`over ${monthPresentDays} present days`, color:C.blue, icon:<svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M3 12h18M3 6h18M3 18h18" stroke={C.blue} strokeWidth="1.8" strokeLinecap="round"/></svg> },
       { label:"Days Under 8h", value: daysUnder8, unit:"days", sub:"short days this month", color:C.orange, icon:<svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M12 3v9l5 3" stroke={C.orange} strokeWidth="1.8" strokeLinecap="round"/><path d="M5 19h14" stroke={C.orange} strokeWidth="1.8" strokeLinecap="round"/></svg> },
       { label:"No Check-out Days", value: daysNoCheckout, unit:"days", sub:"missing checkout", color:C.red, icon:<svg width="12" height="12" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke={C.red} strokeWidth="1.8"/><path d="M15 9l-6 6M9 9l6 6" stroke={C.red} strokeWidth="1.8" strokeLinecap="round"/></svg> },
-      { label:"Regularized",    value: regDays,       unit:"days",sub:"HR-marked",          color:C.regGreen, icon:<svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M20 6L9 17l-5-5" stroke={C.regGreen} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/></svg> },   
+      {
+        label:"Regularized",
+        value: regDays,
+        unit:"days",
+        sub: "HR-marked",
+        color:C.regGreen,
+        icon:<svg width="12" height="12" viewBox="0 0 24 24" fill="none">
+          <path d="M20 6L9 17l-5-5"
+            stroke={C.regGreen}
+            strokeWidth="2.2"
+            strokeLinecap="round"
+            strokeLinejoin="round"/>
+        </svg>
+      }
     ];
 
   // Hour labels for ruler: 9 to 21, no AM/PM

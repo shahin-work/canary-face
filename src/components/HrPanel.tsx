@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { initializeApp, getApps } from "firebase/app";
 import { getFirestore, collection, getDocs, doc, setDoc, getDoc } from "firebase/firestore";
 import * as XLSX from "xlsx-js-style";
+import emailjs from "@emailjs/browser";
 import logo from "../assets/react.png";
 
 const firebaseConfig = {
@@ -817,8 +818,1039 @@ export default function HrPanel() {
   />;
 }
 
+// ── Regularization Requests (employee-submitted, HR approves/rejects) ──────────
+type RegStatus = "pending" | "approved" | "rejected" | "cancelled";
+
+interface RegRequest {
+  id: string;
+  date: string;
+  day: string;
+  reason: string;
+  check_in: string;   // "HH:MM"
+  check_out: string;  // "HH:MM"
+  description: string;
+  attachment?: string | null;
+  status: RegStatus;
+  created_at: number;
+  reviewed_by?: string;
+  reviewer_note?: string;
+}
+interface RegDoc {
+  emp_id: string;
+  emp_name: string;
+  requests: RegRequest[];
+}
+// flattened row for the HR list
+interface RegRow extends RegRequest {
+  emp_id: string;
+  emp_name: string;
+}
+
+const REG_STATUS_META: Record<RegStatus, { label: string; color: string }> = {
+  pending:   { label: "Pending",   color: YELLOW },
+  approved:  { label: "Approved",  color: GREEN  },
+  rejected:  { label: "Rejected",  color: RED    },
+  cancelled: { label: "Cancelled", color: DIM    },
+};
+const REG_REASON_LABEL: Record<string, string> = {
+  forgot_checkin:  "Forgot to check-in",
+  forgot_checkout: "Forgot to check-out",
+};
+const regReasonLabel = (r: string) => REG_REASON_LABEL[r] || r;
+
+function regFmtCreated(ms: number): string {
+  if (!ms) return "";
+  const d = new Date(ms);
+  return d.toLocaleDateString("en-IN", { day: "numeric", month: "short" }) + " · " +
+         d.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
+}
+function regToMins(t: string) { if (!t) return 0; const [h, m] = t.split(":").map(Number); return h * 60 + m; }
+function regFmtDuration(mins: number) {
+  if (mins <= 0) return "0h";
+  const h = Math.floor(mins / 60), m = mins % 60;
+  if (h === 0) return `${m}m`;
+  if (m === 0) return `${h}h`;
+  return `${h}h ${m}m`;
+}
+
+function RegRequestCard({
+  row, empMeta, busy, onApprove, onReject, onViewImg,
+}: {
+  row: RegRow;
+  empMeta?: any;
+  busy: boolean;
+  onApprove: (r: RegRow) => void;
+  onReject: (r: RegRow) => void;
+  onViewImg: (img: string) => void;
+}) {
+  const [rejecting, setRejecting] = useState(false);
+  const [note, setNote] = useState("");
+  const mins = regToMins(row.check_out) - regToMins(row.check_in);
+  const m = REG_STATUS_META[row.status];
+
+  return (
+    <div style={{
+      background: SURF2, border: `1px solid ${BORDER}`, borderRadius: 13, padding: 14,
+      display: "flex", flexDirection: "column", gap: 10,
+    }}>
+      {/* who applied */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <span style={{
+          width: 34, height: 34, borderRadius: "50%", flexShrink: 0, overflow: "hidden", background: BG,
+          border: `1.5px solid ${YELLOW}55`, display: "flex", alignItems: "center", justifyContent: "center",
+          fontSize: 11, fontWeight: 700, color: YELLOW,
+        }}>
+          {empMeta?.profile_image
+            ? <img src={empMeta.profile_image} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+            : initials(row.emp_name)}
+        </span>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ color: TEXT, fontSize: 13, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+            {row.emp_name}
+          </div>
+          <div style={{ color: DIM, fontSize: 9.5, fontFamily: "'JetBrains Mono',monospace" }}>
+            {row.emp_id}{empMeta?.department ? ` · ${empMeta.department}` : ""}
+          </div>
+        </div>
+        <span style={{
+          fontSize: 9.5, fontWeight: 700, color: m.color, background: `${m.color}18`,
+          border: `1px solid ${m.color}40`, borderRadius: 20, padding: "2px 9px", flexShrink: 0,
+        }}>{m.label}</span>
+      </div>
+
+      {/* details */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <span style={{ color: TEXT, fontWeight: 700, fontSize: 12 }}>
+          {new Date(row.date + "T00:00:00").toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" })}
+        </span>
+        <span style={{
+          fontSize: 9.5, fontWeight: 700, color: BLUE, background: `${BLUE}15`,
+          border: `1px solid ${BLUE}33`, borderRadius: 20, padding: "2px 8px",
+        }}>{regReasonLabel(row.reason)}</span>
+        <span style={{ color: GREEN, fontFamily: "'JetBrains Mono',monospace", fontWeight: 700, fontSize: 11 }}>{row.check_in}</span>
+        <span style={{ color: DIM }}>→</span>
+        <span style={{ color: RED, fontFamily: "'JetBrains Mono',monospace", fontWeight: 700, fontSize: 11 }}>{row.check_out}</span>
+        <span style={{ color: SUB, fontSize: 11 }}>· {regFmtDuration(mins)}</span>
+        {row.created_at ? (
+          <span style={{ color: DIM, fontSize: 9.5, marginLeft: "auto" }}>{regFmtCreated(row.created_at)}</span>
+        ) : null}
+      </div>
+
+      <p style={{ color: SUB, fontSize: 11.5, margin: 0, lineHeight: 1.5 }}>{row.description}</p>
+
+      {row.attachment && (
+        <button onClick={() => onViewImg(row.attachment!)} style={{
+          alignSelf: "flex-start", display: "flex", alignItems: "center", gap: 7,
+          background: "transparent", border: `1px solid ${BLUE}33`, borderRadius: 9, padding: "5px 10px",
+          cursor: "pointer",
+        }}>
+          <img src={row.attachment} alt="" style={{ width: 26, height: 26, borderRadius: 6, objectFit: "cover" }} />
+          <span style={{ color: BLUE, fontSize: 10.5, fontWeight: 600 }}>View attachment</span>
+        </button>
+      )}
+
+      {/* reviewer info for resolved */}
+      {(row.status === "approved" || row.status === "rejected") && (
+        <div style={{
+          fontSize: 10.5, color: row.status === "rejected" ? RED : GREEN,
+          background: "rgba(99,102,241,0.06)", borderRadius: 8, padding: "6px 9px",
+        }}>
+          <span style={{ fontWeight: 700 }}>
+            {row.status === "rejected" ? "Rejected" : "Approved"}{row.reviewed_by ? ` by ${row.reviewed_by}` : ""}
+          </span>
+          {row.reviewer_note ? ` — ${row.reviewer_note}` : ""}
+        </div>
+      )}
+
+      {/* actions for pending */}
+      {row.status === "pending" && (
+        rejecting ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <input value={note} onChange={e => setNote(e.target.value)} maxLength={120}
+              placeholder="Reason for rejection (optional)…"
+              style={{
+                width: "100%", background: SURF3, border: `1px solid ${RED}33`, borderRadius: 9,
+                color: TEXT, fontSize: 12, padding: "8px 11px", outline: "none", fontFamily: "'Sora',sans-serif",
+              }} />
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={() => setRejecting(false)} disabled={busy} style={{
+                flex: 1, padding: "8px", borderRadius: 9, border: `1px solid ${BORDER}`,
+                background: SURF, color: SUB, fontSize: 11.5, fontWeight: 700, cursor: "pointer", fontFamily: "inherit",
+              }}>Back</button>
+              <button onClick={() => onReject({ ...row, reviewer_note: note.trim() })} disabled={busy} style={{
+                flex: 2, padding: "8px", borderRadius: 9, border: "none",
+                background: RED, color: "#1a0606", fontSize: 11.5, fontWeight: 800,
+                cursor: busy ? "not-allowed" : "pointer", fontFamily: "inherit",
+              }}>{busy ? "Rejecting…" : "Confirm Reject"}</button>
+            </div>
+          </div>
+        ) : (
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={() => setRejecting(true)} disabled={busy} style={{
+              flex: 1, padding: "9px", borderRadius: 9, border: `1px solid ${RED}44`,
+              background: "rgba(248,113,113,0.08)", color: RED, fontSize: 12, fontWeight: 700,
+              cursor: busy ? "not-allowed" : "pointer", fontFamily: "inherit",
+            }}>Reject</button>
+            <button onClick={() => onApprove(row)} disabled={busy} style={{
+              flex: 2, padding: "9px", borderRadius: 9, border: "none",
+              background: `linear-gradient(135deg,${GREEN},#16a34a)`, color: "#04130a", fontSize: 12, fontWeight: 800,
+              cursor: busy ? "not-allowed" : "pointer", fontFamily: "inherit",
+              display: "flex", alignItems: "center", justifyContent: "center", gap: 7,
+            }}>{busy ? "Approving…" : "Approve & Add to Attendance"}</button>
+          </div>
+        )
+      )}
+    </div>
+  );
+}
+
+function RegularizationRequests({
+  hrName, employees, onToast, onResolved,
+}: {
+  hrName: string;
+  employees: any[];
+  onToast: (msg: string, type?: string) => void;
+  onResolved?: () => void;
+}) {
+  const [docs, setDocs]       = useState<RegDoc[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [tab, setTab]         = useState<"pending" | "approved" | "rejected" | "cancelled" | "all">("pending");
+  const [busyId, setBusyId]   = useState<string | null>(null);
+  const [imgView, setImgView] = useState<string | null>(null);
+
+  const empById = useMemo(() => {
+    const map: Record<string, any> = {};
+    for (const e of employees) map[e.emp_id] = e;
+    return map;
+  }, [employees]);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const snap = await getDocs(collection(db, "regularizations"));
+      setDocs(snap.docs.map(d => {
+        const data = d.data() as Partial<RegDoc>;
+        return {
+          emp_id: data.emp_id || d.id,
+          emp_name: data.emp_name || d.id,
+          requests: Array.isArray(data.requests) ? data.requests : [],
+        };
+      }));
+    } catch (e) {
+      console.error(e);
+      onToast("Could not load regularization requests.", "error");
+    } finally {
+      setLoading(false);
+    }
+  }, [onToast]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const rows: RegRow[] = useMemo(() => {
+    const out: RegRow[] = [];
+    for (const d of docs) {
+      for (const r of d.requests) {
+        out.push({ ...r, emp_id: d.emp_id, emp_name: d.emp_name });
+      }
+    }
+    out.sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+    return out;
+  }, [docs]);
+
+  const counts = useMemo(() => {
+    const c = { all: rows.length, pending: 0, approved: 0, rejected: 0, cancelled: 0 } as Record<string, number>;
+    for (const r of rows) c[r.status] += 1;
+    return c;
+  }, [rows]);
+
+  const visible = useMemo(
+    () => tab === "all" ? rows : rows.filter(r => r.status === tab),
+    [rows, tab]
+  );
+
+  // persist a status change back to regularizations/{emp_id}
+  async function patchRequest(empId: string, reqId: string, patch: Partial<RegRequest>) {
+    const target = docs.find(d => d.emp_id === empId);
+    const updated = (target?.requests || []).map(r => r.id === reqId ? { ...r, ...patch } : r);
+    await setDoc(doc(db, "regularizations", empId), { requests: updated }, { merge: true });
+    setDocs(prev => prev.map(d => d.emp_id === empId ? { ...d, requests: updated } : d));
+  }
+
+  async function handleApprove(row: RegRow) {
+    setBusyId(row.id);
+    try {
+      // 1) write the attendance session into the employee's daily doc: <emp_id>/<date>
+      const ref = doc(db, row.emp_id, row.date);
+      const snap = await getDoc(ref);
+      const existing: any[] = snap.exists() ? ((snap.data().sessions as any[]) || []) : [];
+      const newSession = {
+        session: existing.length + 1,
+        check_in: `${row.check_in}:00`,
+        check_out: `${row.check_out}:00`,
+        regularized: true,
+        source: "regularization",
+        ...(hrName ? { approved_by: hrName } : {}),
+        ...(row.description ? { note: row.description } : {}),
+      };
+      await setDoc(ref, { sessions: [...existing, newSession] }, { merge: true });
+
+      // 2) mark the request approved
+      await patchRequest(row.emp_id, row.id, {
+        status: "approved",
+        reviewed_by: hrName || "HR",
+        reviewer_note: "Added to attendance.",
+      });
+      onToast(`Approved · ${row.emp_name} · ${row.date} ✓`);
+      onResolved?.();
+    } catch (e) {
+      console.error(e);
+      onToast("Could not approve the request.", "error");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function handleReject(row: RegRow) {
+    setBusyId(row.id);
+    try {
+      await patchRequest(row.emp_id, row.id, {
+        status: "rejected",
+        reviewed_by: hrName || "HR",
+        reviewer_note: row.reviewer_note || "",
+      });
+      onToast(`Rejected · ${row.emp_name} · ${row.date}`);
+      onResolved?.();
+    } catch (e) {
+      console.error(e);
+      onToast("Could not reject the request.", "error");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  const TABS: ("pending" | "approved" | "rejected" | "cancelled" | "all")[] =
+    ["pending", "approved", "rejected", "cancelled", "all"];
+
+  return (
+    <div style={{ maxWidth: 760 }}>
+      {/* image lightbox */}
+      {imgView && (
+        <div onClick={() => setImgView(null)} style={{
+          position: "fixed", inset: 0, zIndex: 99998, background: "rgba(2,6,23,0.85)",
+          backdropFilter: "blur(6px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24,
+        }}>
+          <img src={imgView} alt="attachment" style={{ maxWidth: "90vw", maxHeight: "90vh", borderRadius: 12, border: `1px solid ${BORDER}` }} />
+        </div>
+      )}
+
+      {/* heading */}
+      <div style={{
+        display: "flex", alignItems: "center", gap: 11,
+        paddingBottom: 14, marginBottom: 16, borderBottom: `1px solid ${BORDER}`,
+      }}>
+        <span style={{
+          width: 38, height: 38, borderRadius: 11, flexShrink: 0,
+          background: `${YELLOW}18`, border: `1px solid ${YELLOW}40`,
+          display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18,
+        }}>📥</span>
+        <div style={{ flex: 1 }}>
+          <h2 style={{ color: TEXT, fontWeight: 800, fontSize: 16, margin: 0, lineHeight: 1.15 }}>
+            Regularization Requests
+          </h2>
+          <p style={{ color: SUB, fontSize: 11, margin: "3px 0 0" }}>
+            Employee-submitted corrections. Approving adds the session to their attendance.
+          </p>
+        </div>
+        <button onClick={load} disabled={loading} title="Refresh" style={{
+          background: "rgba(255,215,0,0.07)", border: `1px solid ${YELLOW}44`, borderRadius: 9,
+          color: YELLOW, fontSize: 11, fontWeight: 700, padding: "7px 12px", cursor: "pointer", fontFamily: "inherit",
+        }}>{loading ? "Loading…" : "↻ Refresh"}</button>
+      </div>
+
+      {/* status tabs */}
+      <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginBottom: 16 }}>
+        {TABS.map(t => {
+          const active = tab === t;
+          const color = t === "all" ? BLUE : REG_STATUS_META[t].color;
+          const label = t === "all" ? "All" : REG_STATUS_META[t].label;
+          return (
+            <button key={t} className="tab-btn" onClick={() => setTab(t)} style={{
+              display: "flex", alignItems: "center", gap: 6, padding: "6px 11px", borderRadius: 9,
+              border: `1px solid ${active ? color + "66" : BORDER}`,
+              background: active ? `${color}14` : "transparent",
+              color: active ? color : SUB, fontSize: 11.5, fontWeight: 700, cursor: "pointer", fontFamily: "inherit",
+            }}>
+              {label}
+              <span style={{
+                background: active ? `${color}22` : "rgba(99,102,241,0.15)",
+                color: active ? color : SUB, borderRadius: 8, padding: "0 6px", fontSize: 9.5, fontWeight: 700,
+              }}>{counts[t]}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* list */}
+      {loading ? (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} style={{ height: 150, borderRadius: 13, background: SURF2, opacity: 0.5 }} />
+          ))}
+        </div>
+      ) : visible.length === 0 ? (
+        <div style={{ textAlign: "center", padding: "48px 0", color: SUB, fontSize: 13 }}>
+          <div style={{ fontSize: 34, marginBottom: 10 }}>📭</div>
+          No {tab === "all" ? "" : REG_STATUS_META[tab].label.toLowerCase() + " "}requests.
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          {visible.map(row => (
+            <RegRequestCard
+              key={`${row.emp_id}_${row.id}`}
+              row={row}
+              empMeta={empById[row.emp_id]}
+              busy={busyId === row.id}
+              onApprove={handleApprove}
+              onReject={handleReject}
+              onViewImg={setImgView}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Send Mail (HR → employees, filtered by hours worked) ───────────────────────
+interface MailContact { name: string; email: string; }
+type MailFilter = "all" | "under8" | "under4";
+type MailTplKey = "general" | "under8" | "under4";
+
+interface MailTemplate { subject: string; body: string; }
+interface MailSettings {
+  emailjs: { serviceId: string; templateId: string; publicKey: string };
+  recipients: MailContact[];
+  cc: MailContact[];
+  templates: Record<MailTplKey, MailTemplate>;
+}
+interface MailLog {
+  id: string;
+  sent_at: number;
+  sent_by: string;
+  filter: MailFilter;
+  template: MailTplKey;
+  subject: string;
+  body: string;
+  to: MailContact[];
+  cc: MailContact[];
+  ok: number;
+  failed: number;
+}
+
+// default seed (used to create settings/mail the first time)
+const DEFAULT_RECIPIENTS: MailContact[] = [
+  { name: "Muhammad Shahin C S", email: "shahin@canarydigital.ai" },
+  { name: "Fayiz C J", email: "fayiz@canarydigital.ai" },
+  { name: "Mohammed Ameen M", email: "ameen@canarydigital.ai" },
+  { name: "Sruthymol K S", email: "sruthy@canarydigital.ai" },
+  { name: "Lin Ann Jose", email: "lin@canarydigital.ai" },
+  { name: "Abhijith A", email: "abhijith@canarydigital.ai" },
+  { name: "Arunraj R", email: "arunraj@canarydigital.ai" },
+  { name: "Muhammad Rizwan", email: "rizwan@canarydigital.ai" },
+  { name: "BASIM B", email: "basim@canarydigital.ai" },
+  { name: "Ahil S", email: "ahil@canarydigital.ai" },
+  { name: "Sruthymol K S", email: "shruthy@canarydigital.ai" },
+  { name: "Chithira E P", email: "chithira@canarydigital.ai" },
+  { name: "Aiswaryalakshmi2013", email: "aiswaryalakshmi2013@gmail.com" },
+  { name: "Gramikasiju2002", email: "gramikasiju2002@gmail.com" },
+  { name: "Fathimafida2411", email: "fathimafida2411@gmail.com" },
+  { name: "Anushabaiju172", email: "anushabaiju172@gmail.com" },
+  { name: "Nandanaraveendran32", email: "nandanaraveendran32@gmail.com" },
+  { name: "rashaeshaal", email: "rashaeshaal@gmail.com" },
+  { name: "Amaleshkumar68", email: "amaleshkumar68@gmail.com" },
+  { name: "Stamilazhagan95", email: "s.tamilazhagan95@gmail.com" },
+];
+const DEFAULT_CC: MailContact[] = [
+  { name: "Asha Gopinathan", email: "asha@canarydigital.ai" },
+];
+const DEFAULT_TEMPLATES: Record<MailTplKey, MailTemplate> = {
+  general: {
+    subject: "Attendance Reminder — Canary",
+    body:
+`Dear Team,
+
+This is a gentle reminder regarding your attendance and work hours.
+Please ensure you check in and check out correctly each working day.
+
+Period: {date_range}
+
+Regards,
+HR — Canary Digital`,
+  },
+  under8: {
+    subject: "Work Hours Below 8 Hours — Action Needed",
+    body:
+`Dear Team,
+
+Our records show that your logged work hours are below the expected 8 hours per day for the period {date_range}.
+Kindly ensure you complete your full working hours going forward. If any check-in/check-out was missed, please raise a regularization request.
+
+Regards,
+HR — Canary Digital`,
+  },
+  under4: {
+    subject: "Work Hours Below 4 Hours — Immediate Attention",
+    body:
+`Dear Team,
+
+Our records show that your logged work hours are below 4 hours for the period {date_range}.
+This is significantly short of the expected hours. Please reach out to HR to clarify and complete a regularization request if your attendance was not captured correctly.
+
+Regards,
+HR — Canary Digital`,
+  },
+};
+
+const FILTER_TO_TPL: Record<MailFilter, MailTplKey> = { all: "general", under8: "under8", under4: "under4" };
+const MAIL_FILTER_LABEL: Record<MailFilter, string> = {
+  all: "All employees", under8: "Under 8 hours worked", under4: "Under 4 hours worked",
+};
+const MAIL_TPL_LABEL: Record<MailTplKey, string> = {
+  general: "General reminder", under8: "Under 8 hours", under4: "Under 4 hours",
+};
+
+const MAIL_RANGE_MIN = "2026-06-01";
+
+function mailFmtSent(ms: number) {
+  if (!ms) return "";
+  const d = new Date(ms);
+  return d.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) + " · " +
+         d.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
+}
+
+function SendMail({
+  hrName, employees, onToast,
+}: {
+  hrName: string;
+  employees: any[];
+  onToast: (msg: string, type?: string) => void;
+}) {
+  const [settings, setSettings]   = useState<MailSettings | null>(null);
+  const [loading, setLoading]     = useState(true);
+  const [view, setView]           = useState<"compose" | "history">("compose");
+
+  const [filter, setFilter]       = useState<MailFilter>("all");
+  const [tplKey, setTplKey]       = useState<MailTplKey>("general");
+  const [fromDate, setFromDate]   = useState(MAIL_RANGE_MIN);
+  const [toDate, setToDate]       = useState(toDateStr(new Date()));
+
+  const [subject, setSubject]     = useState("");
+  const [body, setBody]           = useState("");
+
+  const [to, setTo]               = useState<MailContact[]>([]);
+  const [cc, setCc]               = useState<MailContact[]>([]);
+  const [addToVal, setAddToVal]   = useState("");
+  const [addCcVal, setAddCcVal]   = useState("");
+
+  const [computing, setComputing] = useState(false);
+  const [hoursByEmp, setHoursByEmp] = useState<Record<string, number>>({});
+
+  const [sending, setSending]     = useState(false);
+  const [logs, setLogs]           = useState<MailLog[]>([]);
+  const [loadingLogs, setLoadingLogs] = useState(false);
+
+  const dateRangeLabel = fromDate === toDate
+    ? new Date(fromDate).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })
+    : `${new Date(fromDate).toLocaleDateString("en-IN", { day: "numeric", month: "short" })} – ${new Date(toDate).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}`;
+
+  // ── load / seed settings ──
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      try {
+        const ref = doc(db, "settings", "mail");
+        const snap = await getDoc(ref);
+        if (snap.exists()) {
+          const d = snap.data() as Partial<MailSettings>;
+          const merged: MailSettings = {
+            emailjs: { serviceId: "", templateId: "", publicKey: "", ...(d.emailjs || {}) },
+            recipients: d.recipients?.length ? d.recipients : DEFAULT_RECIPIENTS,
+            cc: d.cc?.length ? d.cc : DEFAULT_CC,
+            templates: { ...DEFAULT_TEMPLATES, ...(d.templates || {}) },
+          };
+          setSettings(merged);
+        } else {
+          const seed: MailSettings = {
+            emailjs: { serviceId: "", templateId: "", publicKey: "" },
+            recipients: DEFAULT_RECIPIENTS,
+            cc: DEFAULT_CC,
+            templates: DEFAULT_TEMPLATES,
+          };
+          await setDoc(ref, seed, { merge: true });
+          setSettings(seed);
+        }
+      } catch (e) {
+        console.error(e);
+        onToast("Could not load mail settings.", "error");
+        // fall back to defaults so the UI still works
+        setSettings({ emailjs: { serviceId: "", templateId: "", publicKey: "" }, recipients: DEFAULT_RECIPIENTS, cc: DEFAULT_CC, templates: DEFAULT_TEMPLATES });
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [onToast]);
+
+  // initialise cc + subject/body from settings once loaded
+  useEffect(() => {
+    if (!settings) return;
+    setCc(settings.cc);
+  }, [settings]);
+
+  // when template key changes (or settings load) → fill subject/body from template
+  useEffect(() => {
+    if (!settings) return;
+    const t = settings.templates[tplKey];
+    setSubject(t.subject);
+    setBody(t.body.replace(/\{date_range\}/g, dateRangeLabel));
+  }, [tplKey, settings]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // keep {date_range} fresh in body when range changes (re-applies the template)
+  useEffect(() => {
+    if (!settings) return;
+    const t = settings.templates[tplKey];
+    setBody(t.body.replace(/\{date_range\}/g, dateRangeLabel));
+  }, [fromDate, toDate]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // filter → auto-pick the matching template
+  function onFilterChange(f: MailFilter) {
+    setFilter(f);
+    setTplKey(FILTER_TO_TPL[f]);
+  }
+
+  // resolve an employee's email: prefer employee record, else match by name in the recipient pool
+  const emailForEmp = useCallback((emp: any): MailContact | null => {
+    if (emp.email) return { name: emp.name, email: emp.email };
+    const pool = settings?.recipients || DEFAULT_RECIPIENTS;
+    const hit = pool.find(r => r.name.trim().toLowerCase() === (emp.name || "").trim().toLowerCase());
+    if (hit) return { name: emp.name, email: hit.email };
+    return null;
+  }, [settings]);
+
+  // ── compute hours per employee for the range, then build the TO list ──
+  const buildRecipients = useCallback(async () => {
+    setComputing(true);
+    try {
+      const dates = getDaysInRange(fromDate, toDate).filter(d => !isWeekend(d) && !isHoliday(d) && d <= toDateStr(new Date()));
+      const hours: Record<string, number> = {};
+      await Promise.all(employees.map(async (emp) => {
+        let total = 0;
+        await Promise.all(dates.map(async (date) => {
+          try {
+            const snap = await getDoc(doc(db, emp.emp_id, date));
+            if (snap.exists()) total += calcHours((snap.data().sessions as any[]) || []);
+          } catch (_) {}
+        }));
+        hours[emp.emp_id] = Math.round(total * 10) / 10;
+      }));
+      setHoursByEmp(hours);
+
+      // average per worked day for fair thresholding (avoids penalising short ranges)
+      const dayCount = Math.max(1, dates.length);
+      const matched = employees.filter(emp => {
+        const avg = (hours[emp.emp_id] || 0) / dayCount;
+        if (filter === "all") return true;
+        if (filter === "under8") return avg < 8;
+        if (filter === "under4") return avg < 4;
+        return true;
+      });
+
+      const contacts: MailContact[] = [];
+      const missing: string[] = [];
+      for (const emp of matched) {
+        const c = emailForEmp(emp);
+        if (c) contacts.push(c);
+        else missing.push(emp.name);
+      }
+      // de-dupe by email
+      const seen = new Set<string>();
+      const unique = contacts.filter(c => {
+        const k = c.email.toLowerCase();
+        if (seen.has(k)) return false; seen.add(k); return true;
+      });
+      setTo(unique);
+      if (missing.length) onToast(`${missing.length} matched employee(s) have no email on file: ${missing.slice(0, 3).join(", ")}${missing.length > 3 ? "…" : ""}`, "error");
+    } catch (e) {
+      console.error(e);
+      onToast("Could not compute work hours.", "error");
+    } finally {
+      setComputing(false);
+    }
+  }, [employees, fromDate, toDate, filter, emailForEmp, onToast]);
+
+  // rebuild recipients whenever filter / range / employees change
+  useEffect(() => {
+    if (employees.length === 0) return;
+    buildRecipients();
+  }, [employees, fromDate, toDate, filter]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function isEmail(v: string) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim()); }
+  function addContact(kind: "to" | "cc", raw: string) {
+    const v = raw.trim();
+    if (!isEmail(v)) { onToast("Enter a valid email address.", "error"); return; }
+    const c: MailContact = { name: v.split("@")[0], email: v };
+    if (kind === "to") {
+      if (to.some(x => x.email.toLowerCase() === v.toLowerCase())) return;
+      setTo(p => [...p, c]); setAddToVal("");
+    } else {
+      if (cc.some(x => x.email.toLowerCase() === v.toLowerCase())) return;
+      setCc(p => [...p, c]); setAddCcVal("");
+    }
+  }
+  const removeTo = (email: string) => setTo(p => p.filter(c => c.email !== email));
+  const removeCc = (email: string) => setCc(p => p.filter(c => c.email !== email));
+
+  // ── load sent-mail history ──
+  const loadLogs = useCallback(async () => {
+    setLoadingLogs(true);
+    try {
+      const snap = await getDocs(collection(db, "mail_logs"));
+      const list = snap.docs.map(d => ({ id: d.id, ...(d.data() as Omit<MailLog, "id">) }));
+      list.sort((a, b) => (b.sent_at || 0) - (a.sent_at || 0));
+      setLogs(list);
+    } catch (e) {
+      console.error(e);
+      onToast("Could not load mail history.", "error");
+    } finally {
+      setLoadingLogs(false);
+    }
+  }, [onToast]);
+
+  useEffect(() => { if (view === "history") loadLogs(); }, [view, loadLogs]);
+
+  // ── send via EmailJS ──
+  async function handleSend() {
+    if (!settings) return;
+    const { serviceId, templateId, publicKey } = settings.emailjs;
+    if (!serviceId || !templateId || !publicKey) {
+      onToast("EmailJS keys are not configured. Add them in settings/mail (serviceId, templateId, publicKey).", "error");
+      return;
+    }
+    if (to.length === 0) { onToast("No recipients to send to.", "error"); return; }
+    if (!subject.trim() || !body.trim()) { onToast("Subject and body are required.", "error"); return; }
+
+    setSending(true);
+    let ok = 0, failed = 0;
+    const ccList = cc.map(c => c.email).join(",");
+    try {
+      for (const r of to) {
+        try {
+          await emailjs.send(serviceId, templateId, {
+            to_email: r.email,
+            to_name: r.name,
+            cc_email: ccList,
+            subject,
+            message: body,
+            from_name: hrName || "HR — Canary Digital",
+            date_range: dateRangeLabel,
+          }, { publicKey });
+          ok += 1;
+        } catch (err) {
+          console.error("send failed for", r.email, err);
+          failed += 1;
+        }
+      }
+
+      // log it
+      const log: Omit<MailLog, "id"> = {
+        sent_at: Date.now(), sent_by: hrName || "HR", filter, template: tplKey,
+        subject, body, to, cc, ok, failed,
+      };
+      try {
+        await setDoc(doc(collection(db, "mail_logs")), log);
+      } catch (e) { console.error("log save failed", e); }
+
+      if (failed === 0) onToast(`Sent to ${ok} recipient${ok !== 1 ? "s" : ""} ✓`);
+      else onToast(`Sent ${ok}, failed ${failed}. Check EmailJS config.`, failed > ok ? "error" : "ok");
+    } finally {
+      setSending(false);
+    }
+  }
+
+  // total hours worked, keyed by email (for the recipient chips)
+  const hoursByEmail = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const emp of employees) {
+      const c = emailForEmp(emp);
+      if (c && hoursByEmp[emp.emp_id] != null) map[c.email.toLowerCase()] = hoursByEmp[emp.emp_id];
+    }
+    return map;
+  }, [employees, hoursByEmp, emailForEmp]);
+
+  const inputStyle: React.CSSProperties = {
+    width: "100%", background: SURF3, border: `1px solid ${BORDER}`, borderRadius: 9,
+    color: TEXT, fontSize: 12.5, padding: "9px 11px", outline: "none", fontFamily: "'Sora',sans-serif",
+  };
+  const chip = (c: MailContact, onX: () => void, accent: string) => (
+    <span key={c.email} style={{
+      display: "inline-flex", alignItems: "center", gap: 6, background: `${accent}12`,
+      border: `1px solid ${accent}33`, borderRadius: 20, padding: "3px 6px 3px 9px", maxWidth: "100%",
+    }}>
+      <span style={{ minWidth: 0 }}>
+        <span style={{ color: TEXT, fontSize: 10.5, fontWeight: 600, whiteSpace: "nowrap" }}>{c.name}</span>
+        <span style={{ color: SUB, fontSize: 9, marginLeft: 5, fontFamily: "'JetBrains Mono',monospace" }}>{c.email}</span>
+      </span>
+      <button onClick={onX} style={{ background: "none", border: "none", color: accent, fontSize: 13, cursor: "pointer", lineHeight: 1, padding: "0 2px", flexShrink: 0 }}>×</button>
+    </span>
+  );
+
+  if (loading) {
+    return <div style={{ padding: "48px 0", textAlign: "center", color: SUB, fontSize: 13 }}>Loading mail settings…</div>;
+  }
+
+  return (
+    <div style={{ maxWidth: 880 }}>
+      {/* heading + view toggle */}
+      <div style={{
+        display: "flex", alignItems: "center", gap: 11,
+        paddingBottom: 14, marginBottom: 16, borderBottom: `1px solid ${BORDER}`,
+      }}>
+        <span style={{
+          width: 38, height: 38, borderRadius: 11, flexShrink: 0,
+          background: `${TEAL}18`, border: `1px solid ${TEAL}40`,
+          display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18,
+        }}>✉️</span>
+        <div style={{ flex: 1 }}>
+          <h2 style={{ color: TEXT, fontWeight: 800, fontSize: 16, margin: 0, lineHeight: 1.15 }}>Send Mail</h2>
+          <p style={{ color: SUB, fontSize: 11, margin: "3px 0 0" }}>
+            Email employees based on hours worked. Content adapts to the filter.
+          </p>
+        </div>
+        <div style={{ display: "flex", gap: 2, background: SURF, border: `1px solid ${BORDER}`, borderRadius: 10, padding: 3 }}>
+          {(["compose", "history"] as const).map(v => (
+            <button key={v} onClick={() => setView(v)} style={{
+              padding: "6px 13px", borderRadius: 7, border: "none", cursor: "pointer",
+              fontSize: 11, fontWeight: 700, textTransform: "capitalize", fontFamily: "inherit",
+              background: view === v ? TEAL : "transparent", color: view === v ? BG : SUB,
+            }}>{v === "history" ? "Sent History" : "Compose"}</button>
+          ))}
+        </div>
+      </div>
+
+      {view === "history" ? (
+        loadingLogs ? (
+          <div style={{ padding: "40px 0", textAlign: "center", color: SUB, fontSize: 12.5 }}>Loading history…</div>
+        ) : logs.length === 0 ? (
+          <div style={{ padding: "48px 0", textAlign: "center", color: SUB, fontSize: 13 }}>
+            <div style={{ fontSize: 32, marginBottom: 10 }}>📭</div>No mails sent yet.
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {logs.map(l => (
+              <div key={l.id} style={{ background: SURF2, border: `1px solid ${BORDER}`, borderRadius: 12, padding: 13 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 6 }}>
+                  <span style={{ color: TEXT, fontWeight: 700, fontSize: 13 }}>{l.subject}</span>
+                  <span style={{ fontSize: 9.5, fontWeight: 700, color: TEAL, background: `${TEAL}15`, border: `1px solid ${TEAL}33`, borderRadius: 20, padding: "2px 8px" }}>
+                    {MAIL_FILTER_LABEL[l.filter]}
+                  </span>
+                  <span style={{ marginLeft: "auto", color: DIM, fontSize: 9.5 }}>{mailFmtSent(l.sent_at)}</span>
+                </div>
+                <div style={{ display: "flex", gap: 12, fontSize: 10.5, color: SUB, marginBottom: 6, flexWrap: "wrap" }}>
+                  <span>By <b style={{ color: TEXT }}>{l.sent_by}</b></span>
+                  <span style={{ color: GREEN }}>✓ {l.ok} sent</span>
+                  {l.failed > 0 && <span style={{ color: RED }}>✗ {l.failed} failed</span>}
+                  <span>· {l.to.length} recipients</span>
+                </div>
+                <details>
+                  <summary style={{ cursor: "pointer", color: TEAL, fontSize: 10.5, fontWeight: 600 }}>View recipients & body</summary>
+                  <div style={{ marginTop: 8 }}>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: 8 }}>
+                      {l.to.map(c => (
+                        <span key={c.email} style={{ fontSize: 9, color: SUB, background: "rgba(99,102,241,0.08)", border: `1px solid ${BORDER}`, borderRadius: 14, padding: "2px 7px", fontFamily: "'JetBrains Mono',monospace" }}>{c.email}</span>
+                      ))}
+                    </div>
+                    <pre style={{ whiteSpace: "pre-wrap", color: SUB, fontSize: 11, lineHeight: 1.5, margin: 0, fontFamily: "'Sora',sans-serif" }}>{l.body}</pre>
+                  </div>
+                </details>
+              </div>
+            ))}
+          </div>
+        )
+      ) : (
+        <div className="hr-form-body" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24, alignItems: "start" }}>
+          {/* ── LEFT: filter, range, recipients ── */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            {/* filter */}
+            <div>
+              <Label>Filter employees by *</Label>
+              <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+                {(["all", "under8", "under4"] as MailFilter[]).map(f => {
+                  const on = filter === f;
+                  return (
+                    <button key={f} onClick={() => onFilterChange(f)} style={{
+                      display: "flex", alignItems: "center", gap: 9, padding: "9px 12px", borderRadius: 10,
+                      border: `1px solid ${on ? TEAL + "66" : BORDER}`, background: on ? `${TEAL}12` : SURF3,
+                      cursor: "pointer", textAlign: "left", fontFamily: "inherit",
+                    }}>
+                      <span style={{
+                        width: 16, height: 16, borderRadius: "50%", flexShrink: 0,
+                        border: `2px solid ${on ? TEAL : BORDER}`, background: on ? TEAL : "transparent",
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                      }}>{on && <span style={{ width: 6, height: 6, borderRadius: "50%", background: BG }} />}</span>
+                      <span style={{ color: on ? TEAL : TEXT, fontSize: 12.5, fontWeight: on ? 700 : 500 }}>{MAIL_FILTER_LABEL[f]}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* date range */}
+            <div>
+              <Label>Date Range *</Label>
+              <div style={{ background: "rgba(99,102,241,0.04)", border: `1px solid ${BORDER}`, borderRadius: 11, padding: 13, display: "flex", flexDirection: "column", gap: 9 }}>
+                <div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 5 }}>
+                    <div style={{ width: 6, height: 6, borderRadius: "50%", background: GREEN }} />
+                    <span style={{ color: GREEN, fontSize: 9, fontWeight: 700, letterSpacing: 0.6 }}>FROM</span>
+                  </div>
+                  <input type="date" value={fromDate} min={MAIL_RANGE_MIN} max={toDate}
+                    onChange={e => setFromDate(e.target.value)}
+                    style={{ ...inputStyle, border: `1px solid ${GREEN}33`, colorScheme: "dark" }} />
+                </div>
+                <div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 5 }}>
+                    <div style={{ width: 6, height: 6, borderRadius: "50%", background: RED }} />
+                    <span style={{ color: RED, fontSize: 9, fontWeight: 700, letterSpacing: 0.6 }}>TO</span>
+                  </div>
+                  <input type="date" value={toDate} min={fromDate} max={toDateStr(new Date())}
+                    onChange={e => setToDate(e.target.value)}
+                    style={{ ...inputStyle, border: `1px solid ${RED}33`, colorScheme: "dark" }} />
+                </div>
+                <span style={{ color: TEAL, fontSize: 10.5, fontWeight: 700, fontFamily: "'JetBrains Mono',monospace" }}>{dateRangeLabel}</span>
+              </div>
+            </div>
+
+            {/* recipients (TO) */}
+            <div>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                <Label>Recipients (TO){computing ? " · computing…" : ` · ${to.length}`}</Label>
+                <button onClick={buildRecipients} disabled={computing} style={{
+                  background: "rgba(132,252,250,0.08)", border: `1px solid ${TEAL}44`, borderRadius: 7,
+                  color: TEAL, fontSize: 9.5, fontWeight: 700, padding: "3px 8px", cursor: "pointer", fontFamily: "inherit",
+                }}>↻ Rebuild</button>
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8, maxHeight: 170, overflowY: "auto" }}>
+                {to.length === 0 ? <span style={{ color: DIM, fontSize: 11 }}>No matching recipients.</span>
+                  : to.map(c => {
+                    const h = hoursByEmail[c.email.toLowerCase()];
+                    return (
+                      <span key={c.email} style={{
+                        display: "inline-flex", alignItems: "center", gap: 6, background: `${TEAL}12`,
+                        border: `1px solid ${TEAL}33`, borderRadius: 20, padding: "3px 6px 3px 9px", maxWidth: "100%",
+                      }}>
+                        <span style={{ minWidth: 0 }}>
+                          <span style={{ color: TEXT, fontSize: 10.5, fontWeight: 600, whiteSpace: "nowrap" }}>{c.name}</span>
+                          <span style={{ color: SUB, fontSize: 9, marginLeft: 5, fontFamily: "'JetBrains Mono',monospace" }}>{c.email}</span>
+                        </span>
+                        {h != null && (
+                          <span style={{
+                            fontSize: 8.5, fontWeight: 800, fontFamily: "'JetBrains Mono',monospace",
+                            color: SUB, background: "rgba(0,0,0,0.2)", borderRadius: 10, padding: "1px 5px", flexShrink: 0,
+                          }} title="Total hours worked in selected range">{h}h</span>
+                        )}
+                        <button onClick={() => removeTo(c.email)} style={{ background: "none", border: "none", color: TEAL, fontSize: 13, cursor: "pointer", lineHeight: 1, padding: "0 2px", flexShrink: 0 }}>×</button>
+                      </span>
+                    );
+                  })}
+              </div>
+              <div style={{ display: "flex", gap: 6 }}>
+                <input value={addToVal} onChange={e => setAddToVal(e.target.value)}
+                  onKeyDown={e => { if (e.key === "Enter") addContact("to", addToVal); }}
+                  placeholder="Add an email…" style={inputStyle} />
+                <button onClick={() => addContact("to", addToVal)} style={{
+                  background: TEAL, border: "none", borderRadius: 9, color: BG, fontSize: 12, fontWeight: 800,
+                  padding: "0 14px", cursor: "pointer", fontFamily: "inherit", flexShrink: 0,
+                }}>Add</button>
+              </div>
+            </div>
+
+            {/* CC */}
+            <div>
+              <Label>CC · {cc.length}</Label>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+                {cc.length === 0 ? <span style={{ color: DIM, fontSize: 11 }}>No CC.</span>
+                  : cc.map(c => chip(c, () => removeCc(c.email), BLUE))}
+              </div>
+              <div style={{ display: "flex", gap: 6 }}>
+                <input value={addCcVal} onChange={e => setAddCcVal(e.target.value)}
+                  onKeyDown={e => { if (e.key === "Enter") addContact("cc", addCcVal); }}
+                  placeholder="Add a CC email…" style={inputStyle} />
+                <button onClick={() => addContact("cc", addCcVal)} style={{
+                  background: BLUE, border: "none", borderRadius: 9, color: BG, fontSize: 12, fontWeight: 800,
+                  padding: "0 14px", cursor: "pointer", fontFamily: "inherit", flexShrink: 0,
+                }}>Add</button>
+              </div>
+            </div>
+          </div>
+
+          {/* ── RIGHT: template + content + send ── */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            {/* template selector */}
+            <div>
+              <Label>Template (auto-selected by filter — switchable)</Label>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {(["general", "under8", "under4"] as MailTplKey[]).map(k => {
+                  const on = tplKey === k;
+                  return (
+                    <button key={k} onClick={() => setTplKey(k)} style={{
+                      padding: "6px 11px", borderRadius: 9, cursor: "pointer", fontFamily: "inherit",
+                      border: `1px solid ${on ? TEAL + "66" : BORDER}`, background: on ? `${TEAL}14` : SURF3,
+                      color: on ? TEAL : SUB, fontSize: 11, fontWeight: 700,
+                    }}>{MAIL_TPL_LABEL[k]}</button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* subject */}
+            <div>
+              <Label>Subject *</Label>
+              <input value={subject} onChange={e => setSubject(e.target.value)} style={inputStyle} />
+            </div>
+
+            {/* body */}
+            <div>
+              <Label>Message * <span style={{ color: DIM, fontWeight: 500 }}>· {"{date_range}"} is filled automatically</span></Label>
+              <textarea value={body} onChange={e => setBody(e.target.value)} rows={11}
+                style={{ ...inputStyle, resize: "vertical", minHeight: 200, lineHeight: 1.5, fontFamily: "'Sora',sans-serif" }} />
+            </div>
+
+            {/* config hint */}
+            {settings && (!settings.emailjs.serviceId || !settings.emailjs.templateId || !settings.emailjs.publicKey) && (
+              <div style={{ background: "rgba(255,215,0,0.06)", border: `1px solid ${YELLOW}33`, color: "#FCE38A", borderRadius: 10, padding: "8px 12px", fontSize: 11 }}>
+                ⚠ EmailJS not configured. Add <b>serviceId</b>, <b>templateId</b> and <b>publicKey</b> to the Firebase <code>settings/mail</code> document to enable sending.
+              </div>
+            )}
+
+            {/* send */}
+            <button onClick={handleSend} disabled={sending || to.length === 0} style={{
+              width: "100%", padding: "12px", borderRadius: 11, border: "none",
+              background: (sending || to.length === 0) ? `${TEAL}33` : `linear-gradient(135deg,${TEAL},#22b8b5)`,
+              color: (sending || to.length === 0) ? `${TEAL}99` : BG, fontSize: 13, fontWeight: 800,
+              cursor: (sending || to.length === 0) ? "not-allowed" : "pointer", fontFamily: "inherit",
+              display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+            }}>
+              <span style={{ fontSize: 15 }}>✉️</span>
+              {sending ? "Sending…" : `Send to ${to.length} recipient${to.length !== 1 ? "s" : ""}`}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── HR Main ───────────────────────────────────────────────────────────────────
-type NavId = "dashboard" | "regularize" | "remote";
+type NavId = "dashboard" | "requests" | "mail" | "regularize" | "remote";
 
 function HrMain({ hrName, onLogout, onChangeName }: { hrName: string; onLogout: () => void; onChangeName: () => void }) {
   const [employees, setEmployees]     = useState<any[]>([]);
@@ -828,6 +1860,7 @@ function HrMain({ hrName, onLogout, onChangeName }: { hrName: string; onLogout: 
   const [showExport, setShowExport]   = useState(false);
   const [exporting, setExporting]     = useState(false);
   const [nav, setNav]                 = useState<NavId>("dashboard");
+  const [pendingReq, setPendingReq]   = useState(0);   // pending regularization requests → blinking badge
   const [weekOffset, setWeekOffset]   = useState(0);   // 0 = current week
 
   // today's data → KPI cards (always today, independent of week navigation)
@@ -879,6 +1912,24 @@ function HrMain({ hrName, onLogout, onChangeName }: { hrName: string; onLogout: 
       finally { setLoadingEmps(false); }
     })();
   }, []);
+
+  // count pending regularization requests → drives the blinking nav badge (poll every 30s)
+  const refreshPending = useCallback(async () => {
+    try {
+      const snap = await getDocs(collection(db, "regularizations"));
+      let n = 0;
+      snap.docs.forEach(d => {
+        const reqs = (d.data().requests as any[]) || [];
+        n += reqs.filter(r => r?.status === "pending").length;
+      });
+      setPendingReq(n);
+    } catch (_) {}
+  }, []);
+  useEffect(() => {
+    refreshPending();
+    const id = setInterval(refreshPending, 30000);
+    return () => clearInterval(id);
+  }, [refreshPending]);
 
   // fetch TODAY's attendance for the KPI cards (independent of week navigation)
   useEffect(() => {
@@ -1296,9 +2347,11 @@ const stats = useMemo(() => {
   };
 
   const NAV: { id: NavId; label: string; icon: string; color: string }[] = [
-    { id: "dashboard",  label: "Dashboard",            icon: "📊", color: GREEN   },
+    { id: "dashboard",  label: "Dashboard",             icon: "📊", color: GREEN   },
+    { id: "requests",   label: "Regularization Requests", icon: "📥", color: YELLOW },
     { id: "regularize", label: "Regularize Attendance", icon: "🏢", color: BLUE    },
     { id: "remote",     label: "Log Remote Work",       icon: "🏠", color: MAGENTA },
+    { id: "mail",       label: "Send Mail",             icon: "✉️", color: TEAL    },
   ];
 
   const submitLabel = isRemote
@@ -1327,6 +2380,11 @@ const stats = useMemo(() => {
         .emp-row:hover{background:rgba(99,102,241,0.12)!important;}
         select:focus{outline:none;}
         .tab-btn{transition:all 0.15s;}
+        .req-badge{ animation: reqblink 1.1s ease-in-out infinite; }
+        @keyframes reqblink {
+          0%,100% { box-shadow:0 0 0 0 rgba(255,215,0,0.7); opacity:1; transform:scale(1); }
+          50%     { box-shadow:0 0 0 6px rgba(255,215,0,0); opacity:0.78; transform:scale(1.12); }
+        }
         .save-btn:hover:not(:disabled){opacity:0.9;}
         .export-btn:hover{opacity:0.88;}
         .wk-nav:hover:not(:disabled){background:rgba(96,165,250,0.18) !important;}
@@ -1464,9 +2522,17 @@ const stats = useMemo(() => {
                   fontFamily:"'Sora',sans-serif",fontSize:13,fontWeight:700,
                   color: on ? n.color : SUB,
                   borderBottom: on ? `2px solid ${n.color}` : "2px solid transparent",
-                  marginBottom:-1,transition:"all 0.15s",
+                  marginBottom:-1,transition:"all 0.15s",position:"relative",
                 }}>
                 <span style={{fontSize:15}}>{n.icon}</span>{n.label}
+                {n.id === "requests" && pendingReq > 0 && (
+                  <span className="req-badge" style={{
+                    background:YELLOW,color:"#1a1400",fontSize:10,fontWeight:800,
+                    borderRadius:20,minWidth:18,height:18,padding:"0 5px",
+                    display:"inline-flex",alignItems:"center",justifyContent:"center",
+                    lineHeight:1,boxShadow:`0 0 0 0 ${YELLOW}`,
+                  }}>{pendingReq}</span>
+                )}
               </button>
             );
           })}
@@ -1888,6 +2954,16 @@ const stats = useMemo(() => {
             </div>
           </div>
         </div>
+        )}
+
+        {/* ===== REGULARIZATION REQUESTS ===== */}
+        {nav === "requests" && (
+          <RegularizationRequests hrName={hrName} employees={employees} onToast={add} onResolved={refreshPending} />
+        )}
+
+        {/* ===== SEND MAIL ===== */}
+        {nav === "mail" && (
+          <SendMail hrName={hrName} employees={employees} onToast={add} />
         )}
       </div>
     </div>

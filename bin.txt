@@ -1,0 +1,47 @@
+
+
+            {/* hr badge — desktop / office device only */}
+            {/* {!isPhone && (
+            <div className="adm-wrap" style={{ flexShrink: 0 }}>
+              <div style={{
+                display: "flex", alignItems: "center", gap: 6,
+                background: "rgba(79,142,247,0.07)", border: `1px solid ${BLUE}44`,
+                borderRadius: 10, padding: "5px 12px", cursor: "default",
+              }}>
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none">
+                  <circle cx="12" cy="8" r="4" stroke={BLUE} strokeWidth="2"/>
+                  <path d="M4 20c0-4 3.6-7 8-7s8 3 8 7" stroke={BLUE} strokeWidth="2" strokeLinecap="round"/>
+                </svg>
+                <span style={{ color: BLUE, fontSize: 10.5, fontWeight: 700, letterSpacing: 0.5 }}>HR PANEL</span>
+              </div>
+              <div className="adm-tip">Available for HR only. Manage employee records, leave requests, attendance regularizations, and attendance reports.</div>
+            </div>
+            )} */}
+ 
+            {/* admin badge — desktop / office device only */}
+            {/* {!isPhone && (
+            <div className="adm-wrap" style={{ flexShrink: 0 }}>
+              <div style={{
+                display: "flex", alignItems: "center", gap: 6,
+                background: "rgba(79,142,247,0.07)", border: `1px solid ${BLUE}44`,
+                borderRadius: 10, padding: "5px 12px", cursor: "default",
+              }}>
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none">
+                  <circle cx="12" cy="8" r="4" stroke={BLUE} strokeWidth="2"/>
+                  <path d="M4 20c0-4 3.6-7 8-7s8 3 8 7" stroke={BLUE} strokeWidth="2" strokeLinecap="round"/>
+                </svg>
+                <span style={{ color: BLUE, fontSize: 10.5, fontWeight: 700, letterSpacing: 0.5 }}>ADMIN</span>
+              </div>
+              <div className="adm-tip">Available on the office device only.</div>
+            </div>
+            )} */}
+
+
+
+
+
+
+
+
+
+
