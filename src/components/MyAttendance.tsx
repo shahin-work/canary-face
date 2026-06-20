@@ -67,7 +67,7 @@ function getWeekDates(): string[] {
 function LogoLoader({ label = "Loading your attendance…" }: { label?: string }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 14, padding: "52px 0" }}>
-      <div style={{ position: "relative", width: 54, height: 54 }}>
+      <div className="ma-logo-pop" style={{ position: "relative", width: 54, height: 54 }}>
         <img src={logo} alt="Canary Face" style={{ width: 54, height: 54, borderRadius: 12, objectFit: "contain", position: "absolute", inset: 0 }} />
         <img src={logo2} alt="" className="ma-logo-flicker" style={{ width: 54, height: 54, borderRadius: 12, objectFit: "contain", position: "absolute", inset: 0 }} />
       </div>
@@ -85,15 +85,22 @@ function calcHours(sessions: any[], forDate?: string): number {
   const now = new Date();
   const todayStr = toDateStr(now);
   const nowMins = now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60;
+  // for TODAY only: never count beyond now+1h (hides approved future evening punches)
+  const isToday = !forDate || forDate === todayStr;
+  const futureCap = nowMins + 60;
 
   for (const s of sessions || []) {
     if (!s.check_in) continue;
     const inMins = toMins(s.check_in);
-    if (s.check_out) {
-      mins += Math.max(0, toMins(s.check_out) - inMins);
-    } else if (!forDate || forDate === todayStr) {
-      mins += Math.max(0, nowMins - inMins);
+    let end: number;
+    if (s.check_out) end = toMins(s.check_out);
+    else if (isToday) end = nowMins;
+    else continue;
+    if (isToday) {
+      if (inMins >= futureCap) continue;     // starts beyond +1h → ignore
+      if (end > futureCap) end = futureCap;   // clip to +1h
     }
+    mins += Math.max(0, end - inMins);
   }
   return Math.round((mins / 60) * 100) / 100;
 }
@@ -425,11 +432,19 @@ function timeToPct(t: string) {
   return Math.max(0, Math.min(100, ((mins - T_START) / T_SPAN) * 100));
 }
 
-function TodaySessionTimeline({ sessions }: { sessions: any[] }) {
+function TodaySessionTimeline({ sessions: rawSessions, clipFuture = true }: { sessions: any[]; clipFuture?: boolean }) {
   const [hovered, setHovered] = useState<number | null>(null);
   const now = new Date();
   const nowStr = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
   const nowPct = timeToPct(nowStr);
+
+  // for today only: never show beyond now+1h — drop future-start sessions, clip check-outs to the cap
+  const cutoffMins = now.getHours() * 60 + now.getMinutes() + 60;
+  const cutoffStr = `${String(Math.floor(cutoffMins / 60) % 24).padStart(2, "0")}:${String(cutoffMins % 60).padStart(2, "0")}`;
+  const toM = (t: string) => { const [h, m] = t.split(":").map(Number); return h * 60 + m; };
+  const sessions = !clipFuture ? (rawSessions || []) : (rawSessions || [])
+    .filter((s: any) => s.check_in && toM(s.check_in) < cutoffMins)
+    .map((s: any) => (s.check_out && toM(s.check_out) > cutoffMins ? { ...s, check_out: cutoffStr } : s));
 
   return (
     <div>
@@ -769,7 +784,7 @@ function SummaryModal({
 
                 {/* sessions timeline */}
                 {selectedDay?.sessions && selectedDay.sessions.length > 0 && (
-                  <TodaySessionTimeline sessions={selectedDay.sessions} />
+                  <TodaySessionTimeline sessions={selectedDay.sessions} clipFuture={isToday} />
                 )}
               </div>
 
@@ -984,6 +999,11 @@ export default function MyAttendance() {
           46% { opacity: 0.85; }
         }
         .ma-logo-flicker { animation: ma-flicker 1.4s ease-in-out infinite; }
+        @keyframes ma-logo-pop {
+          0%, 100% { transform: scale(1); }
+          50%      { transform: scale(0.72); }
+        }
+        .ma-logo-pop { animation: ma-logo-pop 1.4s ease-in-out infinite; transform-origin: center; }
         .ma-card {
           background: linear-gradient(160deg,${SURF2},${BG});
           border: 1px solid ${BORDER}; border-radius: 18px;

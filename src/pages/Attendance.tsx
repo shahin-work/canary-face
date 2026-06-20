@@ -7,9 +7,19 @@ import logo from "../assets/react.png";
 import logo2 from "../assets/react1.png";
 import AddMeeting from "../components/AddMeeting";
 import Regularization from "../components/Regularization";
+import ReportIssue from "../components/ReportIssue";
+import BorderGlow from "../components/BorderGlow";
 import { useNavigate, useLocation } from "react-router-dom";
 import { DATA_START } from "../App";
 // ─── constants ───────────────────────────────────────────────────────────────
+
+
+// Marquee toggles (never shown on phone). If both false → nothing shows; one false → only the other.
+const SHOW_MARQUE_FROM_DB = true; // HR notices fetched from the DB (/hr), shown in yellow
+const SHOW_MARQUE_FROM_COMPUTING = true; // "Computing" marquee, shown in blue
+const MARQUEE_SPEED       = 0.7;  // px per frame (higher = faster)
+const MARQUEE_GAP         = 32;   // px gap between the two copies of the marquee track (higher = more space)
+
 
 const HOLIDAYS_2026 = new Set([
   "2026-02-15", "2026-03-20", "2026-04-03", "2026-04-05", "2026-04-15",
@@ -20,6 +30,7 @@ const HOLIDAYS_2026 = new Set([
 function isHoliday(dateStr: string): boolean {
   return HOLIDAYS_2026.has(dateStr);
 }
+
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 function toDateStr(d: Date) {
@@ -43,6 +54,9 @@ function isWeekend(dateStr: string): boolean {
   const now = new Date();
   const todayStr = toDateStr(now);
   const nowMins = now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60;
+  // for TODAY only: never count beyond now+1h (hides approved future evening punches)
+  const isToday = !forDate || forDate === todayStr;
+  const futureCap = nowMins + 60;
 
   const intervals: [number, number][] = [];
   for (const s of sessions) {
@@ -50,8 +64,12 @@ function isWeekend(dateStr: string): boolean {
     const start = toMins(s.check_in);
     let end: number;
     if (s.check_out) end = toMins(s.check_out);
-    else if (!forDate || forDate === todayStr) end = nowMins;
+    else if (isToday) end = nowMins;
     else continue;
+    if (isToday) {
+      if (start >= futureCap) continue;     // session starts beyond the +1h window → ignore
+      if (end > futureCap) end = futureCap;  // clip to the +1h window
+    }
     if (end > start) intervals.push([start, end]);
   }
   if (intervals.length === 0) return 0;
@@ -395,7 +413,11 @@ export default function Attendance() {
   const [inOffice, setInOffice] = useState<{ emp_id: string; name: string; profile_image?: string; checkIn?: string }[]>([]);
   const [meetingOpen,  setMeetingOpen] = useState(false);
   const [regOpen,      setRegOpen]     = useState(false);
+  const [notices,      setNotices]     = useState<string[]>([]);
+  const [issueOpen,    setIssueOpen]   = useState(false);
   const didAutoScroll = useRef(false);
+  const marqueeBoxRef   = useRef<HTMLDivElement>(null);
+  const marqueeTrackRef = useRef<HTMLDivElement>(null);
  
  
   const displayDates = useMemo(
@@ -407,6 +429,16 @@ export default function Attendance() {
   const myId = typeof window !== "undefined" ? localStorage.getItem("cf_my_emp_id") : null;
   function isPeriodBeforeStart(dates: string[]): boolean {
     return dates[dates.length - 1] < DATA_START;
+  }
+
+  async function fetchNotices() {
+    try {
+      const snap = await getDoc(doc(db, "settings", "notices"));
+      const list = snap.exists() ? (snap.data().texts as string[]) : [];
+      setNotices(Array.isArray(list) ? list.filter(t => t && t.trim()) : []);
+    } catch (_) {
+      setNotices([]);
+    }
   }
 
 async function fetchTodayInOffice() {
@@ -487,8 +519,10 @@ async function fetchTodayInOffice() {
                 }
               } catch (_) {}
 
-              if (date === today) return { date, status: "absent" as const };
-              if (date < today)   return { date, status: "absent" as const };
+              // today, no check-in yet → still awaiting (day not over, not a leave)
+              if (date === today) return { date, status: "awaiting" as const };
+              // past working day with no attendance → treat as leave (was "absent")
+              if (date < today)   return { date, status: "leave" as const };
               return { date, status: "future" as const };
             })
           );
@@ -502,7 +536,8 @@ async function fetchTodayInOffice() {
 
           const todayDay  = weekDays.find(d => d.date === today);
           const extraTime = todayDay?.extraTime ?? null;
-          let todayStatus: "present" | "checked-in" | "absent" = "absent";
+          // "awaiting" = today, not yet checked in (day not over) → neutral badge, not absent
+          let todayStatus: "present" | "checked-in" | "absent" | "awaiting" = "awaiting";
           let isCurrentlyIn = false;
           if (todayDay?.status === "present" && todayDay.sessions?.length) {
             const last = todayDay.sessions[todayDay.sessions.length - 1];
@@ -552,6 +587,7 @@ async function fetchTodayInOffice() {
 
   useEffect(() => {
     fetchTodayInOffice();
+    fetchNotices();
     getDoc(doc(db, "settings", "app")).then(snap => {
       if (snap.exists()) setIsLive(snap.data().live ?? false);
     }).catch(() => {});
@@ -589,8 +625,8 @@ async function fetchTodayInOffice() {
 
   const filtered = useMemo(() => {
     let base = cards;
-    if (activeFilter === "present")  base = base.filter(c => c.todayStatus !== "absent");
-    if (activeFilter === "absent")   base = base.filter(c => c.todayStatus === "absent");
+    if (activeFilter === "present")  base = base.filter(c => c.todayStatus === "present" || c.todayStatus === "checked-in");
+    if (activeFilter === "absent")   base = base.filter(c => c.todayStatus === "absent" || c.todayStatus === "awaiting");
     if (activeFilter === "in")       base = base.filter(c => c.currentlyIn);
     if (activeFilter === "overtime") base = base.filter(c => c.overtimeHours > 0);
     if (!search.trim()) return base;
@@ -604,8 +640,8 @@ async function fetchTodayInOffice() {
 
   const filterCounts: Record<FilterChip, number> = useMemo(() => ({
     all:      cards.length,
-    present:  cards.filter(c => c.todayStatus !== "absent").length,
-    absent:   cards.filter(c => c.todayStatus === "absent").length,
+    present:  cards.filter(c => c.todayStatus === "present" || c.todayStatus === "checked-in").length,
+    absent:   cards.filter(c => c.todayStatus === "absent" || c.todayStatus === "awaiting").length,
     in:       cards.filter(c => c.currentlyIn).length,
     overtime: cards.filter(c => c.overtimeHours > 0).length,
   }), [cards]);
@@ -616,6 +652,46 @@ async function fetchTodayInOffice() {
       .map(c => ({ emp_id: c.emp_id, name: c.name, profile_image: c.profile_image })),
     [cards, today]
   );
+
+  // ── Marquee: HR notices (DB → yellow) + computed last-working-day issue lines (blue) ──
+  // kind: "db" = HR notices from DB (yellow) · "auto" = computed system issues (blue)
+  const marqueeItems = useMemo(() => {
+    const items: { text: string; kind: "db" | "auto" }[] = [];
+
+    // DB notices (only when that toggle is on)
+    if (SHOW_MARQUE_FROM_DB) {
+      notices.filter(Boolean).forEach(t => items.push({ text: t, kind: "db" }));
+    }
+
+    // computed system lines (only when that toggle is on)
+    if (SHOW_MARQUE_FROM_COMPUTING) {
+      // find the latest present working day < today that the loaded data covers
+      const pastDates = Array.from(
+        new Set(
+          cards.flatMap(c => c.weekDays
+            .filter(d => d.date < today && (d.status === "present" || d.status === "leave"))
+            .map(d => d.date))
+        )
+      ).sort();
+      const lastWorkingDay = pastDates[pastDates.length - 1];
+
+      if (lastWorkingDay) {
+        const noCheckout: string[] = [];
+        const under8: string[] = [];
+        for (const c of cards) {
+          const day = c.weekDays.find(d => d.date === lastWorkingDay);
+          if (!day || day.status !== "present") continue;
+          const last = day.sessions?.[day.sessions.length - 1];
+          if (last && !last.check_out) noCheckout.push(c.name);
+          else if ((day.totalHours ?? 0) > 0 && (day.totalHours ?? 0) < 8) under8.push(c.name);
+        }
+        const dLabel = new Date(lastWorkingDay).toLocaleDateString("en-IN", { day: "numeric", month: "short" });
+        noCheckout.forEach(n => items.push({ text: `${n} didn't check out on ${dLabel}`, kind: "auto" }));
+        under8.forEach(n => items.push({ text: `${n} didn't complete 8 hours on ${dLabel}`, kind: "auto" }));
+      }
+    }
+    return items.filter(it => it.text);
+  }, [notices, cards, today]);
 
   const outEmployees = useMemo(
     () =>
@@ -666,9 +742,9 @@ async function fetchTodayInOffice() {
   const dateStr = clock.toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short", year: "numeric" });
   const dismissToast = useCallback(() => setToast(null), []);
 
-  // ── phone only: center the stored "me" card once the grid is ready ──
+  // ── center the stored "me" card once the grid is ready (web + phone) ──
   useEffect(() => {
-    if (didAutoScroll.current || !isPhone || loading) return;
+    if (didAutoScroll.current || loading) return;
     const myId = localStorage.getItem("cf_my_emp_id");
     if (!myId || !filtered.some(c => c.emp_id === myId)) return;
 
@@ -679,7 +755,40 @@ async function fetchTodayInOffice() {
       didAutoScroll.current = true;
     }, 350); // small delay so the cards have painted
     return () => clearTimeout(t);
-  }, [isPhone, loading, filtered]);
+  }, [loading, filtered]);
+
+  // ── marquee animation: scroll left at MARQUEE_SPEED px/frame, seamless loop ──
+  useEffect(() => {
+    if (isPhone || marqueeItems.length === 0) return;
+    const track = marqueeTrackRef.current;
+    const box   = marqueeBoxRef.current;
+    if (!track || !box) return;
+
+    let offset = 0;
+    let raf = 0;
+    let paused = false;
+    const onEnter = () => { paused = true; };
+    const onLeave = () => { paused = false; };
+    box.addEventListener("mouseenter", onEnter);
+    box.addEventListener("mouseleave", onLeave);
+
+    const step = () => {
+      const half = track.scrollWidth / 2; // track holds two identical copies
+      if (!paused && half > 0) {
+        offset += MARQUEE_SPEED;
+        if (offset >= half) offset -= half; // wrap seamlessly
+        track.style.transform = `translateX(${-offset}px)`;
+      }
+      raf = requestAnimationFrame(step);
+    };
+    raf = requestAnimationFrame(step);
+
+    return () => {
+      cancelAnimationFrame(raf);
+      box.removeEventListener("mouseenter", onEnter);
+      box.removeEventListener("mouseleave", onLeave);
+    };
+  }, [isPhone, marqueeItems]);
 
   return (
     <div style={{ minHeight: "100vh", background: BG, fontFamily: "'Sora', sans-serif", color: TEXT }}>
@@ -702,9 +811,10 @@ async function fetchTodayInOffice() {
         .att-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 9px; }
 
         .empcard-mine {
-          border-radius: 16px;
+          border-radius: 14px;
           outline: 2px solid ${YELLOW};
-          outline-offset: 2px;
+          outline-offset: 1px;
+          border-color: ${YELLOW} !important;
           animation: empcard-mine-glow 2.4s ease-in-out infinite;
         }
         @keyframes empcard-mine-glow {
@@ -767,6 +877,7 @@ async function fetchTodayInOffice() {
         .io-wrap:hover .io-tip, .wfh-wrap:hover .io-tip { display: block; }
         .meetbtn:hover { background: rgba(79,142,247,0.14) !important; }
         @keyframes toast-bar { from{width:100%} to{width:0%} }
+        /* marquee track is driven by JS (MARQUEE_SPEED), pause-on-hover handled in JS */
         @keyframes sk { 0%,100%{opacity:.35} 50%{opacity:.6} }
       `}</style>
 
@@ -785,6 +896,12 @@ async function fetchTodayInOffice() {
       <Regularization
         open={regOpen}
         onClose={() => setRegOpen(false)}
+        onSaved={(msg) => setToast(msg)}
+      />
+
+      <ReportIssue
+        open={issueOpen}
+        onClose={() => setIssueOpen(false)}
         onSaved={(msg) => setToast(msg)}
       />
 
@@ -925,6 +1042,34 @@ async function fetchTodayInOffice() {
               <div className="adm-tip">Attendance regularization — request a missed check-in / check-out correction</div>
             </div>
 
+            {/* Report issue — available everywhere */}
+            <div className="adm-wrap" style={{ flexShrink: 0 }}>
+              <button
+                onClick={() => setIssueOpen(true)}
+                className="meetbtn"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  flexShrink: 0,
+                  background: "rgba(255,215,0,0.07)",
+                  border: `1px solid ${YELLOW}44`,
+                  borderRadius: 10,
+                  padding: "6px 12px",
+                  cursor: "pointer",
+                  transition: "all 0.15s",
+                }}
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
+                  <path d="M12 9v4m0 4h.01M10.3 3.86l-8.4 14.55A1.5 1.5 0 003.2 21h17.6a1.5 1.5 0 001.3-2.59L13.7 3.86a1.5 1.5 0 00-2.6 0z" stroke={YELLOW} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+                {!isPhone && (
+                  <span style={{ color: YELLOW, fontSize: 11, fontWeight: 600 }}>Report Issue</span>
+                )}
+              </button>
+              <div className="adm-tip">Report an issue — routes to HR or the right person</div>
+            </div>
+
             {/* Add meeting — desktop / office device only */}
             {!isPhone && (
               <div className="adm-wrap" style={{ flexShrink: 0 }}>
@@ -1009,10 +1154,8 @@ async function fetchTodayInOffice() {
                 </div>
               </div>
                 }
-
-
+ 
             {/* guide / help */
-            
               <div className="adm-wrap" style={{ flexShrink: 0 }}>
                 <button
                   onClick={() => navigate(isPhone ? "/phone/guide" : "/guide")}
@@ -1061,6 +1204,7 @@ async function fetchTodayInOffice() {
                 const dates = viewMode === "week" ? getWeekDates(weekOffset) : getMonthDates(monthOffset);
                 fetchAll(dates);
                 fetchTodayInOffice();
+                fetchNotices();
               }}
               disabled={loading} title="Refresh" className="rbtn"
               style={{
@@ -1095,10 +1239,11 @@ async function fetchTodayInOffice() {
  
             {/* live clock */}
             {/* live clock — click to open HR */}
-            <div className="att-clock" onClick={() => navigate(isPhone ? "/phone/hr" : "/hr")} style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", flexShrink: 0, cursor: "default" }}>              <span style={{ color: TEXT, fontWeight: 700, fontSize: 10, marginTop: 4, fontFamily: "'JetBrains Mono',monospace", letterSpacing: 0.8, lineHeight: 1 }}>
+            <div className="att-clock" onClick={() => navigate(isPhone ? "/phone/hr" : "/hr")} style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", flexShrink: 0, cursor: "default" }}>          
+                  <span style={{ color: YELLOW, fontWeight: 700, fontSize: 10, marginTop: 4, fontFamily: "'JetBrains Mono',monospace", letterSpacing: 0.8, lineHeight: 1 }}>
                 {timeStr}
               </span>
-              <span style={{ color: DIM, fontSize: 9, marginTop: 2, whiteSpace: "nowrap" }}>{dateStr}</span>
+              <span style={{ color: YELLOW, fontSize: 9, marginTop: 2, whiteSpace: "nowrap" }}>{dateStr}</span>
             </div>
 
             <div style={{ width: 1, height: 22, background: BORDER, flexShrink: 0 }} />
@@ -1179,10 +1324,11 @@ async function fetchTodayInOffice() {
         <div style={{ maxWidth: 1500, margin: "0 auto", padding: "0 10px 14px", display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", paddingLeft: 20 }}> 
 
           {[
-            { c: "#25ba5c",               l: "Present" },
-            { c: "rgba(236,72,153,0.45)", l: "Remote" },
-            { c: "rgba(239,68,68,0.5)",   l: "Absent" },
-            { c: "rgba(99,102,241,0.13)", l: "Weekend" },
+            { c: "#25ba5c",                l: "Present" },
+            { c: "rgba(236,72,153,0.45)",  l: "Remote" },
+            { c: "rgba(239,68,68,0.5)",    l: "Leave" },
+            { c: "rgba(99,102,241,0.16)",  l: "Yet to check in" },
+            { c: "rgba(99,102,241,0.13)",  l: "Weekend" },
             { c: "rgba(32, 21, 184, 0.5)", l: "Holiday" },
           ].map(({ c, l }) => (
             <div key={l} style={{ display: "flex", alignItems: "center", gap: 5 }}>
@@ -1195,6 +1341,40 @@ async function fetchTodayInOffice() {
             <div style={{ width: 18, height: 7, borderRadius: 2.5, background: "#1e1451", outline: "1px solid #FFD700", outlineOffset: 1 }} />
             <span style={{ color: SUB, fontSize: 10.5 }}>Today</span>
           </div>
+          )}
+
+          {/* ── Scrolling notices marquee (center → right) ── */}
+          {(SHOW_MARQUE_FROM_DB || SHOW_MARQUE_FROM_COMPUTING) && !isPhone && marqueeItems.length > 0 && (
+            <div className="att-marquee" ref={marqueeBoxRef} style={{
+              flex: 1, minWidth: 180, marginLeft: "auto", overflow: "hidden",
+              position: "relative", height: 18, display: "flex", alignItems: "center",
+              maskImage: "linear-gradient(90deg, transparent 0, #000 8%, #000 88%, transparent 100%)",
+              WebkitMaskImage: "linear-gradient(90deg, transparent 0, #000 8%, #000 88%, transparent 100%)",
+            }}>
+              <div className="att-marquee-track" ref={marqueeTrackRef} style={{ display: "inline-flex", whiteSpace: "nowrap", willChange: "transform" }}>
+                {[0, 1].map(dup => (
+                  <span key={dup} style={{ display: "inline-flex", alignItems: "center", paddingLeft: MARQUEE_GAP }} aria-hidden={dup === 1}>
+                    {marqueeItems.map((it, i) => {
+                      const prev = marqueeItems[i - 1];
+                      // bigger gap when switching between the DB group and the computed group
+                      const groupGap = prev && prev.kind !== it.kind ? 46 : 0;
+                      return (
+                        <span key={`${dup}-${i}`} style={{ display: "inline-flex", alignItems: "center", paddingLeft: groupGap }}>
+                          <span style={{
+                            color: it.kind === "db" ? YELLOW : "#60A5FA",
+                            fontSize: 11, fontWeight: it.kind === "db" ? 700 : 600,
+                          }}>{it.text}</span>
+                          <span style={{
+                            color: it.kind === "db" ? "rgba(255,215,0,0.55)" : "rgba(96,165,250,0.6)",
+                            fontSize: 11, fontWeight: 800, padding: "0 16px",
+                          }}>•</span>
+                        </span>
+                      );
+                    })}
+                  </span>
+                ))}
+              </div>
+            </div>
           )}
         </div>
 
@@ -1229,12 +1409,22 @@ async function fetchTodayInOffice() {
                   <div
                     key={d.emp_id}
                     id={`empcard-${d.emp_id}`}
-                    className={mine ? "empcard-mine" : undefined}
-                    style={mine ? { position: "relative" } : undefined}
+                    style={{ position: "relative" }}
                   >
                     {mine && <span className="empcard-you">YOU</span>}
-                    <EmployeeCard data={d} viewMode={viewMode}
-                      onClick={() => navigate(`/${d.emp_id}`)} isLive={isLive} />
+                    <BorderGlow
+                      className={mine ? "empcard-mine" : ""}
+                      backgroundColor="transparent"
+                      borderRadius={14}
+                      glowRadius={18}
+                      edgeSensitivity={22}
+                      glowColor="224 80 65"
+                      colors={["#6366F1", "#60A5FA", "#22D3EE"]}
+                      style={{ boxShadow: "none" }}
+                    >
+                      <EmployeeCard data={d} viewMode={viewMode}
+                        onClick={() => navigate(`/${d.emp_id}`)} isLive={isLive} />
+                    </BorderGlow>
                   </div>
                 );
               })}

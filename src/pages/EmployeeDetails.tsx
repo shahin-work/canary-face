@@ -28,6 +28,9 @@ function calcHours(sessions: Session[], forDate?: string): number {
   if (!Array.isArray(sessions) || sessions.length === 0) return 0;
   const now = new Date(), todayStr = toDateStr(now);
   const nowMins = now.getHours() * 60 + now.getMinutes();
+  // for TODAY only: never count beyond now+1h (hides approved future evening punches)
+  const isToday = !forDate || forDate === todayStr;
+  const futureCap = nowMins + 60;
 
   const intervals: [number, number][] = [];
   for (const s of sessions) {
@@ -35,8 +38,12 @@ function calcHours(sessions: Session[], forDate?: string): number {
     const start = toMins(s.check_in);
     let end: number;
     if (s.check_out) end = toMins(s.check_out);
-    else if (!forDate || forDate === todayStr) end = nowMins;
+    else if (isToday) end = nowMins;
     else continue;
+    if (isToday) {
+      if (start >= futureCap) continue;
+      if (end > futureCap) end = futureCap;
+    }
     if (end > start) intervals.push([start, end]);
   }
   if (intervals.length === 0) return 0;
@@ -57,8 +64,16 @@ function calcSessionHours(s: Session, forDate: string): number {
   const now = new Date(), todayStr = toDateStr(now);
   const nowMins = now.getHours()*60 + now.getMinutes();
   if (!s.check_in) return 0;
-  if (s.check_out) return Math.round(((toMins(s.check_out) - toMins(s.check_in))/60)*100)/100;
-  if (forDate === todayStr) return Math.round((Math.max(0, nowMins - toMins(s.check_in))/60)*100)/100;
+  const isToday = forDate === todayStr;
+  const futureCap = nowMins + 60;
+  const start = toMins(s.check_in);
+  if (isToday && start >= futureCap) return 0;          // entirely in the future window
+  if (s.check_out) {
+    let end = toMins(s.check_out);
+    if (isToday && end > futureCap) end = futureCap;     // clip to +1h
+    return Math.round((Math.max(0, end - start)/60)*100)/100;
+  }
+  if (isToday) return Math.round((Math.max(0, nowMins - start)/60)*100)/100;
   return 0;
 }
 
@@ -211,6 +226,16 @@ function TimelineRow({ day, attendanceMap, today, hoveredDay, onHover }: {
   const hours    = hasSess ? calcHours(att!.sessions, day) : 0;
   const isHovered = hoveredDay === day;
 
+  // for TODAY only: hide attendance beyond now+1h (approved future evening punches)
+  const _cutoffMins = new Date().getHours() * 60 + new Date().getMinutes() + 60;
+  const _cutoffStr = `${String(Math.floor(_cutoffMins / 60) % 24).padStart(2, "0")}:${String(_cutoffMins % 60).padStart(2, "0")}`;
+  const _toM = (t: string) => { const [h, m] = t.split(":").map(Number); return h * 60 + m; };
+  const displaySessions = (att && isToday)
+    ? att.sessions
+        .filter(s => s.check_in && _toM(s.check_in) < _cutoffMins)
+        .map(s => (s.check_out && _toM(s.check_out) > _cutoffMins ? { ...s, check_out: _cutoffStr } : s))
+    : (att?.sessions ?? []);
+
   const extraTime = att?.extra_time ?? null; 
   
 
@@ -337,7 +362,7 @@ function TimelineRow({ day, attendanceMap, today, hoveredDay, onHover }: {
         })()}
 
         {/* Sessions */}
-        {!isFutureDay && att?.sessions.map((s, i) => {
+        {!isFutureDay && displaySessions.map((s, i) => {
             const isMeeting    = (s as any).meeting === true;
             const isWfhSession = (s as any).wfh === true;
             const isReg        = (s as any).regularized === true;
@@ -352,7 +377,7 @@ function TimelineRow({ day, attendanceMap, today, hoveredDay, onHover }: {
           const active = !s.check_out && isToday;
 
           // Gap bar to next session
-          const nextSess = att.sessions[i + 1];
+          const nextSess = displaySessions[i + 1];
           const gapStart = s.check_out ? timeToPercent(s.check_out) : null;
           const gapEnd   = nextSess ? timeToPercent(nextSess.check_in) : null;
           const gapW     = gapStart !== null && gapEnd !== null ? Math.max(gapEnd - gapStart, 0) : 0;
@@ -381,7 +406,7 @@ function TimelineRow({ day, attendanceMap, today, hoveredDay, onHover }: {
               }}/>
 
               {/* Checkout not recorded — only for the last session of a past day with no check_out */}
-              {(s.check_out === undefined || s.check_out === null) && !isToday && i === att.sessions.length - 1 && (
+              {(s.check_out === undefined || s.check_out === null) && !isToday && i === displaySessions.length - 1 && (
                 <span style={{
                   position:"absolute",
                   left: "100%",

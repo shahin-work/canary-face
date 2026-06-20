@@ -1,0 +1,521 @@
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { collection, getDocs, doc, getDoc, setDoc } from "firebase/firestore";
+import { db } from "../firebase";
+
+// ─── theme ────────────────────────────────────────────────────────────────────
+const BG     = "#060D2E";
+const SURF   = "#0B1340";
+const SURF2  = "#0F1848";
+const BORDER = "rgba(99,102,241,0.2)";
+const TEXT   = "#EEF0FF";
+const SUB    = "#8090C0";
+const DIM    = "#4A5A8A";
+const YELLOW = "#FFD700";
+const GREEN  = "#4ADE80";
+const RED    = "#F87171";
+const BLUE   = "#60A5FA";
+
+const MAX_ATTACH_BYTES = 3 * 1024 * 1024; // 3 MB
+const ID_KEY   = "cf_my_emp_id";
+const NAME_KEY = "cf_my_emp_name";
+
+// ─── issue categories + routing ──────────────────────────────────────────────
+// Attendance-device issues go to Shahin; everything else goes to HR (Vandana).
+const CATEGORIES = [
+  { value: "regularization",   label: "Regularization issue",     solver: "HR — Vandana", solverNote: "Handled by HR" },
+  { value: "attendance_device", label: "Attendance device issue", solver: "Shahin",       solverNote: "Handled by Shahin" },
+  { value: "workplace",        label: "Workplace issue",          solver: "HR — Vandana", solverNote: "Handled by HR" },
+  { value: "employee",         label: "Employee issue",           solver: "HR — Vandana", solverNote: "Handled by HR" },
+  { value: "other",            label: "Other",                    solver: "HR — Vandana", solverNote: "Handled by HR" },
+] as const;
+type CategoryValue = (typeof CATEGORIES)[number]["value"];
+
+type IssueStatus = "open" | "resolved" | "cancelled";
+const STATUS_META: Record<IssueStatus, { label: string; color: string }> = {
+  open:      { label: "Open",      color: YELLOW },
+  resolved:  { label: "Resolved",  color: GREEN  },
+  cancelled: { label: "Cancelled", color: DIM    },
+};
+
+interface IssueReport {
+  id: string;
+  category: CategoryValue;
+  solver: string;
+  description: string;
+  attachment?: string | null;
+  status: IssueStatus;
+  created_at: number;
+  resolver_note?: string;
+}
+
+interface EmployeeLite {
+  emp_id: string; name: string; department?: string; type?: string; profile_image?: string;
+}
+
+// ─── helpers ─────────────────────────────────────────────────────────────────
+const fmtBytes = (b: number) => (b < 1024 * 1024 ? `${Math.round(b / 1024)} KB` : `${(b / (1024 * 1024)).toFixed(1)} MB`);
+const initials = (n: string) => (n || "?").split(" ").map(x => x[0]).join("").slice(0, 2).toUpperCase();
+const avatarSrc = (img?: string) => (!img ? undefined : img.startsWith("data:") ? img : `data:image/jpeg;base64,${img}`);
+const catLabel = (v: string) => CATEGORIES.find(c => c.value === v)?.label ?? v;
+
+function fmtCreated(ms: number): string {
+  if (!ms) return "";
+  const d = new Date(ms);
+  return d.toLocaleDateString("en-IN", { day: "numeric", month: "short" }) + " · " +
+         d.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
+}
+
+function sortEmployees<T extends { emp_id: string }>(emps: T[]): T[] {
+  const order = ["CDAI", "CDIN", "CDCN"];
+  return [...emps].sort((a, b) => {
+    const ga = order.findIndex(g => a.emp_id.startsWith(g));
+    const gb = order.findIndex(g => b.emp_id.startsWith(g));
+    if (ga !== gb) return (ga < 0 ? 99 : ga) - (gb < 0 ? 99 : gb);
+    return (parseInt(a.emp_id.replace(/\D/g, ""), 10) || 0) -
+           (parseInt(b.emp_id.replace(/\D/g, ""), 10) || 0);
+  });
+}
+
+const fieldStyle: React.CSSProperties = {
+  width: "100%", padding: "9px 11px", borderRadius: 10,
+  border: `1px solid ${BORDER}`, background: SURF, color: TEXT,
+  fontSize: 12.5, outline: "none", fontFamily: "'Sora',sans-serif", caretColor: YELLOW,
+  boxSizing: "border-box",
+};
+const labelStyle: React.CSSProperties = {
+  fontSize: 9.5, fontWeight: 700, color: SUB, letterSpacing: 0.6,
+  textTransform: "uppercase", display: "block", marginBottom: 6,
+};
+
+function Avatar({ emp, size = 30 }: { emp: EmployeeLite | null; size?: number }) {
+  const src = avatarSrc(emp?.profile_image);
+  return (
+    <div style={{
+      width: size, height: size, borderRadius: "50%", flexShrink: 0, overflow: "hidden",
+      background: "rgba(99,102,241,0.15)", border: "1px solid rgba(99,102,241,0.3)",
+      display: "flex", alignItems: "center", justifyContent: "center",
+    }}>
+      {src
+        ? <img src={src} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+        : <span style={{ fontSize: size * 0.34, fontWeight: 700, color: SUB }}>{initials(emp?.name || "")}</span>}
+    </div>
+  );
+}
+
+function StatusPill({ status }: { status: IssueStatus }) {
+  const m = STATUS_META[status];
+  return (
+    <span style={{
+      fontSize: 9.5, fontWeight: 700, color: m.color,
+      background: `${m.color}18`, border: `1px solid ${m.color}40`,
+      borderRadius: 20, padding: "2px 9px", flexShrink: 0, whiteSpace: "nowrap",
+    }}>{m.label}</span>
+  );
+}
+
+function ReportRow({ r }: { r: IssueReport }) {
+  const [showImg, setShowImg] = useState(false);
+  return (
+    <div style={{
+      background: "rgba(99,102,241,0.05)", border: `1px solid ${BORDER}`,
+      borderRadius: 12, padding: "10px 12px", marginBottom: 8,
+    }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
+        <span style={{
+          fontSize: 9.5, fontWeight: 700, color: BLUE, background: `${BLUE}15`,
+          border: `1px solid ${BLUE}33`, borderRadius: 20, padding: "2px 8px",
+        }}>{catLabel(r.category)}</span>
+        <span style={{ marginLeft: "auto" }}><StatusPill status={r.status} /></span>
+      </div>
+      <p style={{ color: SUB, fontSize: 11.5, margin: "0 0 6px", lineHeight: 1.5 }}>{r.description}</p>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 10, color: DIM, flexWrap: "wrap" }}>
+        <span>To: <b style={{ color: SUB }}>{r.solver}</b></span>
+        {r.created_at ? <span style={{ marginLeft: "auto" }}>{fmtCreated(r.created_at)}</span> : null}
+      </div>
+      {r.resolver_note && (
+        <p style={{ color: GREEN, fontSize: 10.5, margin: "6px 0 0", background: "rgba(99,102,241,0.06)", borderRadius: 8, padding: "5px 8px" }}>
+          <span style={{ fontWeight: 700 }}>Update:</span> {r.resolver_note}
+        </p>
+      )}
+      {r.attachment && (
+        <>
+          <button onClick={() => setShowImg(s => !s)} style={{
+            marginTop: 8, fontSize: 10, fontWeight: 600, color: BLUE, background: "transparent",
+            border: `1px solid ${BLUE}33`, borderRadius: 8, padding: "3px 9px", cursor: "pointer",
+          }}>{showImg ? "Hide attachment" : "View attachment"}</button>
+          {showImg && <img src={r.attachment} alt="" style={{ marginTop: 8, width: "100%", borderRadius: 8, border: `1px solid ${BORDER}` }} />}
+        </>
+      )}
+    </div>
+  );
+}
+
+function EmployeePicker({
+  employees, loading, onSelect, onClose,
+}: {
+  employees: EmployeeLite[]; loading: boolean;
+  onSelect: (e: EmployeeLite) => void; onClose: () => void;
+}) {
+  const [search, setSearch] = useState("");
+  const filtered = useMemo(() => {
+    const list = sortEmployees(employees);
+    if (!search.trim()) return list;
+    const q = search.toLowerCase();
+    return list.filter(e =>
+      e.name.toLowerCase().includes(q) || e.emp_id.toLowerCase().includes(q) || (e.department || "").toLowerCase().includes(q));
+  }, [employees, search]);
+
+  return (
+    <div style={{ marginTop: 4 }}>
+      <input autoFocus value={search} onChange={e => setSearch(e.target.value)}
+        placeholder="Search your name, ID or department…" style={{ ...fieldStyle, marginBottom: 8 }} />
+      <div className="rep-scroll" style={{ maxHeight: 320, overflowY: "auto", border: `1px solid ${BORDER}`, borderRadius: 12 }}>
+        {loading ? (
+          <div style={{ padding: "26px 0", textAlign: "center", color: SUB, fontSize: 12 }}>Loading employees…</div>
+        ) : filtered.length === 0 ? (
+          <div style={{ padding: "26px 0", textAlign: "center", color: SUB, fontSize: 12 }}>No employees match "{search}"</div>
+        ) : filtered.map(e => (
+          <button key={e.emp_id} onClick={() => onSelect(e)} style={{
+            width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "8px 12px",
+            background: "transparent", border: "none", cursor: "pointer", textAlign: "left",
+            borderBottom: "1px solid rgba(99,102,241,0.08)",
+          }}
+            onMouseEnter={ev => (ev.currentTarget.style.background = "rgba(99,102,241,0.1)")}
+            onMouseLeave={ev => (ev.currentTarget.style.background = "transparent")}>
+            <Avatar emp={e} size={30} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: TEXT, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{e.name}</div>
+              <div style={{ fontSize: 9.5, color: DIM, fontFamily: "'JetBrains Mono',monospace" }}>{e.emp_id}{e.department ? ` · ${e.department}` : ""}</div>
+            </div>
+          </button>
+        ))}
+      </div>
+      <button onClick={onClose} style={{
+        width: "100%", marginTop: 10, padding: "9px", borderRadius: 10, border: `1px solid ${BORDER}`,
+        background: SURF, color: SUB, fontSize: 12, fontWeight: 600, cursor: "pointer",
+      }}>Cancel</button>
+    </div>
+  );
+}
+
+interface ReportIssueProps {
+  open: boolean;
+  onClose: () => void;
+  onSaved?: (message: string) => void;
+}
+
+export default function ReportIssue({ open, onClose, onSaved }: ReportIssueProps) {
+  const [empId, setEmpId]     = useState<string | null>(() => localStorage.getItem(ID_KEY));
+  const [empName, setEmpName] = useState<string | null>(() => localStorage.getItem(NAME_KEY));
+  const [me, setMe]           = useState<EmployeeLite | null>(null);
+
+  const [mode, setMode] = useState<"list" | "form" | "picker">("list");
+  const [employees, setEmployees]     = useState<EmployeeLite[]>([]);
+  const [loadingEmps, setLoadingEmps] = useState(false);
+
+  const [reports, setReports] = useState<IssueReport[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  const [category, setCategory]       = useState<CategoryValue | "">("");
+  const [description, setDescription] = useState("");
+  const [attachment, setAttachment]   = useState<string | null>(null);
+  const [attachName, setAttachName]   = useState("");
+  const [saving, setSaving]           = useState(false);
+  const [err, setErr]                 = useState("");
+
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const loadReports = useCallback(async (id: string) => {
+    setLoading(true);
+    try {
+      const snap = await getDoc(doc(db, "issues", id));
+      const list: IssueReport[] = snap.exists() ? ((snap.data().reports as IssueReport[]) || []) : [];
+      list.sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+      setReports(list);
+    } catch (e) {
+      console.error(e); setErr("Could not load your reports.");
+    } finally { setLoading(false); }
+  }, []);
+
+  const loadEmployees = useCallback(async () => {
+    setLoadingEmps(true);
+    try {
+      const snap = await getDocs(collection(db, "employees"));
+      setEmployees(snap.docs.map(d => d.data() as EmployeeLite));
+    } catch (e) { console.error(e); }
+    finally { setLoadingEmps(false); }
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    setErr(""); resetForm();
+    loadEmployees();
+    if (empId) { setMode("list"); loadReports(empId); }
+    else { setMode("picker"); }
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!empId) { setMe(null); return; }
+    const found = employees.find(e => e.emp_id === empId);
+    setMe(found || { emp_id: empId, name: empName || empId });
+  }, [empId, empName, employees]);
+
+  useEffect(() => {
+    if (!open) return;
+    const h = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, [open, onClose]);
+
+  function resetForm() {
+    setCategory(""); setDescription(""); setAttachment(null); setAttachName(""); setErr("");
+    if (fileRef.current) fileRef.current.value = "";
+  }
+
+  function chooseProfile(emp: EmployeeLite) {
+    localStorage.setItem(ID_KEY, emp.emp_id);
+    localStorage.setItem(NAME_KEY, emp.name);
+    setEmpId(emp.emp_id); setEmpName(emp.name); setMe(emp);
+    setMode("list"); loadReports(emp.emp_id);
+  }
+
+  const selectedCat = CATEGORIES.find(c => c.value === category) || null;
+  const canSave = !!empId && !!category && description.trim().length > 0 && !saving;
+
+  function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
+    setErr("");
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) { setErr("Attachment must be an image."); e.target.value = ""; return; }
+    if (file.size > MAX_ATTACH_BYTES) { setErr(`Image is ${fmtBytes(file.size)} — max allowed is 3 MB.`); e.target.value = ""; return; }
+    const reader = new FileReader();
+    reader.onload = () => { setAttachment(reader.result as string); setAttachName(file.name); };
+    reader.onerror = () => setErr("Could not read the image. Please try another file.");
+    reader.readAsDataURL(file);
+  }
+  function clearAttachment() { setAttachment(null); setAttachName(""); if (fileRef.current) fileRef.current.value = ""; }
+
+  async function handleSubmit() {
+    if (!empId) { setErr("Please select your profile first."); return; }
+    if (!category || !selectedCat) { setErr("Please select an issue type."); return; }
+    if (!description.trim()) { setErr("Description is required."); return; }
+    setSaving(true); setErr("");
+    try {
+      const newReport: IssueReport = {
+        id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        category: category as CategoryValue,
+        solver: selectedCat.solver,
+        description: description.trim(),
+        attachment: attachment ?? null,
+        status: "open",
+        created_at: Date.now(),
+      };
+      await setDoc(doc(db, "issues", empId), {
+        emp_id: empId,
+        emp_name: empName || empId,
+        reports: [...reports, newReport],
+      }, { merge: true });
+      onSaved?.(`Issue reported to ${selectedCat.solver}.`);
+      resetForm(); setMode("list");
+      await loadReports(empId);
+    } catch (e) {
+      console.error(e); setErr("Could not submit your report. Please try again.");
+    } finally { setSaving(false); }
+  }
+
+  if (!open) return null;
+
+  return (
+    <div onClick={onClose} style={{
+      position: "fixed", inset: 0, zIndex: 10000,
+      background: "rgba(2,6,23,0.7)", backdropFilter: "blur(6px)",
+      display: "flex", alignItems: "center", justifyContent: "center",
+      padding: 20, fontFamily: "'Sora',sans-serif",
+    }}>
+      <div onClick={e => e.stopPropagation()} className="rep-scroll" style={{
+        width: "min(520px,100%)", maxHeight: "90vh", overflowY: "auto",
+        background: `linear-gradient(160deg,${SURF2} 0%,${BG} 100%)`,
+        border: `1px solid ${BORDER}`, borderRadius: 18,
+        boxShadow: "0 24px 80px rgba(0,0,0,0.7)", padding: 22,
+      }}>
+        <style>{`
+          .rep-scroll { scrollbar-width: thin; scrollbar-color: rgba(99,102,241,0.35) transparent; }
+          .rep-scroll::-webkit-scrollbar { width: 5px; }
+          .rep-scroll::-webkit-scrollbar-thumb { background: rgba(99,102,241,0.35); border-radius: 4px; }
+        `}</style>
+
+        {/* header */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+            <div style={{
+              width: 36, height: 36, borderRadius: 10, flexShrink: 0,
+              background: "rgba(248,113,113,0.08)", border: `1px solid ${RED}33`,
+              display: "flex", alignItems: "center", justifyContent: "center",
+            }}>
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none">
+                <path d="M12 9v4m0 4h.01M10.3 3.86l-8.4 14.55A1.5 1.5 0 003.2 21h17.6a1.5 1.5 0 001.3-2.59L13.7 3.86a1.5 1.5 0 00-2.6 0z" stroke={RED} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </div>
+            <div style={{ minWidth: 0 }}>
+              <h2 style={{ fontSize: 15, fontWeight: 700, color: TEXT, margin: 0, lineHeight: 1.2 }}>Report an Issue</h2>
+              <p style={{ fontSize: 10, color: SUB, margin: "2px 0 0" }}>Raise a problem — it routes to the right person.</p>
+            </div>
+          </div>
+          <button onClick={onClose} style={{
+            width: 30, height: 30, borderRadius: 8, border: `1px solid ${BORDER}`,
+            background: SURF, color: SUB, cursor: "pointer", fontSize: 16, lineHeight: 1,
+            display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+          }}>×</button>
+        </div>
+
+        {/* identity bar */}
+        {empId && mode !== "picker" && (
+          <div style={{
+            display: "flex", alignItems: "center", gap: 10, marginBottom: 16,
+            background: "rgba(99,102,241,0.06)", border: `1px solid ${BORDER}`, borderRadius: 12, padding: "8px 10px",
+          }}>
+            <Avatar emp={me} size={32} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 12.5, fontWeight: 700, color: TEXT, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                {me?.name || empName || empId}
+              </div>
+              <div style={{ fontSize: 9.5, color: DIM, fontFamily: "'JetBrains Mono',monospace" }}>
+                {empId}{me?.department ? ` · ${me.department}` : ""}
+              </div>
+            </div>
+            <button onClick={() => setMode("picker")} style={{
+              fontSize: 10, fontWeight: 700, color: BLUE, background: "transparent",
+              border: `1px solid ${BLUE}33`, borderRadius: 8, padding: "5px 10px", cursor: "pointer", flexShrink: 0,
+            }}>Switch</button>
+          </div>
+        )}
+
+        {mode === "picker" ? (
+          <>
+            <p style={{ color: SUB, fontSize: 11.5, margin: "0 0 6px" }}>
+              {empId ? "Switch to a different profile:" : "Select your profile to continue:"}
+            </p>
+            <EmployeePicker employees={employees} loading={loadingEmps}
+              onSelect={chooseProfile} onClose={() => { if (empId) setMode("list"); else onClose(); }} />
+          </>
+        ) : mode === "list" ? (
+          <>
+            <button onClick={() => { resetForm(); setMode("form"); }} disabled={!empId} style={{
+              width: "100%", padding: "10px", borderRadius: 10, border: "none",
+              background: empId ? RED : "rgba(248,113,113,0.25)", color: empId ? "#1a0606" : "rgba(255,255,255,0.5)",
+              fontSize: 12.5, fontWeight: 700, cursor: empId ? "pointer" : "not-allowed",
+              marginBottom: 16, display: "flex", alignItems: "center", justifyContent: "center", gap: 7,
+            }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                <path d="M12 5v14M5 12h14" stroke={empId ? "#1a0606" : "rgba(255,255,255,0.5)"} strokeWidth="2.4" strokeLinecap="round"/>
+              </svg>
+              Report New Issue
+            </button>
+
+            {loading ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <div key={i} style={{ height: 80, borderRadius: 12, background: SURF, opacity: 0.5 }} />
+                ))}
+              </div>
+            ) : reports.length === 0 ? (
+              <div style={{ textAlign: "center", padding: "32px 0", color: SUB, fontSize: 12 }}>
+                <div style={{ fontSize: 30, marginBottom: 8 }}>🛟</div>No issues reported yet.
+              </div>
+            ) : reports.map(r => <ReportRow key={r.id} r={r} />)}
+
+            {err && (
+              <div style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.3)", color: "#FCA5A5", borderRadius: 10, padding: "8px 12px", fontSize: 11.5, marginTop: 12 }}>⚠ {err}</div>
+            )}
+          </>
+        ) : (
+          <>
+            {/* category — mandatory buttons */}
+            <div style={{ marginBottom: 14 }}>
+              <label style={labelStyle}>Issue type <span style={{ color: RED }}>*</span></label>
+              <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+                {CATEGORIES.map(c => {
+                  const on = category === c.value;
+                  return (
+                    <button key={c.value} onClick={() => setCategory(c.value)} style={{
+                      display: "flex", alignItems: "center", gap: 9, padding: "9px 12px", borderRadius: 10,
+                      border: `1px solid ${on ? RED + "66" : BORDER}`, background: on ? `${RED}12` : SURF,
+                      cursor: "pointer", textAlign: "left", fontFamily: "inherit",
+                    }}>
+                      <span style={{
+                        width: 16, height: 16, borderRadius: "50%", flexShrink: 0,
+                        border: `2px solid ${on ? RED : BORDER}`, background: on ? RED : "transparent",
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                      }}>{on && <span style={{ width: 6, height: 6, borderRadius: "50%", background: BG }} />}</span>
+                      <span style={{ flex: 1, color: on ? "#fecaca" : TEXT, fontSize: 12.5, fontWeight: on ? 700 : 500 }}>{c.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* solver preview */}
+            {selectedCat && (
+              <div style={{
+                display: "flex", alignItems: "center", gap: 9, marginBottom: 14,
+                background: "rgba(99,102,241,0.06)", border: `1px solid ${BORDER}`, borderRadius: 10, padding: "9px 11px",
+              }}>
+                <span style={{ fontSize: 15 }}>🧑‍💼</span>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 9, fontWeight: 700, color: SUB, letterSpacing: 0.6, textTransform: "uppercase" }}>Will be seen & solved by</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: GREEN }}>{selectedCat.solver}</div>
+                </div>
+              </div>
+            )}
+
+            {/* description — mandatory */}
+            <div style={{ marginBottom: 14 }}>
+              <label style={labelStyle}>Description <span style={{ color: RED }}>*</span></label>
+              <textarea value={description} onChange={e => setDescription(e.target.value)}
+                placeholder="Describe the issue clearly…" maxLength={400} rows={4}
+                style={{ ...fieldStyle, resize: "vertical", minHeight: 80, lineHeight: 1.5 }} />
+              <span style={{ fontSize: 9.5, color: DIM, display: "block", marginTop: 4, textAlign: "right" }}>{description.length}/400</span>
+            </div>
+
+            {/* attachment — optional */}
+            <div style={{ marginBottom: 14 }}>
+              <label style={labelStyle}>Attachment <span style={{ color: DIM, fontWeight: 500 }}>(optional · image · max 3 MB)</span></label>
+              {attachment ? (
+                <div style={{ display: "flex", alignItems: "center", gap: 10, border: `1px solid ${BORDER}`, borderRadius: 10, padding: 8, background: SURF }}>
+                  <img src={attachment} alt="" style={{ width: 44, height: 44, borderRadius: 8, objectFit: "cover", flexShrink: 0 }} />
+                  <span style={{ flex: 1, minWidth: 0, fontSize: 11, color: TEXT, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{attachName || "image"}</span>
+                  <button onClick={clearAttachment} style={{ fontSize: 10, fontWeight: 600, color: RED, background: "transparent", border: `1px solid ${RED}33`, borderRadius: 8, padding: "4px 9px", cursor: "pointer", flexShrink: 0 }}>Remove</button>
+                </div>
+              ) : (
+                <button onClick={() => fileRef.current?.click()} style={{ ...fieldStyle, display: "flex", alignItems: "center", justifyContent: "center", gap: 7, cursor: "pointer", color: SUB, borderStyle: "dashed" }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                    <path d="M12 16V4m0 0L8 8m4-4l4 4M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2" stroke={SUB} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                  Upload image
+                </button>
+              )}
+              <input ref={fileRef} type="file" accept="image/*" onChange={handleFile} style={{ display: "none" }} />
+            </div>
+
+            {err && (
+              <div style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.3)", color: "#FCA5A5", borderRadius: 10, padding: "8px 12px", fontSize: 11.5, marginBottom: 12 }}>⚠ {err}</div>
+            )}
+
+            <div style={{ display: "flex", gap: 10, marginTop: 4 }}>
+              <button onClick={() => { setMode("list"); setErr(""); }} style={{
+                flex: 1, padding: "10px", borderRadius: 10, border: `1px solid ${BORDER}`,
+                background: SURF, color: SUB, fontSize: 12.5, fontWeight: 600, cursor: "pointer",
+              }}>Back</button>
+              <button onClick={handleSubmit} disabled={!canSave} style={{
+                flex: 2, padding: "10px", borderRadius: 10, border: "none",
+                background: canSave ? RED : "rgba(248,113,113,0.25)",
+                color: canSave ? "#1a0606" : "rgba(255,255,255,0.5)",
+                fontSize: 12.5, fontWeight: 700, letterSpacing: 0.3, cursor: canSave ? "pointer" : "not-allowed",
+              }}>{saving ? "Submitting…" : "Submit Report"}</button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}

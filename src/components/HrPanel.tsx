@@ -1849,8 +1849,139 @@ function SendMail({
   );
 }
 
+// ── Notices Manager (marquee texts shown on the employee Attendance page) ──────
+function NoticesManager({ onToast }: { onToast: (msg: string, type?: string) => void }) {
+  const [texts, setTexts]   = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [draft, setDraft]   = useState("");
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const snap = await getDoc(doc(db, "settings", "notices"));
+      const list = snap.exists() ? (snap.data().texts as string[]) : [];
+      setTexts(Array.isArray(list) ? list : []);
+    } catch (e) {
+      console.error(e); onToast("Could not load notices.", "error");
+    } finally { setLoading(false); }
+  }, [onToast]);
+
+  useEffect(() => { load(); }, [load]);
+
+  async function persist(next: string[]) {
+    setSaving(true);
+    try {
+      await setDoc(doc(db, "settings", "notices"), { texts: next }, { merge: true });
+      setTexts(next);
+    } catch (e) {
+      console.error(e); onToast("Could not save notices.", "error");
+    } finally { setSaving(false); }
+  }
+
+  function addText() {
+    const v = draft.trim();
+    if (!v) return;
+    persist([...texts, v]); setDraft("");
+    onToast("Notice added ✓");
+  }
+  function removeText(i: number) {
+    persist(texts.filter((_, idx) => idx !== i));
+  }
+  function editText(i: number, v: string) {
+    setTexts(prev => prev.map((t, idx) => idx === i ? v : t));
+  }
+  function move(i: number, dir: -1 | 1) {
+    const j = i + dir;
+    if (j < 0 || j >= texts.length) return;
+    const next = [...texts];
+    [next[i], next[j]] = [next[j], next[i]];
+    persist(next);
+  }
+
+  const inputStyle: React.CSSProperties = {
+    width: "100%", background: SURF3, border: `1px solid ${BORDER}`, borderRadius: 9,
+    color: TEXT, fontSize: 12.5, padding: "9px 11px", outline: "none", fontFamily: "'Sora',sans-serif",
+  };
+
+  return (
+    <div style={{ maxWidth: 760 }}>
+      <div style={{
+        display: "flex", alignItems: "center", gap: 11,
+        paddingBottom: 14, marginBottom: 16, borderBottom: `1px solid ${BORDER}`,
+      }}>
+        <span style={{
+          width: 38, height: 38, borderRadius: 11, flexShrink: 0,
+          background: `${YELLOW}18`, border: `1px solid ${YELLOW}40`,
+          display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18,
+        }}>📢</span>
+        <div style={{ flex: 1 }}>
+          <h2 style={{ color: TEXT, fontWeight: 800, fontSize: 16, margin: 0, lineHeight: 1.15 }}>Notices / Marquee</h2>
+          <p style={{ color: SUB, fontSize: 11, margin: "3px 0 0" }}>
+            These scroll across the top of the employee Attendance page. Auto issue alerts (no check-out, &lt;8h) are appended automatically.
+          </p>
+        </div>
+        <button onClick={load} disabled={loading || saving} style={{
+          background: "rgba(255,215,0,0.07)", border: `1px solid ${YELLOW}44`, borderRadius: 9,
+          color: YELLOW, fontSize: 11, fontWeight: 700, padding: "7px 12px", cursor: "pointer", fontFamily: "inherit",
+        }}>{loading ? "Loading…" : "↻ Refresh"}</button>
+      </div>
+
+      {/* add */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 18 }}>
+        <input value={draft} onChange={e => setDraft(e.target.value)}
+          onKeyDown={e => { if (e.key === "Enter") addText(); }}
+          placeholder="Type a notice (e.g. 'Any attendance/workplace issue — contact HR Vandana')…"
+          maxLength={200} style={inputStyle} />
+        <button onClick={addText} disabled={saving || !draft.trim()} style={{
+          background: draft.trim() ? YELLOW : "rgba(255,215,0,0.25)", border: "none", borderRadius: 9,
+          color: draft.trim() ? BG : "rgba(6,13,46,0.6)", fontSize: 12.5, fontWeight: 800,
+          padding: "0 18px", cursor: draft.trim() ? "pointer" : "not-allowed", fontFamily: "inherit", flexShrink: 0,
+        }}>Add</button>
+      </div>
+
+      {/* list */}
+      {loading ? (
+        <div style={{ padding: "30px 0", textAlign: "center", color: SUB, fontSize: 12.5 }}>Loading…</div>
+      ) : texts.length === 0 ? (
+        <div style={{ padding: "40px 0", textAlign: "center", color: SUB, fontSize: 13 }}>
+          <div style={{ fontSize: 30, marginBottom: 8 }}>📭</div>No notices yet. Add one above.
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {texts.map((t, i) => (
+            <div key={i} style={{
+              display: "flex", alignItems: "center", gap: 8,
+              background: SURF2, border: `1px solid ${BORDER}`, borderRadius: 11, padding: 8,
+            }}>
+              <span style={{ color: DIM, fontSize: 10, fontWeight: 700, width: 18, textAlign: "center", flexShrink: 0 }}>{i + 1}</span>
+              <input value={t} onChange={e => editText(i, e.target.value)}
+                onBlur={() => persist(texts)} maxLength={200}
+                style={{ ...inputStyle, background: "transparent", border: "1px solid transparent", padding: "6px 8px" }} />
+              <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+                <button onClick={() => move(i, -1)} disabled={i === 0 || saving} title="Move up" style={{
+                  width: 26, height: 26, borderRadius: 7, border: `1px solid ${BORDER}`, background: "transparent",
+                  color: i === 0 ? DIM : BLUE, cursor: i === 0 ? "not-allowed" : "pointer", fontSize: 13, fontWeight: 800,
+                }}>↑</button>
+                <button onClick={() => move(i, 1)} disabled={i === texts.length - 1 || saving} title="Move down" style={{
+                  width: 26, height: 26, borderRadius: 7, border: `1px solid ${BORDER}`, background: "transparent",
+                  color: i === texts.length - 1 ? DIM : BLUE, cursor: i === texts.length - 1 ? "not-allowed" : "pointer", fontSize: 13, fontWeight: 800,
+                }}>↓</button>
+                <button onClick={() => removeText(i)} disabled={saving} title="Remove" style={{
+                  width: 26, height: 26, borderRadius: 7, border: `1px solid ${RED}33`, background: "rgba(248,113,113,0.08)",
+                  color: RED, cursor: "pointer", fontSize: 14, fontWeight: 800, lineHeight: 1,
+                }}>×</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── HR Main ───────────────────────────────────────────────────────────────────
-type NavId = "dashboard" | "requests" | "mail" | "regularize" | "remote";
+type NavId = "dashboard" | "requests" | "notices" | "mail" | "regularize" | "remote";
 
 function HrMain({ hrName, onLogout, onChangeName }: { hrName: string; onLogout: () => void; onChangeName: () => void }) {
   const [employees, setEmployees]     = useState<any[]>([]);
@@ -2351,6 +2482,7 @@ const stats = useMemo(() => {
     { id: "requests",   label: "Regularization Requests", icon: "📥", color: YELLOW },
     { id: "regularize", label: "Regularize Attendance", icon: "🏢", color: BLUE    },
     { id: "remote",     label: "Log Remote Work",       icon: "🏠", color: MAGENTA },
+    { id: "notices",    label: "Notices",               icon: "📢", color: YELLOW  },
     { id: "mail",       label: "Send Mail",             icon: "✉️", color: TEAL    },
   ];
 
@@ -2515,10 +2647,11 @@ const stats = useMemo(() => {
             return (
               <button key={n.id}
                 className="tab-btn"
-                onClick={()=>setNav(n.id)}
+                onClick={()=>{ if (n.id !== "mail") setNav(n.id); }}
                 style={{
                   display:"flex",alignItems:"center",gap:8,whiteSpace:"nowrap",
-                  padding:"14px 16px",border:"none",background:"transparent",cursor:"pointer",
+                  padding:"14px 16px",border:"none",background:"transparent",
+                  cursor: n.id === "mail" ? "default" : "pointer",
                   fontFamily:"'Sora',sans-serif",fontSize:13,fontWeight:700,
                   color: on ? n.color : SUB,
                   borderBottom: on ? `2px solid ${n.color}` : "2px solid transparent",
@@ -2959,6 +3092,11 @@ const stats = useMemo(() => {
         {/* ===== REGULARIZATION REQUESTS ===== */}
         {nav === "requests" && (
           <RegularizationRequests hrName={hrName} employees={employees} onToast={add} onResolved={refreshPending} />
+        )}
+
+        {/* ===== NOTICES ===== */}
+        {nav === "notices" && (
+          <NoticesManager onToast={add} />
         )}
 
         {/* ===== SEND MAIL ===== */}

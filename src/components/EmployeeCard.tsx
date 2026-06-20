@@ -13,7 +13,9 @@ interface Session {
 
 interface DayStatus {
   date: string;
-  status: "present" | "absent" | "weekend" | "holiday" | "future";
+  // "leave"    = a past working day with no attendance (was previously "absent")
+  // "awaiting" = today, not yet checked in (the day isn't over)
+  status: "present" | "absent" | "leave" | "awaiting" | "weekend" | "holiday" | "future";
   sessions?: Session[];
   totalHours?: number;
   extraTime?: string | null;  // ← ADD THIS
@@ -30,7 +32,7 @@ interface EmployeeCardData {
   presentDays: number;
   totalHours: number;
   attendancePercent: number;
-  todayStatus: "present" | "checked-in" | "absent";
+  todayStatus: "present" | "checked-in" | "absent" | "awaiting";
   overtimeHours: number;
   currentlyIn: boolean;
   extraTime?: string | null;
@@ -103,6 +105,8 @@ function chunkIntoWeekRows(days: DayStatus[]): (DayStatus | null)[][] {
 function barBg(day: DayStatus): string {
   if (day.status === "present" && day.wfh) return "rgba(166, 38, 128, 0.74)";
 if (day.status === "present") return presentBarColor(Math.floor(day.totalHours ?? 0));  if (day.status === "absent")  return "rgba(239,68,68,0.5)";
+  if (day.status === "leave")    return "rgba(239,68,68,0.5)";     // red → on leave (past no-show)
+  if (day.status === "awaiting") return "rgba(99,102,241,0.16)";   // neutral → today, not yet in
   if (day.status === "holiday") return "rgba(32, 21, 184, 0.5)";
   if (day.status === "weekend") return "rgba(65, 66, 134, 0.18)";
   if (day.status === "future")  return "rgba(120,140,200,0.08)";
@@ -110,12 +114,14 @@ if (day.status === "present") return presentBarColor(Math.floor(day.totalHours ?
 }
 
 function WeekBar({ day, isCheckedIn = false, today }: { day: DayStatus; isCheckedIn?: boolean; today: string }) {
-  const isToday   = day.date === today;
-  const isPresent = day.status === "present";
-  const isAbsent  = day.status === "absent";
-  const isHoliday = day.status === "holiday";
-  const isFuture  = day.status === "future";
-  const h         = day.totalHours ?? 0;
+  const isToday    = day.date === today;
+  const isPresent  = day.status === "present";
+  const isAbsent   = day.status === "absent";
+  const isLeave    = day.status === "leave";
+  const isAwaiting = day.status === "awaiting";
+  const isHoliday  = day.status === "holiday";
+  const isFuture   = day.status === "future";
+  const h          = day.totalHours ?? 0;
 
   const bg =
     day.wfh && day.status === "present"
@@ -156,6 +162,12 @@ function WeekBar({ day, isCheckedIn = false, today }: { day: DayStatus; isChecke
       )}
       {isAbsent && (
         <span style={{ color: "#ff6b6b", fontSize: 8, fontWeight: 800 }}></span>
+      )}
+      {isLeave && (
+        <span style={{ color: "#ff6b6b", fontSize: 8.5, fontWeight: 800, letterSpacing: 0.3 }}>L</span>
+      )}
+      {isAwaiting && (
+        <span style={{ color: "#A5B4FC", fontSize: 13, fontWeight: 800, lineHeight: 1 }}>·</span>
       )}
       {isHoliday && (
         <span style={{ color: "rgba(251,191,36,0.7)", fontSize: 7.5, fontWeight: 700 }}>★</span>
@@ -259,6 +271,8 @@ function MonthMeetingCell({ day, isPresent, isAbsent, isHoliday, isFuture, isTod
           : isPresent
           ? (h < 6 ? "rgba(120,255,140,0.85)" : "rgba(0,40,10,0.9)")
           : isAbsent  ? "rgba(255,100,100,0.75)"
+          : day.status === "leave"    ? "rgba(255,100,100,0.75)"
+          : day.status === "awaiting" ? "rgba(165,180,252,0.95)"
           : isHoliday ? "rgba(251,191,36,0.9)"
           : "#4A5A9A",
         fontSize: 6.5, fontWeight: 700, lineHeight: 1,
@@ -318,10 +332,12 @@ export default function EmployeeCard({ data, viewMode, onClick, isLive = false }
 
   const statusCfg =
     data.todayStatus === "checked-in"
-      ? { color: "#89ff7c", bg: "rgba(250,204,21,0.12)", border: "rgba(125, 125, 125, 0.35)", dot: true,  text: "IN"  }
+      ? { color: "#0a1f0c", bg: "linear-gradient(135deg,#22c55e,#4ade80)", ring: "#4ade80", dot: true,  text: "IN",  spin: true  }
       : data.todayStatus === "present"
-      ? { color: "#ff5858", bg: "rgba(74,222,128,0.1)",  border: "rgba(120, 120, 120, 0.3)",  dot: false, text: "OUT" }
-      : { color: "#ff0000", bg: "rgba(248,113,113,0.1)", border: "rgba(123, 123, 123, 0.3)", dot: false, text: "ABS" };
+      ? { color: "#2a0606", bg: "linear-gradient(135deg,#ef4444,#f87171)", ring: "#f87171", dot: false, text: "OUT", spin: false }
+      : data.todayStatus === "awaiting"
+      ? { color: "#0c1033", bg: "linear-gradient(135deg,#6366f1,#818cf8)", ring: "#818cf8", dot: false, text: "•",  spin: false }
+      : { color: "#2a0606", bg: "linear-gradient(135deg,#dc2626,#ef4444)", ring: "#ef4444", dot: false, text: "ABS", spin: false };
 
   const weekRows = viewMode === "month" ? chunkIntoWeekRows(data.weekDays) : null;
 
@@ -368,6 +384,10 @@ export default function EmployeeCard({ data, viewMode, onClick, isLive = false }
         el.style.borderColor = "rgba(99,102,241,0.18)";
       }}
     >
+      <style>{`
+        @keyframes ec-ring-spin { to { transform: rotate(360deg); } }
+        @keyframes ec-dot-pulse { 0%,100% { opacity: 0.6; transform: scale(1); } 50% { opacity: 1; transform: scale(1.35); } }
+      `}</style>
       {/* shimmer top */}
       <div style={{
         position: "absolute", top: 0, left: "20%", right: "20%", height: 1,
@@ -405,28 +425,42 @@ export default function EmployeeCard({ data, viewMode, onClick, isLive = false }
           </p>
         </div>
 
-        {/* status pill */}
-        {isCurrentPeriod && (
+        {/* status pill — only IN / OUT (hidden for awaiting, absent, weekend, holiday) */}
+        {isCurrentPeriod && (data.todayStatus === "checked-in" || data.todayStatus === "present") && (
           <div style={{
-            flexShrink: 0, display: "flex", alignItems: "center", gap: 4,
-            background: statusCfg.bg, border: `1px solid ${statusCfg.border}`,
-            borderRadius: 20, padding: "3px 7px",
+            flexShrink: 0, position: "relative", borderRadius: 20,
+            boxShadow: `0 0 9px ${statusCfg.ring}66`,
           }}>
-            {statusCfg.dot && (
-              <div style={{
-                width: 5, height: 5, borderRadius: "50%",
-                background: statusCfg.color,
-                boxShadow: `0 0 5px ${statusCfg.color}`
+            {/* rotating conic ring layer (only when checked-in) */}
+            {statusCfg.spin && (
+              <span style={{
+                position: "absolute", inset: -1.5, borderRadius: 20, zIndex: 0,
+                background: `conic-gradient(${statusCfg.ring}, transparent 30%, ${statusCfg.ring} 60%, transparent 92%)`,
+                animation: "ec-ring-spin 2s linear infinite",
               }} />
             )}
-            <span style={{
-              color: statusCfg.color,
-              fontSize: 9,
-              fontWeight: 700,
-              letterSpacing: 0.8
+            {/* static ring for other states */}
+            {!statusCfg.spin && (
+              <span style={{ position: "absolute", inset: -1.5, borderRadius: 20, zIndex: 0, background: `${statusCfg.ring}66` }} />
+            )}
+            <div style={{
+              position: "relative", zIndex: 1,
+              display: "flex", alignItems: "center", gap: 4,
+              background: statusCfg.bg, borderRadius: 18, padding: "3px 9px",
             }}>
-              {statusCfg.text}
-            </span>
+              {statusCfg.dot && (
+                <div style={{
+                  width: 5, height: 5, borderRadius: "50%",
+                  background: "#eafff0", boxShadow: "0 0 6px #eafff0",
+                  animation: "ec-dot-pulse 1.2s ease-in-out infinite",
+                }} />
+              )}
+              <span style={{
+                color: statusCfg.color, fontSize: 9.5, fontWeight: 900, letterSpacing: 0.8,
+              }}>
+                {statusCfg.text}
+              </span>
+            </div>
           </div>
         )}
       </div>
