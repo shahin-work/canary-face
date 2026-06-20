@@ -74,7 +74,6 @@ function fmtHMShort(h: number): string {
   return fmtHM(h);
 }
 
-
 function presentBarColor(h: number): string {
   if (h === 0)  return "#041e05";
   if (h < 1)    return "#0c4a0f";
@@ -106,7 +105,7 @@ function barBg(day: DayStatus): string {
   if (day.status === "present" && day.wfh) return "rgba(166, 38, 128, 0.74)";
 if (day.status === "present") return presentBarColor(Math.floor(day.totalHours ?? 0));  if (day.status === "absent")  return "rgba(239,68,68,0.5)";
   if (day.status === "leave")    return "rgba(239,68,68,0.5)";     // red → on leave (past no-show)
-  if (day.status === "awaiting") return "rgba(99,102,241,0.16)";   // neutral → today, not yet in
+  if (day.status === "awaiting") return "#041e05";                 // today, not yet in (same as present 0h)
   if (day.status === "holiday") return "rgba(32, 21, 184, 0.5)";
   if (day.status === "weekend") return "rgba(65, 66, 134, 0.18)";
   if (day.status === "future")  return "rgba(120,140,200,0.08)";
@@ -118,7 +117,6 @@ function WeekBar({ day, isCheckedIn = false, today }: { day: DayStatus; isChecke
   const isPresent  = day.status === "present";
   const isAbsent   = day.status === "absent";
   const isLeave    = day.status === "leave";
-  const isAwaiting = day.status === "awaiting";
   const isHoliday  = day.status === "holiday";
   const isFuture   = day.status === "future";
   const h          = day.totalHours ?? 0;
@@ -165,9 +163,6 @@ function WeekBar({ day, isCheckedIn = false, today }: { day: DayStatus; isChecke
       )}
       {isLeave && (
         <span style={{ color: "#ff6b6b", fontSize: 8.5, fontWeight: 800, letterSpacing: 0.3 }}>L</span>
-      )}
-      {isAwaiting && (
-        <span style={{ color: "#A5B4FC", fontSize: 13, fontWeight: 800, lineHeight: 1 }}>·</span>
       )}
       {isHoliday && (
         <span style={{ color: "rgba(251,191,36,0.7)", fontSize: 7.5, fontWeight: 700 }}>★</span>
@@ -332,12 +327,12 @@ export default function EmployeeCard({ data, viewMode, onClick, isLive = false }
 
   const statusCfg =
     data.todayStatus === "checked-in"
-      ? { color: "#0a1f0c", bg: "linear-gradient(135deg,#22c55e,#4ade80)", ring: "#4ade80", dot: true,  text: "IN",  spin: true  }
+      ? { color: "#0a1f0c", bg: "linear-gradient(135deg,#22c55e,#4ade80)", ring: "#4ade80", dot: true,  text: "IN"  }
       : data.todayStatus === "present"
-      ? { color: "#2a0606", bg: "linear-gradient(135deg,#ef4444,#f87171)", ring: "#f87171", dot: false, text: "OUT", spin: false }
+      ? { color: "#2a0606", bg: "linear-gradient(135deg,#ef4444,#f87171)", ring: "#f87171", dot: false, text: "OUT" }
       : data.todayStatus === "awaiting"
-      ? { color: "#0c1033", bg: "linear-gradient(135deg,#6366f1,#818cf8)", ring: "#818cf8", dot: false, text: "•",  spin: false }
-      : { color: "#2a0606", bg: "linear-gradient(135deg,#dc2626,#ef4444)", ring: "#ef4444", dot: false, text: "ABS", spin: false };
+      ? { color: "#0c1033", bg: "linear-gradient(135deg,#6366f1,#818cf8)", ring: "#818cf8", dot: false, text: "•"   }
+      : { color: "#2a0606", bg: "linear-gradient(135deg,#dc2626,#ef4444)", ring: "#ef4444", dot: false, text: "ABS" };
 
   const weekRows = viewMode === "month" ? chunkIntoWeekRows(data.weekDays) : null;
 
@@ -385,7 +380,6 @@ export default function EmployeeCard({ data, viewMode, onClick, isLive = false }
       }}
     >
       <style>{`
-        @keyframes ec-ring-spin { to { transform: rotate(360deg); } }
         @keyframes ec-dot-pulse { 0%,100% { opacity: 0.6; transform: scale(1); } 50% { opacity: 1; transform: scale(1.35); } }
       `}</style>
       {/* shimmer top */}
@@ -431,18 +425,8 @@ export default function EmployeeCard({ data, viewMode, onClick, isLive = false }
             flexShrink: 0, position: "relative", borderRadius: 20,
             boxShadow: `0 0 9px ${statusCfg.ring}66`,
           }}>
-            {/* rotating conic ring layer (only when checked-in) */}
-            {statusCfg.spin && (
-              <span style={{
-                position: "absolute", inset: -1.5, borderRadius: 20, zIndex: 0,
-                background: `conic-gradient(${statusCfg.ring}, transparent 30%, ${statusCfg.ring} 60%, transparent 92%)`,
-                animation: "ec-ring-spin 2s linear infinite",
-              }} />
-            )}
-            {/* static ring for other states */}
-            {!statusCfg.spin && (
-              <span style={{ position: "absolute", inset: -1.5, borderRadius: 20, zIndex: 0, background: `${statusCfg.ring}66` }} />
-            )}
+            {/* static ring */}
+            <span style={{ position: "absolute", inset: -1.5, borderRadius: 20, zIndex: 0, background: `${statusCfg.ring}66` }} />
             <div style={{
               position: "relative", zIndex: 1,
               display: "flex", alignItems: "center", gap: 4,

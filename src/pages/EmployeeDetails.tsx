@@ -861,15 +861,17 @@ export default function EmployeeDetails() {
       )}
 
       {/* ══ MAIN ═════════════════════════════════════════════════════════════ */}
-      <div style={{flex:1,display:"flex",flexDirection:"column",minHeight:"100vh",overflow:"hidden",paddingTop:HEADER_H+RULER_H}}>
+      <div style={{flex:1,display:"flex",flexDirection:"column",minHeight:"100vh",overflow:"hidden",paddingTop:`calc(${HEADER_H+RULER_H}px + env(safe-area-inset-top))`}}>
 
-        {/* Fixed header */}
+        {/* Fixed header — adds the phone notch/status-bar inset so the back button stays visible */}
         <div style={{
           position:"fixed",top:0,left:isPhone?0:SIDEBAR_W,right:0,zIndex:100,
           background:`linear-gradient(180deg,${C.surf}FA 0%,${C.bg}F0 100%)`,
           borderBottom:`1px solid ${C.border}`,
           backdropFilter:"blur(16px)",
-          padding:isPhone?"0 12px":"0 24px",height:HEADER_H,
+          padding:isPhone?"0 12px":"0 24px",
+          paddingTop:"env(safe-area-inset-top)",
+          height:`calc(${HEADER_H}px + env(safe-area-inset-top))`,
           display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,
         }}>
           <div style={{ display:"flex", alignItems:"center", gap:10, minWidth:0 }}>
@@ -948,7 +950,7 @@ export default function EmployeeDetails() {
 
         {/* Fixed time ruler — 9 to 21, no AM/PM */}
         <div style={{
-          position:"fixed",top:HEADER_H,left:isPhone?0:SIDEBAR_W,right:0,zIndex:99,
+          position:"fixed",top:`calc(${HEADER_H}px + env(safe-area-inset-top))`,left:isPhone?0:SIDEBAR_W,right:0,zIndex:99,
           display:"grid",gridTemplateColumns:"60px 1fr 68px",
           gap:0,padding:"5px 20px",
           borderBottom:`1px solid ${C.bord2}`,

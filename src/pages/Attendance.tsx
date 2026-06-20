@@ -1042,33 +1042,7 @@ async function fetchTodayInOffice() {
               <div className="adm-tip">Attendance regularization — request a missed check-in / check-out correction</div>
             </div>
 
-            {/* Report issue — available everywhere */}
-            <div className="adm-wrap" style={{ flexShrink: 0 }}>
-              <button
-                onClick={() => setIssueOpen(true)}
-                className="meetbtn"
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 6,
-                  flexShrink: 0,
-                  background: "rgba(255,215,0,0.07)",
-                  border: `1px solid ${YELLOW}44`,
-                  borderRadius: 10,
-                  padding: "6px 12px",
-                  cursor: "pointer",
-                  transition: "all 0.15s",
-                }}
-              >
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
-                  <path d="M12 9v4m0 4h.01M10.3 3.86l-8.4 14.55A1.5 1.5 0 003.2 21h17.6a1.5 1.5 0 001.3-2.59L13.7 3.86a1.5 1.5 0 00-2.6 0z" stroke={YELLOW} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
-                {!isPhone && (
-                  <span style={{ color: YELLOW, fontSize: 11, fontWeight: 600 }}>Report Issue</span>
-                )}
-              </button>
-              <div className="adm-tip">Report an issue — routes to HR or the right person</div>
-            </div>
+
 
             {/* Add meeting — desktop / office device only */}
             {!isPhone && (
@@ -1108,54 +1082,37 @@ async function fetchTodayInOffice() {
                 </div>
               </div>
             )}
-
-
-
-            {/* guide / help */
-            
-              <div className="adm-wrap" style={{ flexShrink: 0 }}>
-                <button
-                  // onClick={() => navigate(isPhone ? "/phone/guide" : "/guide")}
-                  className="meetbtn"
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 6,
-                    flexShrink: 0,
-                    background: "rgba(255,215,0,0.07)",
-                    border: `1px solid ${YELLOW}44`,
-                    borderRadius: 10,
-                    padding: "6px 12px",
-                    cursor: "pointer",
-                    color: YELLOW,
-                    fontSize: 11,
-                    fontWeight: 600,
-                    transition: "all 0.15s",
-                  }}
-                >
-                  
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
-                    <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="1.8" />
-                    <path
-                      d="M12 17v.01M12 14c0-2 2-2 2-4a2 2 0 10-4 0"
-                      stroke="currentColor"
-                      strokeWidth="1.8"
-                      strokeLinecap="round"
-                    />
-                  </svg>
-                  
-                  {!isPhone && (
-                  <span style={{ color: YELLOW, fontSize: 11, fontWeight: 600 }}>Report Issue</span>
-                )}
-                </button>
-
-                <div className="adm-tip">
-                     Report attendance, device, or workplace issues.
-                </div>
-              </div>
-                }
  
-            {/* guide / help */
+             {/* Report issue — desktop only, currently disabled (not clickable) */}
+            {!isPhone && (
+            <div className="adm-wrap" style={{ flexShrink: 0 }}>
+              <button
+                className="meetbtn"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  flexShrink: 0,
+                  background: "rgba(255,215,0,0.07)",
+                  border: `1px solid ${YELLOW}44`,
+                  borderRadius: 10,
+                  padding: "6px 12px",
+                  cursor: "default",
+                  transition: "all 0.15s",
+                }}
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
+                  <path d="M12 9v4m0 4h.01M10.3 3.86l-8.4 14.55A1.5 1.5 0 003.2 21h17.6a1.5 1.5 0 001.3-2.59L13.7 3.86a1.5 1.5 0 00-2.6 0z" stroke={YELLOW} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+                <span style={{ color: YELLOW, fontSize: 11, fontWeight: 600 }}>Report Issue</span>
+              </button>
+              <div className="adm-tip">  Report an issue — routed to HR and Admin.</div>
+            </div>
+            )}
+
+            
+            {/* guide / help — desktop only */}
+            {!isPhone && (
               <div className="adm-wrap" style={{ flexShrink: 0 }}>
                 <button
                   onClick={() => navigate(isPhone ? "/phone/guide" : "/guide")}
@@ -1176,7 +1133,6 @@ async function fetchTodayInOffice() {
                     transition: "all 0.15s",
                   }}
                 >
-                  
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
                     <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="1.8" />
                     <path
@@ -1186,17 +1142,14 @@ async function fetchTodayInOffice() {
                       strokeLinecap="round"
                     />
                   </svg>
-                  
-                  {!isPhone && (
                   <span style={{ color: YELLOW, fontSize: 11, fontWeight: 600 }}>Guide</span>
-                )}
                 </button>
 
                 <div className="adm-tip">
                   How canaryface works
                 </div>
               </div>
-}
+            )}
 
             {/* refresh */}
             <button
