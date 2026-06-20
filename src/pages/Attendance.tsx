@@ -9,6 +9,7 @@ import AddMeeting from "../components/AddMeeting";
 import Regularization from "../components/Regularization";
 import ReportIssue from "../components/ReportIssue";
 import BorderGlow from "../components/BorderGlow";
+import CardGravity from "../components/CardGravity";
 import { useNavigate, useLocation } from "react-router-dom";
 import { DATA_START } from "../App";
 // ─── constants ───────────────────────────────────────────────────────────────
@@ -479,9 +480,11 @@ export default function Attendance() {
   const [regOpen,      setRegOpen]     = useState(false);
   const [notices,      setNotices]     = useState<string[]>([]);
   const [issueOpen,    setIssueOpen]   = useState(false);
+  const [gravityOn,    setGravityOn]   = useState(false);   // fun-only gravity toggle
   const didAutoScroll = useRef(false);
   const marqueeBoxRef   = useRef<HTMLDivElement>(null);
   const marqueeTrackRef = useRef<HTMLDivElement>(null);
+  const gridRef         = useRef<HTMLDivElement>(null);
  
  
   const displayDates = useMemo(
@@ -662,6 +665,28 @@ async function fetchTodayInOffice() {
       if (snap.exists()) setIsLive(snap.data().live ?? false);
     }).catch(() => {});
   }, []);
+
+  // ── Fun mode lock: while gravity is on, block ALL navigation/clicks app-wide.
+  //     (Matter drag uses mousedown/move/up, which we leave alone.) Disable = refresh.
+  useEffect(() => {
+    if (!gravityOn) return;
+    const block = (e: Event) => { e.preventDefault(); e.stopPropagation(); };
+    // capture phase so it fires before any React/anchor handler
+    document.addEventListener("click", block, true);
+    document.addEventListener("auxclick", block, true);
+    document.addEventListener("submit", block, true);
+    // block Enter/Space activating focused links/buttons
+    const keyBlock = (e: KeyboardEvent) => {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); }
+    };
+    document.addEventListener("keydown", keyBlock, true);
+    return () => {
+      document.removeEventListener("click", block, true);
+      document.removeEventListener("auxclick", block, true);
+      document.removeEventListener("submit", block, true);
+      document.removeEventListener("keydown", keyBlock, true);
+    };
+  }, [gravityOn]);
 
   // ── Auto-refresh on every minute boundary (when seconds hit :00), tab visible only ──
   useEffect(() => {
@@ -1023,6 +1048,23 @@ async function fetchTodayInOffice() {
 
       {toast && <Toast message={toast} onDone={dismissToast} />}
 
+      {/* fun mode hint — everything is locked until the page is refreshed */}
+      {gravityOn && (
+        <div style={{
+          position: "fixed", bottom: 16, left: "50%", transform: "translateX(-50%)",
+          zIndex: 99999, display: "flex", alignItems: "center", gap: 9,
+          background: "linear-gradient(135deg,#111C4A,#0A1235)",
+          border: `1px solid ${YELLOW}66`, borderRadius: 22,
+          padding: "8px 16px", boxShadow: "0 10px 30px rgba(0,0,0,0.6)",
+          pointerEvents: "none",
+        }}>
+          <span style={{ fontSize: 14 }}>✨</span>
+          <span style={{ color: YELLOW, fontSize: 12, fontWeight: 700, letterSpacing: 0.3 }}>
+            Refresh the page to return to the dashboard
+          </span>
+        </div>
+      )}
+
       <AddMeeting
         open={meetingOpen}
         onClose={() => setMeetingOpen(false)}
@@ -1051,14 +1093,22 @@ async function fetchTodayInOffice() {
         borderBottom: `1px solid ${BORDER}`,
         position: "sticky", top: 0, zIndex: 40, backdropFilter: "blur(12px)",
       }}>
-<div className="att-headrow" style={{ maxWidth: 1500, margin: "0 auto", padding: "10px 8px", display: "flex", alignItems: "center", gap: 10 }}>          <a href="https://canarysuite.in/cv"
-            style={{ display: "flex", alignItems: "center", gap: 10, textDecoration: "none", flexShrink: 0 }}>
-            <AnimatedLogo />
-             <div>
+<div className="att-headrow" style={{ maxWidth: 1500, margin: "0 auto", padding: "10px 8px", display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+            {/* logo image → ENABLE fun gravity (main page only). Disable = refresh the page. */}
+            <div
+              onClick={() => { if (location.pathname === "/" && !gravityOn) setGravityOn(true); }}
+              title="✨"
+              style={{ cursor: location.pathname === "/" && !gravityOn ? "pointer" : "default", lineHeight: 0 }}
+            >
+              <AnimatedLogo />
+            </div>
+            {/* name → link */}
+            <a href="https://canarysuite.in/cv" style={{ textDecoration: "none" }}>
               <p style={{ fontWeight: 700, fontSize: 14, color: TEXT, lineHeight: 1, margin: 0 }}>Canary Face</p>
               <p style={{ fontSize: 10, color: SUB, marginTop: 2 }}>AI-Powered Attendance Platform</p>
-            </div>
-          </a>
+            </a>
+          </div>
 
           <div style={{ flex: 1 }} />
 
@@ -1210,7 +1260,7 @@ async function fetchTodayInOffice() {
                 </svg>
                 <span style={{ color: YELLOW, fontSize: 11, fontWeight: 600 }}>Report Issue</span>
               </button>
-              <div className="adm-tip">Report an issue regarding attendance records, device, web dashboard bugs, workplace facilities, or personnel matters.</div>
+              <div className="adm-tip">Report an issue regarding attendance records, app, web dashboard bugs, workplace facilities, or personnel matters.</div>
             </div>
             )}
  
@@ -1458,7 +1508,7 @@ async function fetchTodayInOffice() {
               <p style={{ fontWeight: 600, color: SUB }}>No employees found</p>
             </div>
           ) : (
-            <div className="att-grid">
+            <div className="att-grid" ref={gridRef}>
               {filtered.map(d => {
                 const mine = d.emp_id === myId;
                 return (
@@ -1492,6 +1542,9 @@ async function fetchTodayInOffice() {
               })}
             </div>
           )}
+
+          {/* fun-only: drop the cards with gravity when the logo is clicked — main page (/) + week view only */}
+          <CardGravity active={gravityOn && location.pathname === "/" && viewMode === "week" && !loading && filtered.length > 0} gridRef={gridRef} gravity={1} />
         </main>
       </div>
     </div>
