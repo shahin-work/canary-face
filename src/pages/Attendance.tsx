@@ -15,8 +15,8 @@ import { DATA_START } from "../App";
 
 
 // Marquee toggles (never shown on phone). If both false → nothing shows; one false → only the other.
-const SHOW_MARQUE_FROM_DB = true; // HR notices fetched from the DB (/hr), shown in yellow
-const SHOW_MARQUE_FROM_COMPUTING = true; // "Computing" marquee, shown in blue
+const SHOW_MARQUE_FROM_DB = false; // HR notices fetched from the DB (/hr), shown in yellow
+const SHOW_MARQUE_FROM_COMPUTING = false; // "Computing" marquee, shown in blue
 const MARQUEE_SPEED       = 0.7;  // px per frame (higher = faster)
 const MARQUEE_GAP         = 32;   // px gap between the two copies of the marquee track (higher = more space)
 
