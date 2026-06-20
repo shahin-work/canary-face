@@ -21,13 +21,33 @@ const NAME_KEY = "cf_my_emp_name";
 
 // ─── issue categories + routing ──────────────────────────────────────────────
 // Attendance-device issues go to Shahin; everything else goes to HR (Vandana).
-const CATEGORIES = [
-  { value: "regularization",   label: "Regularization issue",     solver: "HR — Vandana", solverNote: "Handled by HR" },
-  { value: "attendance_device", label: "Attendance device issue", solver: "Shahin",       solverNote: "Handled by Shahin" },
-  { value: "workplace",        label: "Workplace issue",          solver: "HR — Vandana", solverNote: "Handled by HR" },
-  { value: "employee",         label: "Employee issue",           solver: "HR — Vandana", solverNote: "Handled by HR" },
-  { value: "other",            label: "Other",                    solver: "HR — Vandana", solverNote: "Handled by HR" },
+ 
+
+export const CATEGORIES = [
+  // ── HR & Attendance Issues (Most Common) ──
+  { value: "regularization",        label: "Attendance Regularization",  solver: "HR — Vandana", solverNote: "Handled by HR" },
+  { value: "record_sync",           label: "Zoho Sync / Record Error",   solver: "HR — Vandana", solverNote: "Handled by HR" },
+  { value: "leave_wfh",             label: "Leave or WFH Discrepancy",   solver: "HR — Vandana", solverNote: "Handled by HR" },
+
+  // ── Technical & Device Issues ──
+  { value: "app_issue",             label: "Canary Face App Issue",      solver: "Shahin",       solverNote: "Handled by Shahin" },
+  { value: "face_recognition",      label: "Face Recognition",           solver: "Shahin",       solverNote: "Handled by Shahin" },
+  { value: "dashboard_bug",         label: "Web Dashboard Bug",          solver: "Shahin",       solverNote: "Handled by Shahin" },
+
+  // ── Workplace & Facilities ──
+  { value: "workplace",             label: "Workplace & Facilities",     solver: "HR — Vandana", solverNote: "Handled by HR" },
+
+  // ── Compliance & Policy Violations ──
+  { value: "missed_scan_violation", label: "Failure to Scan In/Out",     solver: "HR — Vandana", solverNote: "Handled by HR" },
+  { value: "unreported_absence",    label: "Unreported Absence / WFH",   solver: "HR — Vandana", solverNote: "Handled by HR" },
+  { value: "unauthorized_break",    label: "Excessive / Unlogged Break", solver: "HR — Vandana", solverNote: "Handled by HR" },
+  { value: "policy_violation",      label: "General Policy Violation",   solver: "HR — Vandana", solverNote: "Handled by HR" },
+  { value: "device_misuse",         label: "Device Tampering / Misuse",  solver: "Shahin",       solverNote: "Handled by Shahin" },
+
+  // ── Catch-all (Always Last) ──
+  { value: "other",                 label: "Other / General",            solver: "HR — Vandana", solverNote: "Handled by HR" },
 ] as const;
+ 
 type CategoryValue = (typeof CATEGORIES)[number]["value"];
 
 type IssueStatus = "open" | "resolved" | "cancelled";

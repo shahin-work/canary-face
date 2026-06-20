@@ -48,8 +48,8 @@ export default function Guide() {
           </p>
           <p className="cf-p">
             The device is powered by an intelligent recognition engine that is fast and highly accurate,
-            identifying you even from a partial glance. Each time you arrive or step out, a brief look is
-            enough — your attendance is captured instantly and reflected in both Canary Face and Zoho.
+            identifying you even from a partial glance. Each time you arrive or step out, your attendance is
+            captured instantly and reflected in both Canary Face and Zoho.
           </p>
         </section>
 
@@ -60,13 +60,13 @@ export default function Guide() {
             Your personal dashboard gives you a clear, real-time view of your attendance at any time:
           </p>
           <ul className="cf-list">
-            <li>Current status — Office In or Office Out</li>
-            <li>Today's check-in and check-out times</li>
-            <li>Total working hours and break time</li>
-            <li>Attendance calendar and full history</li>
-            <li>Weekly and monthly summaries</li>
+            <li><span className="cf-strong">Current status</span> — Office In or Office Out</li>
+            <li><span className="cf-strong">Today's timeline</span> — Exact check-in and check-out times</li>
+            <li><span className="cf-strong">Metrics</span> — Total working hours and break time</li>
+            <li><span className="cf-strong">History</span> — Full attendance calendar and monthly breakdown</li>
+            <li><span className="cf-strong">Interactive Tools</span> — Quick-action buttons for regularization requests, logging meetings, and reporting issues</li>
           </ul>
-          <p className="cf-p">Your status refreshes automatically after every scan.</p>
+          <p className="cf-p">Your dashboard status refreshes automatically after every face scan.</p>
         </section>
 
         {/* Your Working Day */}
@@ -75,34 +75,39 @@ export default function Guide() {
           <table className="cf-table">
             <tbody>
               <tr>
-                <td>Office hours</td>
+                <td>Office Hours</td>
                 <td>9:00 AM – 6:00 PM</td>
               </tr>
               <tr>
-                <td>Working hours</td>
-                <td>8 hours</td>
+                <td>Working Hours</td>
+                <td>8 Hours</td>
               </tr>
               <tr>
-                <td>Lunch</td>
-                <td>1 hour</td>
+                <td>Lunch Break</td>
+                <td>1 Hour</td>
               </tr>
               <tr>
                 <td>Overtime</td>
-                <td>Counted after 8 hours</td>
+                <td>Automatically counted after 8 hours</td>
               </tr>
             </tbody>
           </table>
           <p className="cf-p">
-            <span className="cf-strong">Non-working days:</span> every Sunday, the 2nd and 4th Saturday of
-            each month, and all Canary Digital holidays.
+            <span className="cf-strong">Non-working days:</span> Every Sunday, the 2nd and 4th Saturday of
+            each month, and all official Canary Digital holidays.
           </p>
           <div className="cf-note">
             <p className="cf-p">
-              <span className="cf-strong">Please note:</span> For client visits, approved permissions, or
-              remote workdays, HR will mark you as working remotely once your notification email is
-              received. Without this, the day is recorded as absent, so please inform HR in advance. The
-              one-hour lunch break is currently included within your daily working-hours total. This is
-              temporary and may be adjusted in a future update.
+              <span className="cf-strong">Remote Work &amp; Client Visits:</span> For client visits, approved
+              permissions, or remote workdays, HR will mark your status manually once your notification email
+              is received. Please inform HR in advance to ensure the day is not recorded as an absence.
+            </p>
+          </div>
+          <div className="cf-note">
+            <p className="cf-p">
+              <span className="cf-strong">Important Note on Working Hours:</span> The one-hour lunch break is
+              currently included in your daily working-hours total. This is temporary and will be fixed in a
+              few days.
             </p>
           </div>
         </section>
@@ -111,15 +116,19 @@ export default function Guide() {
         <section className="cf-section">
           <h2 className="cf-h2">Short Breaks</h2>
           <p className="cf-p">
-            You have a small allowance for quick step-outs that does not count against you or register as a
-            check-out: 5 minutes in the morning (9:00 AM – 1:00 PM) and 5 minutes in the afternoon
-            (2:00 PM – 6:00 PM).
+            You have a small, dedicated allowance for quick step-outs that does not register as a check-out
+            or deduct from your time: 5 minutes in the morning (9:00 AM – 1:00 PM) and 5 minutes in the
+            afternoon (2:00 PM – 6:00 PM).
           </p>
           <ul className="cf-list">
-            <li>Return within the allowance and you remain marked present; nothing additional is sent to Zoho.</li>
             <li>
-              Stay out longer and it becomes a standard check-out, timed from the moment the allowance
-              ended. Simply scan again when you return.
+              <span className="cf-strong">Within Allowance:</span> Return within 5 minutes, and you remain
+              marked present. No check-out log is created or sent to Zoho.
+            </li>
+            <li>
+              <span className="cf-strong">Exceeding Allowance:</span> If you stay out longer than 5 minutes,
+              it automatically converts into a standard check-out, timed from the moment the 5-minute window
+              ended. Simply scan your face at the device when you return.
             </li>
           </ul>
         </section>
@@ -128,9 +137,33 @@ export default function Guide() {
         <section className="cf-section">
           <h2 className="cf-h2">Meetings</h2>
           <p className="cf-p">
-            When you are added to a meeting in Canary Face, your attendance for the meeting's duration is
-            recorded automatically. No separate scan is required.
+            When you leave for a work-related meeting, log it using the Log Meeting tool on your dashboard.
+            Your attendance will remain active for the meeting's duration, so you do not need to scan out
+            when leaving the office.
           </p>
+        </section>
+
+        {/* Dashboard Tools & Requests */}
+        <section className="cf-section">
+          <h2 className="cf-h2">Dashboard Tools &amp; Requests</h2>
+          <p className="cf-p">
+            You can manage your attendance exceptions directly from the action bar on your web dashboard:
+          </p>
+          <ul className="cf-list">
+            <li>
+              <span className="cf-strong">Regularization:</span> If you miss a scan, work remotely, or
+              notice a discrepancy in your log, click this button to submit a correction request to HR.
+            </li>
+            <li>
+              <span className="cf-strong">Log Meeting:</span> Use this to register scheduled work meetings so
+              your attendance stays active without tracking device scans.
+            </li>
+            <li>
+              <span className="cf-strong">Report Issue:</span> If you encounter a hardware problem with the
+              office face device, a bug on the web app, or a workplace facility issue, click here to route a
+              ticket to administration.
+            </li>
+          </ul>
         </section>
 
         {/* Good to Know */}
@@ -138,17 +171,19 @@ export default function Guide() {
           <h2 className="cf-h2">Good to Know</h2>
           <ul className="cf-list">
             <li>
-              A short pause between scans is intentional: the device waits about 20 seconds before reading
-              again to prevent duplicate entries. If a scan does not register, wait a moment and face the
-              device again.
+              <span className="cf-strong">Scan Cooldown:</span> A short pause between scans is intentional.
+              The device waits roughly 20 seconds before reading the same face again to prevent duplicate
+              logs. If your scan doesn't instantly appear, wait a brief moment and face the camera again.
             </li>
             <li>
-              Every scan is reliable — each one records the correct event for the moment, and scanning again
-              simply begins a fresh session.
+              <span className="cf-strong">Accidental Scans:</span> The system is built to be highly reliable.
+              If you accidentally face the camera twice in a row, the 20-second cooldown filters it out,
+              keeping your timeline completely clean.
             </li>
             <li>
-              If you are unable to complete a face scan for any reason, please contact HR to have your
-              attendance regularised for that day.
+              <span className="cf-strong">Failed Scans:</span> If you ever fail to log a scan due to
+              technical issues, use the Regularization feature on your dashboard right away to correct the
+              entry.
             </li>
           </ul>
         </section>
@@ -156,11 +191,11 @@ export default function Guide() {
         {/* Synchronisation with Zoho */}
         <section className="cf-section">
           <h2 className="cf-h2">Synchronisation with Zoho</h2>
-          <p className="cf-flow">Face scan&nbsp;&nbsp;→&nbsp;&nbsp;Canary Face&nbsp;&nbsp;→&nbsp;&nbsp;Zoho</p>
+          <p className="cf-flow">[Face Scan]&nbsp;&nbsp;──&gt;&nbsp;&nbsp;[Canary Face Dashboard]&nbsp;&nbsp;──&gt;&nbsp;&nbsp;[Zoho People]</p>
           <p className="cf-p">
-            Every check-in and check-out is sent to Zoho automatically, while short breaks within your
-            allowance are not. Both systems remain fully in sync, with Canary Face serving as the single
-            source of truth.
+            Every valid check-in and check-out maps to Zoho automatically in real time (excluding short
+            breaks within the 5-minute allowance). Both systems remain completely in sync, with Canary Face
+            serving as the definitive source of truth for your time tracking.
           </p>
         </section>
 
@@ -168,19 +203,22 @@ export default function Guide() {
         <section className="cf-section">
           <h2 className="cf-h2">Need Help?</h2>
           <p className="cf-p">
-            For attendance, leave, or record corrections, please contact HR — Vandana (
+            For attendance edits, leave tracking, or sync corrections, contact HR — Vandana (
             <a className="cf-link cf-link-plain" href="mailto:vandana@canarydigital.ai">
               vandana@canarydigital.ai
             </a>
-            ). For Canary Face platform, device, or access-related matters, please contact Admin. Any record can be
-            reviewed and adjusted for you.
+            ).
+          </p>
+          <p className="cf-p">
+            For system access bugs, application downtime, or hardware device issues, use the Report Issue
+            button on your dashboard or contact Shahin directly.
           </p>
         </section>
 
         {/* Footer */}
         <footer className="cf-footer">
           <p>Canary Face · Canary Digital — AI-powered attendance.</p>
-          <p>Last updated: 12 June 2026 · Version 1.0</p>
+          <p>Last updated: June 2026 · Version 1.1 · canaryface.vercel.app</p>
           <p>
             <a className="cf-link" href="https://canaryface.vercel.app" target="_blank" rel="noreferrer">
               canaryface.vercel.app

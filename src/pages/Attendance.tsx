@@ -15,10 +15,10 @@ import { DATA_START } from "../App";
 
 
 // Marquee toggles (never shown on phone). If both false → nothing shows; one false → only the other.
-const SHOW_MARQUE_FROM_DB = false; // HR notices fetched from the DB (/hr), shown in yellow
-const SHOW_MARQUE_FROM_COMPUTING = false; // "Computing" marquee, shown in blue
+const SHOW_MARQUE_FROM_DB = true; // HR notices fetched from the DB (/hr), shown in yellow
+const SHOW_MARQUE_FROM_COMPUTING = true; // "Computing" marquee, shown in blue
 const MARQUEE_SPEED       = 0.7;  // px per frame (higher = faster)
-const MARQUEE_GAP         = 32;   // px gap between the two copies of the marquee track (higher = more space)
+const MARQUEE_GAP         = 20;   // px gap between the two copies of the marquee track (higher = more space)
 
 
 const HOLIDAYS_2026 = new Set([
@@ -376,6 +376,69 @@ function PeopleList({ people, empty, showSince }: {
   );
 }
 
+// ─── Hover popover (in office / wfh / out) — opens on hover, lingers after leaving ──
+function HoverPopover({
+  accent, label, count, dot, title, people, showSince, empty,
+}: {
+  accent: string;
+  label: string;
+  count: number;
+  dot: React.ReactNode;
+  title: string;
+  people: { emp_id: string; name: string; profile_image?: string; checkIn?: string }[];
+  showSince?: boolean;
+  empty: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const show = () => { if (timer.current) clearTimeout(timer.current); setOpen(true); };
+  const hideSoon = () => {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => setOpen(false), 2500); // linger ~2.5s after leaving
+  };
+  useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
+
+  return (
+    <div
+      style={{ position: "relative", display: "flex", alignItems: "center", gap: 5, cursor: "default" }}
+      onMouseEnter={show}
+      onMouseLeave={hideSoon}
+    >
+      {dot}
+      <span style={{ color: accent, fontWeight: 700 }}>{count}</span>
+      <span style={{ color: SUB }}>{label}</span>
+
+      <div
+        className="cf-pop"
+        onMouseEnter={show}
+        onMouseLeave={hideSoon}
+        style={{
+          position: "absolute", top: "calc(100% + 10px)", left: "50%",
+          minWidth: 210, maxWidth: 270, maxHeight: 300, overflowY: "auto",
+          background: "linear-gradient(150deg,#101A4E 0%,#0A1238 60%,#070E2C 100%)",
+          border: `1px solid ${accent}40`, borderRadius: 14, padding: 11, zIndex: 600,
+          boxShadow: `0 16px 44px rgba(0,0,0,0.65), 0 0 0 1px ${accent}18, inset 0 1px 0 rgba(255,255,255,0.04)`,
+          opacity: open ? 1 : 0,
+          transform: open ? "translateX(-50%) translateY(0)" : "translateX(-50%) translateY(-6px)",
+          pointerEvents: open ? "auto" : "none",
+          transition: "opacity 0.18s ease, transform 0.18s ease",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 6, margin: "0 0 9px", paddingLeft: 2 }}>
+          <span style={{ width: 5, height: 5, borderRadius: "50%", background: accent, boxShadow: `0 0 6px ${accent}` }} />
+          <p style={{ fontSize: 9, fontWeight: 800, color: accent, letterSpacing: 0.7, textTransform: "uppercase", margin: 0 }}>{title}</p>
+          <span style={{
+            marginLeft: "auto", fontSize: 9, fontWeight: 800, color: accent,
+            background: `${accent}1c`, border: `1px solid ${accent}3a`, borderRadius: 20, padding: "1px 7px",
+          }}>{people.length}</span>
+        </div>
+        <PeopleList people={people} empty={empty} showSince={showSince} />
+      </div>
+    </div>
+  );
+}
+
 // ─── component ────────────────────────────────────────────────────────────────
 export default function Attendance() {
   const navigate = useNavigate();
@@ -405,6 +468,7 @@ export default function Attendance() {
   const [search,       setSearch]      = useState("");
   const [cards,        setCards]       = useState<EmployeeCardData[]>([]);
   const [loading,      setLoading]     = useState(true);
+  const [refreshing,   setRefreshing]  = useState(false);
   const [error,        setError]       = useState("");
   const [, setCurrentlyIn] = useState<number>(0);
   const [toast,        setToast]       = useState<string | null>(null);
@@ -482,8 +546,10 @@ async function fetchTodayInOffice() {
   }
 }
 
-  async function fetchAll(datesToFetch?: string[]) {
-    setLoading(true);
+  async function fetchAll(datesToFetch?: string[], silent = false) {
+    // silent = keep current cards visible, just show the "Refreshing…" indicator
+    if (silent) setRefreshing(true);
+    else setLoading(true);
     setError("");
     try {
       const empSnap = await getDocs(collection(db, "employees"));
@@ -496,36 +562,39 @@ async function fetchTodayInOffice() {
 
       const result: EmployeeCardData[] = await Promise.all(
         employees.map(async (emp) => {
-          const weekDays: DayStatus[] = await Promise.all(
-            dates.map(async (date) => {
-              if (date < DATA_START) return { date, status: "future" as const };
-              if (isHoliday(date))   return { date, status: "holiday" as const };
-              if (isWeekend(date))   return { date, status: "weekend" as const };
-              if (date > today)      return { date, status: "future"  as const };
+          // ONE query per employee for the whole collection, then pick the visible dates
+          // locally — far fewer reads than one getDoc per (employee × day).
+          let byDate: Record<string, any> = {};
+          try {
+            const snap = await getDocs(collection(db, emp.emp_id));
+            snap.docs.forEach(dDoc => { byDate[dDoc.id] = dDoc.data(); });
+          } catch (_) {}
 
-              try {
-                const snap = await getDoc(doc(db, emp.emp_id, date));
-                if (snap.exists()) {
-                  const d = snap.data() as { sessions: Session[]; extra_time?: string | null };
-                  const isWfh = d.sessions?.length > 0 && d.sessions.every((s: any) => s.wfh === true);
-                  return {
-                    date,
-                    status: "present" as const,
-                    sessions: d.sessions,
-                    totalHours: calcHours(d.sessions, date),
-                    extraTime: d.extra_time ?? null,
-                    wfh: isWfh,
-                  };
-                }
-              } catch (_) {}
+          const weekDays: DayStatus[] = dates.map((date) => {
+            if (date < DATA_START) return { date, status: "future" as const };
+            if (isHoliday(date))   return { date, status: "holiday" as const };
+            if (isWeekend(date))   return { date, status: "weekend" as const };
+            if (date > today)      return { date, status: "future"  as const };
 
-              // today, no check-in yet → still awaiting (day not over, not a leave)
-              if (date === today) return { date, status: "awaiting" as const };
-              // past working day with no attendance → treat as leave (was "absent")
-              if (date < today)   return { date, status: "leave" as const };
-              return { date, status: "future" as const };
-            })
-          );
+            const d = byDate[date] as { sessions: Session[]; extra_time?: string | null } | undefined;
+            if (d?.sessions) {
+              const isWfh = d.sessions.length > 0 && d.sessions.every((s: any) => s.wfh === true);
+              return {
+                date,
+                status: "present" as const,
+                sessions: d.sessions,
+                totalHours: calcHours(d.sessions, date),
+                extraTime: d.extra_time ?? null,
+                wfh: isWfh,
+              };
+            }
+
+            // today, no check-in yet → still awaiting (day not over, not a leave)
+            if (date === today) return { date, status: "awaiting" as const };
+            // past working day with no attendance → treat as leave (was "absent")
+            if (date < today)   return { date, status: "leave" as const };
+            return { date, status: "future" as const };
+          });
 
           const presentDays = weekDays.filter(d => d.status === "present").length;
           const workingDays = weekDays.filter(d =>
@@ -573,10 +642,11 @@ async function fetchTodayInOffice() {
 
       setCards(result);
     } catch (e) {
-      setError("Failed to load attendance data.");
+      if (!silent) setError("Failed to load attendance data.");
       console.error(e);
     } finally {
-      setLoading(false);
+      if (silent) setRefreshing(false);
+      else setLoading(false);
     }
   }
 
@@ -592,6 +662,28 @@ async function fetchTodayInOffice() {
       if (snap.exists()) setIsLive(snap.data().live ?? false);
     }).catch(() => {});
   }, []);
+
+  // ── Auto-refresh on every minute boundary (when seconds hit :00), tab visible only ──
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout>;
+    const refresh = () => {
+      if (document.visibilityState !== "visible") return;
+      const dates = viewMode === "week" ? getWeekDates(weekOffset) : getMonthDates(monthOffset);
+      fetchAll(dates, true);   // silent: keep cards on screen, just pull latest
+      fetchTodayInOffice();
+      fetchNotices();
+    };
+    // schedule the next tick exactly at the next :00 second, then re-schedule each minute
+    const scheduleNext = () => {
+      const now = new Date();
+      const msToNextMinute = (60 - now.getSeconds()) * 1000 - now.getMilliseconds();
+      timer = setTimeout(() => { refresh(); scheduleNext(); }, msToNextMinute);
+    };
+    scheduleNext();
+    // also pull fresh data the moment the tab becomes visible again
+    document.addEventListener("visibilitychange", refresh);
+    return () => { clearTimeout(timer); document.removeEventListener("visibilitychange", refresh); };
+  }, [viewMode, weekOffset, monthOffset]);
 
   // ── Live tick: recalc hours every 60s for open sessions ──
   useEffect(() => {
@@ -686,8 +778,8 @@ async function fetchTodayInOffice() {
           else if ((day.totalHours ?? 0) > 0 && (day.totalHours ?? 0) < 8) under8.push(c.name);
         }
         const dLabel = new Date(lastWorkingDay).toLocaleDateString("en-IN", { day: "numeric", month: "short" });
-        noCheckout.forEach(n => items.push({ text: `${n} didn't check out on ${dLabel}`, kind: "auto" }));
-        under8.forEach(n => items.push({ text: `${n} didn't complete 8 hours on ${dLabel}`, kind: "auto" }));
+        noCheckout.forEach(n => items.push({ text: `${n}, please remember to check out — no check-out recorded on ${dLabel}.`, kind: "auto" }));
+        under8.forEach(n => items.push({ text: `${n}, your hours on ${dLabel} were under 8 — please ensure full hours.`, kind: "auto" }));
       }
     }
     return items.filter(it => it.text);
@@ -808,25 +900,64 @@ async function fetchTodayInOffice() {
             radial-gradient(ellipse 50% 40% at 0% 80%, rgba(79,55,200,0.12) 0%, transparent 60%),
             #060D2E;
         }
-        .att-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 9px; }
+        .att-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 9px; align-items: stretch; }
+        /* make every card fill its grid cell so all cards in a row are the same height */
+        .att-grid > div { display: flex; height: 100%; }
+        .att-grid > div > .border-glow-card { width: 100%; height: 100%; }
+        .att-grid > div > .border-glow-card > .border-glow-inner { height: 100%; }
+        .att-grid > div > .border-glow-card > .border-glow-inner > * { height: 100%; }
 
-        .empcard-mine {
+        /* "YOU" card — same outer size as every other card; the gold border + glow
+           are overlay elements rendered AFTER the card so they sit on top on all 4 sides. */
+        /* YOU card content sits 1px inset (via padding) so the gold border shows fully inside the cell,
+           while the wrapper keeps the exact same outer size as every other card */
+        .empcard-mine { position: relative; border-radius: 14px; padding: 1px; box-sizing: border-box; }
+        /* rotating gold border ring — overlay above the card, drawn inward (no extra size) */
+        .empcard-mine-ring {
+          content: "";
+          position: absolute; inset: 1px;     /* matches the 1px card margin */
           border-radius: 14px;
-          outline: 2px solid ${YELLOW};
-          outline-offset: 1px;
-          border-color: ${YELLOW} !important;
-          animation: empcard-mine-glow 2.4s ease-in-out infinite;
+          padding: 3px;                       /* ring thickness, drawn inward */
+          background:
+            conic-gradient(from var(--mine-a, 0deg),
+              #7a5c00 0deg, #FFD700 50deg, #FFFDE7 90deg, #FFD700 130deg,
+              #9c7400 200deg, #FFD700 250deg, #FFF3B0 290deg, #FFD700 320deg, #7a5c00 360deg);
+          -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+          -webkit-mask-composite: xor;
+                  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+                  mask-composite: exclude;
+          animation: empcard-mine-spin 3.4s linear infinite;
+          pointer-events: none;
+          z-index: 30;
         }
-        @keyframes empcard-mine-glow {
-          0%,100% { box-shadow: 0 0 0 1px rgba(255,215,0,0.30), 0 0 16px rgba(255,215,0,0.20); }
-          50%     { box-shadow: 0 0 0 1px rgba(255,215,0,0.55), 0 0 28px rgba(255,215,0,0.42); }
+        /* inner gold edge + soft drifting "smoke" glow — overlay just inside the ring */
+        .empcard-mine-glow {
+          position: absolute; inset: 4px;     /* 1px margin + 3px ring */
+          border-radius: 12px;
+          pointer-events: none;
+          z-index: 29;
+          background:
+            radial-gradient(120% 55% at 50% 0%,   rgba(255,215,0,0.20), transparent 60%),
+            radial-gradient(120% 55% at 50% 100%, rgba(255,200,0,0.16), transparent 60%);
+          box-shadow:
+            inset 0 0 0 1px rgba(255,215,0,0.45),
+            inset 0 0 16px rgba(255,215,0,0.28),
+            inset 0 1px 0 rgba(255,247,200,0.30);
+          animation: empcard-mine-smoke 4.5s ease-in-out infinite;
+        }
+        @property --mine-a { syntax: "<angle>"; inherits: false; initial-value: 0deg; }
+        @keyframes empcard-mine-spin  { to { --mine-a: 360deg; } }
+        @keyframes empcard-mine-smoke {
+          0%,100% { opacity: 0.75; }
+          50%     { opacity: 1; }
         }
         .empcard-you {
-          position: absolute; top: -9px; left: 12px; z-index: 6;
-          background: ${YELLOW}; color: ${BG};
-          font-size: 9px; font-weight: 800; letter-spacing: 0.6px;
-          padding: 2px 9px; border-radius: 20px;
-          box-shadow: 0 3px 10px rgba(255,215,0,0.45);
+          position: absolute; top: -9px; left: 12px; z-index: 40;
+          background: linear-gradient(135deg, #FFE970, #FFD700 55%, #F0B400);
+          color: ${BG};
+          font-size: 9px; font-weight: 900; letter-spacing: 0.8px;
+          padding: 2px 10px; border-radius: 20px;
+          box-shadow: 0 3px 12px rgba(255,215,0,0.55), inset 0 1px 0 rgba(255,255,255,0.5);
           font-family: 'Sora', sans-serif;
         }
 
@@ -875,6 +1006,15 @@ async function fetchTodayInOffice() {
           box-shadow: 0 12px 36px rgba(0,0,0,0.6);
         }
         .io-wrap:hover .io-tip, .wfh-wrap:hover .io-tip { display: block; }
+        /* blue-themed scrollbar for the in-office / out / wfh popovers */
+        .cf-pop { scrollbar-width: thin; scrollbar-color: rgba(96,165,250,0.55) transparent; }
+        .cf-pop::-webkit-scrollbar { width: 6px; }
+        .cf-pop::-webkit-scrollbar-track { background: transparent; margin: 4px 0; }
+        .cf-pop::-webkit-scrollbar-thumb {
+          background: linear-gradient(180deg, #60A5FA, #6366F1);
+          border-radius: 6px; border: 1px solid rgba(11,19,64,0.6);
+        }
+        .cf-pop::-webkit-scrollbar-thumb:hover { background: linear-gradient(180deg, #93C5FD, #818CF8); }
         .meetbtn:hover { background: rgba(79,142,247,0.14) !important; }
         @keyframes toast-bar { from{width:100%} to{width:0%} }
         /* marquee track is driven by JS (MARQUEE_SPEED), pause-on-hover handled in JS */
@@ -916,7 +1056,7 @@ async function fetchTodayInOffice() {
             <AnimatedLogo />
              <div>
               <p style={{ fontWeight: 700, fontSize: 14, color: TEXT, lineHeight: 1, margin: 0 }}>Canary Face</p>
-              <p style={{ fontSize: 10, color: SUB, marginTop: 2 }}>Attendance · Software Team</p>
+              <p style={{ fontSize: 10, color: SUB, marginTop: 2 }}>AI-Powered Attendance Platform</p>
             </div>
           </a>
 
@@ -937,79 +1077,43 @@ async function fetchTodayInOffice() {
               <div style={{ width: 1, height: 13, background: "rgba(99,102,241,0.25)" }} />
 
               {/* in office — hover for names */}
-              <div className="io-wrap" style={{ display: "flex", alignItems: "center", gap: 5, cursor: "default" }}>
-                <div style={{ width: 6, height: 6, borderRadius: "50%", background: "#4ADE80", animation: "livePulse 1.4s ease-in-out infinite" }} />
-                <span style={{ color: "#4ADE80", fontWeight: 700 }}>{inOffice.length}</span>
-                <span style={{ color: SUB }}>in office</span>
-                <div className="io-tip">
-                  <p style={{ fontSize: 9, fontWeight: 700, color: "#4ADE80", letterSpacing: 0.6, textTransform: "uppercase", margin: "0 0 7px", paddingLeft: 2 }}>Currently in office</p>
-                  <PeopleList people={inOffice} empty="No one is in office right now." />
-                </div>
-              </div>
+              <HoverPopover
+                accent="#4ADE80"
+                label="in office"
+                count={inOffice.length}
+                dot={<div style={{ width: 6, height: 6, borderRadius: "50%", background: "#4ADE80", animation: "livePulse 1.4s ease-in-out infinite" }} />}
+                title="Currently in office"
+                people={inOffice}
+                showSince
+                empty="No one is in office right now."
+              />
 
               {wfhPeople.length > 0 && (
                 <>
                   <div style={{ width: 1, height: 13, background: "rgba(99,102,241,0.25)" }} />
-                  <div className="wfh-wrap" style={{ display: "flex", alignItems: "center", gap: 5, cursor: "default" }}>
-                    <div style={{ width: 6, height: 6, borderRadius: "50%", background: "#EC4899", boxShadow: "0 0 6px #EC4899" }} />
-                    <span style={{ color: "#EC4899", fontWeight: 700 }}>{wfhPeople.length}</span>
-                    <span style={{ color: SUB }}>wfh</span>
-                    <div className="io-tip">
-                      <p style={{ fontSize: 9, fontWeight: 700, color: "#EC4899", letterSpacing: 0.6, textTransform: "uppercase", margin: "0 0 7px", paddingLeft: 2 }}>Working from home</p>
-                      <PeopleList people={wfhPeople} empty="No one is working from home." />
-                    </div>
-                  </div>
+                  <HoverPopover
+                    accent="#EC4899"
+                    label="wfh"
+                    count={wfhPeople.length}
+                    dot={<div style={{ width: 6, height: 6, borderRadius: "50%", background: "#EC4899", boxShadow: "0 0 6px #EC4899" }} />}
+                    title="Working from home"
+                    people={wfhPeople}
+                    empty="No one is working from home."
+                  />
                 </>
               )}
 
               <div style={{ width: 1, height: 13, background: "rgba(99,102,241,0.25)" }} />
 
-                <div
-                  className="io-wrap"
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 5,
-                    cursor: "default"
-                  }}
-                >
-                  <div
-                    style={{
-                      width: 6,
-                      height: 6,
-                      borderRadius: "50%",
-                      background: "#EF4444",
-                      boxShadow: "0 0 6px #EF4444"
-                    }}
-                  />
-
-                  <span style={{ color: "#EF4444", fontWeight: 700 }}>
-                    {outEmployees.length}
-                  </span>
-
-                  <span style={{ color: SUB }}>out</span>
-
-                  <div className="io-tip">
-                    <p
-                      style={{
-                        fontSize: 9,
-                        fontWeight: 700,
-                        color: "#EF4444",
-                        letterSpacing: 0.6,
-                        textTransform: "uppercase",
-                        margin: "0 0 7px",
-                        paddingLeft: 2
-                      }}
-                    >
-                      Out of Office
-                    </p>
-
-                    <PeopleList
-                      people={outEmployees}
-                      empty="Everyone is currently working."
-                    />
-                  </div>
-                </div>
+              <HoverPopover
+                accent="#EF4444"
+                label="out"
+                count={outEmployees.length}
+                dot={<div style={{ width: 6, height: 6, borderRadius: "50%", background: "#EF4444", boxShadow: "0 0 6px #EF4444" }} />}
+                title="Out of Office"
+                people={outEmployees}
+                empty="Everyone is currently working."
+              />
             </div>
  
  
@@ -1036,10 +1140,10 @@ async function fetchTodayInOffice() {
                   <path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11" stroke={YELLOW} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
                 </svg>
                 {!isPhone && (
-                  <span style={{ color: YELLOW, fontSize: 11, fontWeight: 600 }}>Regularize</span>
+                  <span style={{ color: YELLOW, fontSize: 11, fontWeight: 600 }}>Regularization</span>
                 )}
               </button>
-              <div className="adm-tip">Attendance regularization — request a missed check-in / check-out correction</div>
+              <div className="adm-tip">Request an attendance correction for a missed scan, remote workday, or system discrepancy.</div>
             </div>
 
 
@@ -1073,12 +1177,12 @@ async function fetchTodayInOffice() {
                     />
                   </svg>
                   {!isPhone && (
-                  <span style={{ color: YELLOW, fontSize: 11, fontWeight: 600 }}>Add Meeting</span>
+                  <span style={{ color: YELLOW, fontSize: 11, fontWeight: 600 }}>Log Meeting</span>
                 )}
                 </button>
 
                 <div className="adm-tip">
-                  Add meeting
+                  Log a scheduled meeting. Your attendance will remain active for the duration without needing to scan.
                 </div>
               </div>
             )}
@@ -1106,11 +1210,10 @@ async function fetchTodayInOffice() {
                 </svg>
                 <span style={{ color: YELLOW, fontSize: 11, fontWeight: 600 }}>Report Issue</span>
               </button>
-              <div className="adm-tip">  Report an issue — routed to HR and Admin.</div>
+              <div className="adm-tip">Report an issue regarding attendance records, device, web dashboard bugs, workplace facilities, or personnel matters.</div>
             </div>
             )}
-
-            
+ 
             {/* guide / help — desktop only */}
             {!isPhone && (
               <div className="adm-wrap" style={{ flexShrink: 0 }}>
@@ -1146,7 +1249,7 @@ async function fetchTodayInOffice() {
                 </button>
 
                 <div className="adm-tip">
-                  How canaryface works
+                  Read the employee guide to understand attendance rules, break allowances, and how the Canary Face system works.
                 </div>
               </div>
             )}
@@ -1155,11 +1258,11 @@ async function fetchTodayInOffice() {
             <button
               onClick={() => {
                 const dates = viewMode === "week" ? getWeekDates(weekOffset) : getMonthDates(monthOffset);
-                fetchAll(dates);
+                fetchAll(dates, true);   // silent: keep data, show refreshing indicator
                 fetchTodayInOffice();
                 fetchNotices();
               }}
-              disabled={loading} title="Refresh" className="rbtn"
+              disabled={loading || refreshing} title="Refresh" className="rbtn"
               style={{
                 display: "flex",
                 alignItems: "center",
@@ -1176,13 +1279,13 @@ async function fetchTodayInOffice() {
               }}
               onMouseEnter={e => (e.currentTarget.style.transform = "scale(1.08)")}
               onMouseLeave={e => (e.currentTarget.style.transform = "scale(1)")}>
-              {loading
+              {(loading || refreshing)
                 ? <div className="spin" />
                 : <svg className="ri" width="14" height="14" viewBox="0 0 24 24" fill="none">
                     <path d="M4 4v5h.582m0 0a8.001 8.001 0 0115.356 2m.062-7L20 9h-5M20 20v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m-.062 7L4 15h5"
                       stroke={YELLOW} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                   </svg>
-                  
+
               }
               
                   {!isPhone && (
@@ -1362,11 +1465,11 @@ async function fetchTodayInOffice() {
                   <div
                     key={d.emp_id}
                     id={`empcard-${d.emp_id}`}
+                    className={mine ? "empcard-mine" : undefined}
                     style={{ position: "relative" }}
                   >
                     {mine && <span className="empcard-you">YOU</span>}
                     <BorderGlow
-                      className={mine ? "empcard-mine" : ""}
                       backgroundColor="transparent"
                       borderRadius={14}
                       glowRadius={18}
@@ -1378,6 +1481,12 @@ async function fetchTodayInOffice() {
                       <EmployeeCard data={d} viewMode={viewMode}
                         onClick={() => navigate(`/${d.emp_id}`)} isLive={isLive} />
                     </BorderGlow>
+                    {mine && (
+                      <>
+                        <span className="empcard-mine-ring" />
+                        <span className="empcard-mine-glow" />
+                      </>
+                    )}
                   </div>
                 );
               })}

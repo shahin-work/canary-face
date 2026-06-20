@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { collection, getDocs } from "firebase/firestore";
 import { db } from "../firebase";
@@ -640,49 +640,39 @@ export default function EmployeeDetails() {
 
 
 
-  useEffect(() => {
-  if (!empId) return;
-
-  (async () => {
-    setLoading(true);
-
+  const loadData = useCallback(async (silent = false) => {
+    if (!empId) return;
+    if (!silent) setLoading(true);
     try {
-      const q = query(
-        collection(db, "employees"),
-        where("emp_id", "==", empId)
-      );
-
+      const q = query(collection(db, "employees"), where("emp_id", "==", empId));
       const snap = await getDocs(q);
-
-      if (snap.empty) {
-        setError("Employee not found.");
-        return;
-      }
+      if (snap.empty) { if (!silent) setError("Employee not found."); return; }
 
       const employeeData = snap.docs[0].data() as Employee;
       setEmployee(employeeData);
 
       const attendanceSnap = await getDocs(collection(db, empId));
-
-      const days = attendanceSnap.docs.map(d => ({
-        date: d.id,
-        ...d.data()
-      } as AttendanceDay));
-
+      const days = attendanceSnap.docs.map(d => ({ date: d.id, ...d.data() } as AttendanceDay));
       days.sort((a, b) => b.date.localeCompare(a.date));
-
-      console.log("days loaded", days);
       setAttendance(days);
-
     } catch (e) {
-      setError("Failed to load.");
+      if (!silent) setError("Failed to load.");
       console.error(e);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
-  })();
+  }, [empId]);
 
-}, [empId]);
+  useEffect(() => { loadData(); }, [loadData]);
+
+  // ── Auto-refresh from DB every 60s — only while this tab is actively visible ──
+  useEffect(() => {
+    if (!empId) return;
+    const refresh = () => { if (document.visibilityState === "visible") loadData(true); };
+    const id = setInterval(refresh, 60_000);
+    document.addEventListener("visibilitychange", refresh);
+    return () => { clearInterval(id); document.removeEventListener("visibilitychange", refresh); };
+  }, [empId, loadData]);
 
  
  

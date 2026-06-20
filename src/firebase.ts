@@ -1,5 +1,9 @@
 import { initializeApp } from "firebase/app";
-import { getFirestore } from "firebase/firestore";
+import {
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
+} from "firebase/firestore";
 
 // Replace with your Firebase config
 const firebaseConfig = {
@@ -12,4 +16,9 @@ const firebaseConfig = {
 };
 
 const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app);
+
+// Enable offline IndexedDB cache (multi-tab safe). Reads are served from cache
+// instantly and survive brief network drops, cutting redundant network reads.
+export const db = initializeFirestore(app, {
+  localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
+});

@@ -4,6 +4,7 @@ import { collection, getDocs, doc, getDoc } from "firebase/firestore";
 import { db } from "../firebase";
 import logo from "../assets/react.png";
 import logo2 from "../assets/react1.png";
+import TextType from "./TextType";
 
 // ─── storage keys ───────────────────────────────────────────────────────────
 const ID_KEY   = "cf_my_emp_id";
@@ -646,6 +647,11 @@ function SummaryModal({
   const weekTarget = workingDaysSoFar * target;
   const weekColor = weekTotal >= weekTarget && weekTarget > 0 ? GREEN : weekTotal > 0 ? YELLOW : DIM;
 
+  // average hours per day actually worked (present days only)
+  const presentDaysCount = week.filter(d => d.status === "present" && (d.hours || 0) > 0).length;
+  const avgPerDay = presentDaysCount > 0 ? weekTotal / presentDaysCount : 0;
+  const avgColor = avgPerDay >= target ? GREEN : avgPerDay > 0 ? YELLOW : DIM;
+
   const fmtRange = () => {
     const f = new Date(week[0]?.date).toLocaleDateString("en-IN", { day: "numeric", month: "short" });
     const t = new Date(week[6]?.date).toLocaleDateString("en-IN", { day: "numeric", month: "short" });
@@ -674,36 +680,47 @@ function SummaryModal({
         <div style={{ padding: "14px 22px 12px", borderBottom: `1px solid ${BORDER}`, display: "flex", alignItems: "center", gap: 12 }}>
           <AvatarRing emp={me} size={40} color={liveAccent || "rgba(99,102,241,0.4)"} spinning={refreshing} />
           <div style={{ flex: 1, minWidth: 0 }}>
-            <h2 style={{ color: TEXT, fontSize: 17, fontWeight: 800, margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              Hey, {me?.name || "there"}
-            </h2>
+            <TextType
+              as="h2"
+              key={me?.emp_id || "me"}
+              text={[`Hey, ${me?.name || "there"}`, "Have a great day!"]}
+              typingSpeed={55}
+              deletingSpeed={28}
+              pauseDuration={1800}
+              loop
+              showCursor
+              cursorCharacter="|"
+              cursorClassName="ma-type-cursor"
+              textColors={["#ffe550", GREEN]}
+              style={{ fontSize: 17, fontWeight: 800, margin: 0, lineHeight: 1.2, overflow: "hidden", whiteSpace: "nowrap", display: "block" }}
+            />
             <p style={{ color: SUB, fontSize: 10.5, margin: "2px 0 0", fontFamily: "'JetBrains Mono',monospace" }}>
               {me?.emp_id} · {me?.department}
             </p>
           </div>
           <button
-  onClick={onClose}
-  style={{
-    width: 42,
-    height: 42,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    background: "rgba(10,10,10,0.55)",
-    backdropFilter: "blur(12px)",
-    WebkitBackdropFilter: "blur(12px)",
-    border: "1px solid rgba(255,255,255,0.12)",
-    borderRadius: "50%",
-    color: "#ff4d4f",
-    fontSize: 32,
-    cursor: "pointer",
-    lineHeight: 1,
-    flexShrink: 0,
-    padding: 0,
-  }}
->
-  ×
-</button>
+            onClick={onClose}
+            style={{
+              width: 42,
+              height: 42,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              background: "rgba(10,10,10,0.55)",
+              backdropFilter: "blur(12px)",
+              WebkitBackdropFilter: "blur(12px)",
+              border: "1px solid rgba(255,255,255,0.12)",
+              borderRadius: "50%",
+              color: "#ff4d4f",
+              fontSize: 32,
+              cursor: "pointer",
+              lineHeight: 1,
+              flexShrink: 0,
+              padding: 0,
+            }}
+          >
+            ×
+          </button>
         </div>
 
         <div style={{ padding: "12px 22px 14px" }}>
@@ -798,9 +815,22 @@ function SummaryModal({
                   <span style={{ color: SUB, fontSize: 10, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase" }}>
                     This Week · {fmtRange()}
                   </span>
-                  <span style={{ color: weekColor, fontSize: 22, fontWeight: 900, fontFamily: "'JetBrains Mono',monospace", lineHeight: 1, textShadow: weekTotal > 0 ? `0 0 18px ${weekColor}33` : "none" }}>
-                    {fmtHours(weekTotal)}
-                  </span>
+                  <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
+                    <span style={{ color: weekColor, fontSize: 22, fontWeight: 900, fontFamily: "'JetBrains Mono',monospace", lineHeight: 1, textShadow: weekTotal > 0 ? `0 0 18px ${weekColor}33` : "none" }}>
+                      {fmtHours(weekTotal)}
+                    </span>
+                    {/* Avg Hours / Day */}
+                    <span style={{
+                      display: "inline-flex", alignItems: "center", gap: 5,
+                      background: `${avgColor}14`, border: `1px solid ${avgColor}38`,
+                      borderRadius: 20, padding: "2px 9px",
+                    }}>
+                      <span style={{ color: avgColor, fontSize: 12, fontWeight: 800, fontFamily: "'JetBrains Mono',monospace" }}>
+                        {fmtHours(avgPerDay)}
+                      </span>
+                      <span style={{ color: SUB, fontSize: 8.5, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase" }}>avg / day</span>
+                    </span>
+                  </div>
                 </div>
 
                 <div style={{ display: "flex", gap: 4 }}>
@@ -894,26 +924,25 @@ export default function MyAttendance() {
       const dates = getWeekDates();
       const todayStr = toDateStr(new Date());
 
-      const weekData: DayInfo[] = await Promise.all(
-        dates.map(async (date) => {
-          if (isHoliday(date)) return { date, status: "holiday", hours: 0 };
-          if (isWeekend(date)) return { date, status: "weekend", hours: 0 };
-          if (date > todayStr)  return { date, status: "future", hours: 0 };
+      // single query for the whole employee collection, then pick out this week's days
+      // (far fewer reads than one getDoc per day, and resilient to brief network blips)
+      const snap = await getDocs(collection(db, id));
+      const byDate: Record<string, any> = {};
+      snap.docs.forEach(d => { byDate[d.id] = d.data(); });
 
-          try {
-            const snap = await getDoc(doc(db, id, date));
-            if (snap.exists()) {
-              const d = snap.data() as { sessions?: any[] };
-              if (d.sessions?.length) {
-                const isWfh = d.sessions.every((s: any) => s.wfh === true);
-                const isReg = d.sessions.every((s: any) => s.regularized === true);
-                return { date, status: "present", hours: calcHours(d.sessions, date), sessions: d.sessions, wfh: isWfh, reg: isReg };
-              }
-            }
-          } catch (_) {}
-          return { date, status: "absent", hours: 0 };
-        })
-      );
+      const weekData: DayInfo[] = dates.map((date) => {
+        if (isHoliday(date)) return { date, status: "holiday", hours: 0 };
+        if (isWeekend(date)) return { date, status: "weekend", hours: 0 };
+        if (date > todayStr)  return { date, status: "future", hours: 0 };
+
+        const d = byDate[date] as { sessions?: any[] } | undefined;
+        if (d?.sessions?.length) {
+          const isWfh = d.sessions.every((s: any) => s.wfh === true);
+          const isReg = d.sessions.every((s: any) => s.regularized === true);
+          return { date, status: "present", hours: calcHours(d.sessions, date), sessions: d.sessions, wfh: isWfh, reg: isReg };
+        }
+        return { date, status: "absent", hours: 0 };
+      });
 
       setWeek(weekData);
       setToday(weekData.find(d => d.date === todayStr) || null);
@@ -932,15 +961,16 @@ export default function MyAttendance() {
     if (empId && summaryOpen) loadMyData(empId, me);
   }, [empId, summaryOpen]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── live refresh: re-pull from Firestore every 5s while the modal is open ──
+  // ── live refresh while the modal is open — every 30s, only when the tab is visible ──
   useEffect(() => {
     if (!empId || !summaryOpen) return;
     const id = setInterval(() => {
+      if (document.visibilityState !== "visible") return;
       setRefreshing(true);
       loadMyData(empId, meRef.current, true).finally(() => {
         setTimeout(() => setRefreshing(false), 1000);
       });
-    }, 4000);
+    }, 30000);
     return () => clearInterval(id);
   }, [empId, summaryOpen, loadMyData]);
 
@@ -1004,6 +1034,7 @@ export default function MyAttendance() {
           50%      { transform: scale(0.72); }
         }
         .ma-logo-pop { animation: ma-logo-pop 1.4s ease-in-out infinite; transform-origin: center; }
+        .ma-type-cursor { color: ${YELLOW}; font-weight: 400; }
         .ma-card {
           background: linear-gradient(160deg,${SURF2},${BG});
           border: 1px solid ${BORDER}; border-radius: 18px;

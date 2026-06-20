@@ -12,3 +12,23 @@ body {
   padding-top: env(safe-area-inset-top);
   padding-bottom: env(safe-area-inset-bottom);
 }
+
+/* ── Global blue, slim scrollbar (all pages) ─────────────────────────────── */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(96,165,250,0.55) transparent;
+}
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #60A5FA, #6366F1);
+  border-radius: 6px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #93C5FD, #818CF8);
+}

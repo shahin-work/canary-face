@@ -413,7 +413,10 @@ export default function EmployeeCard({ data, viewMode, onClick, isLive = false }
             color: "#F0F4FF", fontWeight: 600, fontSize: 12.5, lineHeight: 1.25,
             overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", margin: 0,
           }}>{data.name}</p>
-          <p style={{ margin: "2px 0 0", fontSize: 9, fontFamily: "'JetBrains Mono',monospace", letterSpacing: 0.2 }}>
+          <p style={{
+            margin: "2px 0 0", fontSize: 9, fontFamily: "'JetBrains Mono',monospace", letterSpacing: 0.2,
+            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+          }}>
             <span style={{ color: typeColor }}>{data.emp_id}</span>
             <span style={{ color: "#8090C0" }}> · {data.department}</span>
           </p>

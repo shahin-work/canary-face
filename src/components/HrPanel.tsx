@@ -1620,7 +1620,7 @@ function SendMail({
           display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18,
         }}>✉️</span>
         <div style={{ flex: 1 }}>
-          <h2 style={{ color: TEXT, fontWeight: 800, fontSize: 16, margin: 0, lineHeight: 1.15 }}>Send Mail</h2>
+          <h2 style={{ color: TEXT, fontWeight: 800, fontSize: 16, margin: 0, lineHeight: 1.15 }}>Send Email</h2>
           <p style={{ color: SUB, fontSize: 11, margin: "3px 0 0" }}>
             Email employees based on hours worked. Content adapts to the filter.
           </p>
@@ -2483,7 +2483,7 @@ const stats = useMemo(() => {
     { id: "regularize", label: "Regularize Attendance", icon: "🏢", color: BLUE    },
     { id: "remote",     label: "Log Remote Work",       icon: "🏠", color: MAGENTA },
     { id: "notices",    label: "Notices",               icon: "📢", color: YELLOW  },
-    { id: "mail",       label: "Send Mail",             icon: "✉️", color: TEAL    },
+    { id: "mail",       label: "Send Email",             icon: "✉️", color: TEAL    },
   ];
 
   const submitLabel = isRemote
@@ -2591,11 +2591,12 @@ const stats = useMemo(() => {
           className="export-btn"
           style={{
             display:"flex",alignItems:"center",gap:7,
-            background:"rgba(74,222,128,0.08)",border:`1px solid ${GREEN}44`,
+            background:`linear-gradient(135deg,${GREEN},#16a34a)`,border:`1px solid ${GREEN}`,
             borderRadius:10,padding:"8px 14px",cursor:"pointer",transition:"all 0.15s",
-            color:GREEN,fontSize:12,fontWeight:700,fontFamily:"'Sora',sans-serif",whiteSpace:"nowrap",
+            color:"#fff",fontSize:12,fontWeight:700,fontFamily:"'Sora',sans-serif",whiteSpace:"nowrap",
+            boxShadow:`0 4px 14px ${GREEN}44`,
           }}>
-          <span style={{fontSize:13}}>⬇</span>
+          <span style={{fontSize:13,color:"#fff"}}>⬇</span>
           {exporting ? "Generating…" : "Export Report"}
         </button>
 
@@ -2676,13 +2677,7 @@ const stats = useMemo(() => {
       <div className="hr-page" style={{maxWidth:1500,margin:"0 auto",padding:"24px 22px 56px"}}>
 
         {/* ===== DASHBOARD ===== */}
-        {nav === "dashboard" && (<>
-        {/* Greeting */}
-        <div className="hr-greet" style={{marginBottom:22}}>
-          <p style={{color:SUB,fontSize:12.5,margin:"7px 0 0"}}>
-            Here's today's attendance at a glance — use the tabs above to fix records.
-          </p>
-        </div>
+        {nav === "dashboard" && (<> 
 
         {/* KPI cards */}
         <div className="hr-kpis" style={{marginBottom:16}}>
@@ -2692,43 +2687,43 @@ const stats = useMemo(() => {
           <StatCard icon="🚫" label="Absent Today"         color={RED}     loading={loadingToday} value={stats.absent}  sub={stats.workday ? undefined : "Off day"} people={stats.absentList} alignRight />
         </div>
 
-        {/* Analytics: weekly heatmap (full width) + not-checked-out (full width) */}
-        <div className="hr-analytics">
-          <Panel
-            icon="🗓"
-            title="Weekly Attendance"
-            right={
-              <div style={{display:"flex",alignItems:"center",gap:7}}>
-                <button onClick={()=>setWeekOffset(o=>o-1)} title="Previous week" className="wk-nav" style={wkBtn(false)}>‹</button>
-                <span style={{
-                  minWidth:118,textAlign:"center",color:SUB,fontSize:11,fontWeight:700,whiteSpace:"nowrap",
-                }}>
-                  {weekLabel}
-                  <span style={{color:DIM,fontWeight:500,fontFamily:"'JetBrains Mono',monospace"}}> · {weekRange}</span>
-                </span>
-                <button onClick={()=>setWeekOffset(o=>Math.min(0,o+1))} disabled={weekOffset>=0} title="Next week" className="wk-nav" style={wkBtn(weekOffset>=0)}>›</button>
-              </div>
-            }
-          >
-            <WeeklyHeatmap days={heatDays} rows={heatRows} loading={loadingWeek} />
-          </Panel>
+        {/* Global week switcher — controls every week-based panel on the dashboard */}
+        <div style={{
+          display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,
+          background:"rgba(99,102,241,0.05)",border:`1px solid ${BORDER}`,borderRadius:12,
+          padding:"8px 12px",marginBottom:16,
+        }}>
+          <span style={{color:SUB,fontSize:11.5,fontWeight:700,letterSpacing:0.3}}>
+            Showing data for
+          </span>
+          <div style={{display:"flex",alignItems:"center",gap:7}}>
+            <button onClick={()=>setWeekOffset(o=>o-1)} title="Previous week" className="wk-nav" style={wkBtn(false)}>‹</button>
+            <span style={{minWidth:170,textAlign:"center",color:TEXT,fontSize:12,fontWeight:700,whiteSpace:"nowrap"}}>
+              {weekLabel}
+              <span style={{color:DIM,fontWeight:500,fontFamily:"'JetBrains Mono',monospace"}}> · {weekRange}</span>
+            </span>
+            <button onClick={()=>setWeekOffset(o=>Math.min(0,o+1))} disabled={weekOffset>=0} title="Next week" className="wk-nav" style={wkBtn(weekOffset>=0)}>›</button>
+          </div>
+        </div>
 
-<Panel
+
+
+          <Panel
             icon="⏰"
-            title="Not Checked-out"
+            title="Forgot to Check Out"
             right={<Pill color={missingTotal ? RED : GREEN}>{missingTotal} {missingTotal===1?"person":"people"}</Pill>}
           >
             {loadingWeek ? (
-              <div style={{padding:"26px 0",textAlign:"center",color:SUB,fontSize:12}}>Checking the week…</div>
+              <div style={{padding:"18px 0",textAlign:"center",color:SUB,fontSize:12}}>Checking this week…</div>
             ) : missingTotal === 0 ? (
-              <div style={{padding:"22px 0",textAlign:"center",color:SUB,fontSize:12}}>
+              <div style={{padding:"16px 0",textAlign:"center",color:SUB,fontSize:12}}>
                 ✅ Everyone checked out properly this week.
               </div>
             ) : (
               <div style={{
                 display:"grid",
-                gridTemplateColumns:`repeat(${missingByDay.length}, minmax(150px, 220px))`,
-                gap:10, overflowX:"auto", justifyContent:"start",
+                gridTemplateColumns:`repeat(${missingByDay.length}, minmax(140px, 200px))`,
+                gap:9, overflowX:"auto", justifyContent:"start",
               }}>
                 {missingByDay.map(({ date, people }) => {
                   const dow  = new Date(date).toLocaleDateString("en-IN",{weekday:"short"});
@@ -2738,48 +2733,48 @@ const stats = useMemo(() => {
                     <div key={date} style={{
                       background:"rgba(99,102,241,0.04)",
                       border:`1px solid ${isTodayCol ? BLUE+"55" : BORDER}`,
-                      borderRadius:11, overflow:"hidden", minWidth:0,
+                      borderRadius:10, overflow:"hidden", minWidth:0,
                     }}>
                       {/* column header = day + date */}
                       <div style={{
-                        padding:"8px 10px", borderBottom:`1px solid ${BORDER}`,
+                        padding:"5px 9px", borderBottom:`1px solid ${BORDER}`,
                         display:"flex", alignItems:"center", justifyContent:"space-between", gap:6,
                         background: isTodayCol ? "rgba(96,165,250,0.08)" : "transparent",
                       }}>
-                        <div>
-                          <div style={{color:isTodayCol?BLUE:TEXT,fontSize:11,fontWeight:700}}>{dow}</div>
-                          <div style={{color:DIM,fontSize:9,fontFamily:"'JetBrains Mono',monospace"}}>{dlab}</div>
+                        <div style={{display:"flex",alignItems:"baseline",gap:5}}>
+                          <span style={{color:isTodayCol?BLUE:TEXT,fontSize:10.5,fontWeight:700}}>{dow}</span>
+                          <span style={{color:DIM,fontSize:8.5,fontFamily:"'JetBrains Mono',monospace"}}>{dlab}</span>
                         </div>
                         <span style={{
                           color: people.length ? RED : GREEN,
                           background: people.length ? `${RED}14` : `${GREEN}14`,
                           border:`1px solid ${(people.length?RED:GREEN)}33`,
-                          borderRadius:20, padding:"1px 7px", fontSize:9.5, fontWeight:800, flexShrink:0,
+                          borderRadius:20, padding:"0px 6px", fontSize:9, fontWeight:800, flexShrink:0,
                         }}>{people.length}</span>
                       </div>
 
                       {/* people in that day */}
-                      <div style={{padding:"8px", display:"flex", flexDirection:"column", gap:6}}>
+                      <div style={{padding:"6px", display:"flex", flexDirection:"column", gap:4}}>
                         {people.length === 0 ? (
-                          <div style={{color:DIM,fontSize:10,textAlign:"center",padding:"10px 0"}}>—</div>
+                          <div style={{color:DIM,fontSize:10,textAlign:"center",padding:"6px 0"}}>—</div>
                         ) : people.map((m,i) => {
                           const c = TYPE_COLORS[m.emp.type] || YELLOW;
                           return (
                             <div key={i} style={{
-                              display:"flex",alignItems:"center",gap:8,
+                              display:"flex",alignItems:"center",gap:7,
                               background:"rgba(248,113,113,0.05)",border:`1px solid ${RED}26`,
-                              borderRadius:9, padding:"6px 8px",
+                              borderRadius:8, padding:"4px 7px",
                             }}>
                               <span style={{
-                                width:24,height:24,borderRadius:"50%",flexShrink:0,overflow:"hidden",background:BG,
+                                width:20,height:20,borderRadius:"50%",flexShrink:0,overflow:"hidden",background:BG,
                                 border:`1.5px solid ${c}55`,display:"flex",alignItems:"center",justifyContent:"center",
-                                fontSize:8,fontWeight:700,color:c,
+                                fontSize:7.5,fontWeight:700,color:c,
                               }}>
                                 {m.emp.profile_image ? <img src={m.emp.profile_image} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/> : initials(m.emp.name)}
                               </span>
                               <div style={{flex:1,minWidth:0}}>
-                                <div style={{color:TEXT,fontSize:11,fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{m.emp.name}</div>
-                                <div style={{color:GREEN,fontSize:9,fontWeight:700,fontFamily:"'JetBrains Mono',monospace"}}>in {m.check_in.slice(0,5)}</div>
+                                <div style={{color:TEXT,fontSize:10.5,fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{m.emp.name}</div>
+                                <div style={{color:GREEN,fontSize:8.5,fontWeight:700,fontFamily:"'JetBrains Mono',monospace"}}>in {m.check_in.slice(0,5)}</div>
                               </div>
                             </div>
                           );
@@ -2791,6 +2786,19 @@ const stats = useMemo(() => {
               </div>
             )}
           </Panel>
+
+          <div style={{height:10}}/> {/* spacer 
+          </div>
+
+        {/* Analytics: weekly heatmap (full width) + not-checked-out (full width) */}
+        <div className="hr-analytics">
+          <Panel
+            icon="🗓"
+            title="Weekly Attendance"
+          >
+            <WeeklyHeatmap days={heatDays} rows={heatRows} loading={loadingWeek} />
+          </Panel>
+
         </div>
         </>)}
 
@@ -2931,7 +2939,7 @@ const stats = useMemo(() => {
                             borderBottom:`1px solid rgba(99,102,241,0.07)`,transition:"background 0.1s"}}>
                           {/* checkbox */}
                           <div style={{
-                            width:16,height:16,borderRadius:5,flexShrink:0,
+                            width:16,height:10,borderRadius:5,flexShrink:0,
                             border:`1.5px solid ${on?accent:BORDER}`,background:on?accent:"transparent",
                             display:"flex",alignItems:"center",justifyContent:"center",
                             color:"#0B1020",fontSize:11,fontWeight:900,
