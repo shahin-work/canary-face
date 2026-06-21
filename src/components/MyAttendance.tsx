@@ -618,15 +618,25 @@ function isStandaloneInstalled() {
 
 // Captures the install prompt and tracks installed state.
 // Returns a `prompt` fn only when the app can be installed (and isn't already).
+// The prompt event is captured globally in main.tsx (it can fire before this
+// component mounts), so we read the stashed one here and also listen for updates.
 function usePwaInstall() {
-  const [deferred, setDeferred] = useState<any>(null);
+  const [deferred, setDeferred] = useState<any>(() => (window as any).__deferredInstallPrompt || null);
   const [installed, setInstalled] = useState<boolean>(() => isStandaloneInstalled());
 
   useEffect(() => {
-    const onPrompt = (e: Event) => { e.preventDefault(); setDeferred(e); };
+    // pick up an event that may have arrived before mount
+    if (!deferred && (window as any).__deferredInstallPrompt) {
+      setDeferred((window as any).__deferredInstallPrompt);
+    }
+
+    const onPrompt = (e: Event) => { e.preventDefault(); (window as any).__deferredInstallPrompt = e; setDeferred(e); };
+    const onAvailable = () => setDeferred((window as any).__deferredInstallPrompt || null);
     const onInstalled = () => { setInstalled(true); setDeferred(null); };
     window.addEventListener("beforeinstallprompt", onPrompt);
+    window.addEventListener("pwa-install-available", onAvailable);   // re-dispatched from main.tsx
     window.addEventListener("appinstalled", onInstalled);
+    window.addEventListener("pwa-installed", onInstalled);
 
     // also catch the case where it launches/installs into standalone after load
     const mq = window.matchMedia?.("(display-mode: standalone)");
@@ -640,16 +650,19 @@ function usePwaInstall() {
 
     return () => {
       window.removeEventListener("beforeinstallprompt", onPrompt);
+      window.removeEventListener("pwa-install-available", onAvailable);
       window.removeEventListener("appinstalled", onInstalled);
+      window.removeEventListener("pwa-installed", onInstalled);
       mq?.removeEventListener?.("change", onMq);
     };
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const canInstall = !installed && !!deferred;
   const prompt = useCallback(async () => {
     if (!deferred) return;
     deferred.prompt();
     try { await deferred.userChoice; } catch { /* ignore */ }
+    (window as any).__deferredInstallPrompt = null;
     setDeferred(null);
   }, [deferred]);
 
@@ -674,7 +687,7 @@ function InstallButton({ onClick }: { onClick: () => void }) {
         <path d="M12 3v11m0 0l-4-4m4 4l4-4" stroke="#0B1020" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
         <path d="M5 19h14" stroke="#0B1020" strokeWidth="2.4" strokeLinecap="round" />
       </svg>
-      Install App
+      Install
     </button>
   );
 }

@@ -25,7 +25,7 @@ const NAME_KEY = "hr_user_name";   // HR person's display name (per device)
 function isAuthed() {
   const ts = localStorage.getItem(SESS_KEY);
   if (!ts) return false;
-  return Date.now() - parseInt(ts) < SESS_MIN * 60 * 1000;
+  return Date.now() - parseInt(ts) < SESS_MIN * 20 * 1000;
 }
 function setAuth()   { localStorage.setItem(SESS_KEY, Date.now().toString()); }
 function clearAuth() { localStorage.removeItem(SESS_KEY); }
@@ -300,13 +300,13 @@ function Pill({ children, color = SUB }: { children: React.ReactNode; color?: st
 }
 
 const HEAT: Record<string,{bg:string;fg:string}> = {
-  P8: { bg:"rgba(74,222,128,0.85)", fg:"#06210F" },   // ≥8h → light green, shows "P"
-  P:  { bg:"rgba(21,128,61,0.95)",  fg:"#EAFFF0" },    // <8h → dark green, shows "P(x.x)"
+  P8: { bg:"#1E36C2",               fg:"#FFFFFF" },    // ≥8h → blue, shows "P"
+  P:  { bg:"#FFFFFF",               fg:"#1E36C2" },    // <8h → white bg, blue text, shows "P(x.x)"
   R:  { bg:"rgba(236,72,153,0.78)", fg:"#2A0716" },
-  A:  { bg:"rgba(248,113,113,0.85)", fg:"#330808" },
+  A:  { bg:"#4A1010",               fg:"#F3C2C2" },    // leave/absent → dark brown-red, shows "L"
   H:  { bg:"rgba(255,215,0,0.16)",  fg:"#FFD700" },
-  W:  { bg:"rgba(30,54,194,0.10)", fg:"#C8C8C8" },
-  "": { bg:"rgba(30,54,194,0.04)", fg:"#7A7A7A" },
+  W:  { bg:"rgba(30,54,194,0.45)",  fg:"#DDE3FF" },    // weekend → blue
+  "": { bg:"rgba(30,54,194,0.04)",  fg:"#7A7A7A" },
 };
 
 function WeeklyHeatmap({ days, rows, loading }: {
@@ -318,18 +318,54 @@ function WeeklyHeatmap({ days, rows, loading }: {
   if (!rows.length) return <div style={{padding:"34px 0",textAlign:"center",color:SUB,fontSize:12}}>No employees found.</div>;
   const cols = `158px repeat(${days.length}, minmax(30px, 200px))`;
 
+  // Per-day completion status across everyone:
+  //   "cross" → at least one person was present but under 8h (incomplete)
+  //   "tick"  → everyone with a working day is complete (P8 / R / A) and nobody is incomplete
+  //   null    → weekend / holiday / no working data → no marker
+  const dayStatus = (i: number): "tick" | "cross" | null => {
+    let hasWork = false, anyIncomplete = false;
+    for (const r of rows) {
+      const c = r.cells[i] || "";
+      if (c === "H" || c === "W" || c === "") continue;
+      hasWork = true;
+      if (c.startsWith("P(")) anyIncomplete = true;   // present but < 8h
+    }
+    if (!hasWork) return null;
+    return anyIncomplete ? "cross" : "tick";
+  };
+
   return (
     <div style={{overflowX:"auto"}}>
       <div style={{minWidth: 158 + days.length*42}}>
         {/* day header */}
         <div style={{display:"grid",gridTemplateColumns:cols,gap:4,marginBottom:6}}>
           <div/>
-          {days.map(d => (
+          {days.map((d, i) => {
+            const ds = dayStatus(i);
+            return (
             <div key={d.date} style={{textAlign:"center"}}>
-              <div style={{color:d.isToday?BLUE:SUB,fontSize:9.5,fontWeight:700}}>{d.dow}</div>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:4}}>
+                <span style={{color:d.isToday?BLUE:SUB,fontSize:9.5,fontWeight:700}}>{d.dow}</span>
+                {ds === "tick" && (
+                  <span title="Everyone complete (8h+) or absent" style={{
+                    width:12,height:12,borderRadius:"50%",background:GREEN,
+                    display:"inline-flex",alignItems:"center",justifyContent:"center",flexShrink:0,
+                  }}>
+                    <svg width="8" height="8" viewBox="0 0 24 24" fill="none"><path d="M20 6L9 17l-5-5" stroke="#06210F" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                  </span>
+                )}
+                {ds === "cross" && (
+                  <span title="Someone present but under 8h" style={{
+                    width:11,height:11,borderRadius:"50%",background:RED,
+                    display:"inline-flex",alignItems:"center",justifyContent:"center",flexShrink:0,
+                  }}>
+                    <svg width="7" height="7" viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6L6 18" stroke="#330808" strokeWidth="3.5" strokeLinecap="round"/></svg>
+                  </span>
+                )}
+              </div>
               <div style={{color:DIM,fontSize:9.1,fontFamily:"'JetBrains Mono',monospace"}}>{d.label}</div>
             </div>
-          ))}
+          );})}
         </div>
         {/* rows */}
         <div style={{display:"flex",flexDirection:"column",gap:4,maxHeight:300,overflowY:"auto",paddingRight:2}}>
@@ -343,10 +379,11 @@ function WeeklyHeatmap({ days, rows, loading }: {
                 <span style={{color:TEXT,fontSize:11,fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{r.emp.name}</span>
               </div>
               {r.cells.map((st,i) => {
-                const isUnder8 = st.startsWith("P(");          // dark-green under-8 cell
+                const isUnder8 = st.startsWith("P(");          // under-8 cell (white bg)
                 const key = st === "P8" ? "P8" : isUnder8 ? "P" : st;
                 const h = HEAT[key] || HEAT[""];
-                const display = st === "P8" ? "P" : (st || "·");
+                // "A" (absent) is shown as "L" (leave)
+                const display = st === "P8" ? "P" : st === "A" ? "L" : (st || "·");
                 return <div key={i} title={`${r.emp.name} · ${days[i].label}: ${display}`} style={{
                   height:24,borderRadius:6,background:h.bg,color:h.fg,
                   display:"flex",alignItems:"center",justifyContent:"center",
@@ -358,7 +395,7 @@ function WeeklyHeatmap({ days, rows, loading }: {
         </div>
         {/* legend */}
         <div style={{display:"flex",flexWrap:"wrap",gap:12,marginTop:13,paddingTop:11,borderTop:`1px solid ${BORDER}`}}>
-          {([["Office",HEAT.P.bg],["Remote",HEAT.R.bg],["Absent",HEAT.A.bg],["Holiday","rgba(255,215,0,0.45)"],["Weekend","rgba(30,54,194,0.28)"]] as const).map(([lab,col]) => (
+          {([["Office (8h+)",HEAT.P8.bg],["Office (<8h)",HEAT.P.bg],["Remote",HEAT.R.bg],["Leave",HEAT.A.bg],["Holiday","rgba(255,215,0,0.45)"],["Weekend",HEAT.W.bg]] as const).map(([lab,col]) => (
             <span key={lab} style={{display:"flex",alignItems:"center",gap:6}}>
               <span style={{width:13,height:13,borderRadius:4,background:col,display:"inline-block"}}/>
               <span style={{color:SUB,fontSize:10}}>{lab}</span>
@@ -3250,10 +3287,10 @@ const stats = useMemo(() => {
                 <span style={{fontSize:15}}>{n.icon}</span>{n.label}
                 {n.id === "requests" && pendingReq > 0 && (
                   <span className="req-badge" style={{
-                    background:YELLOW,color:"#1a1400",fontSize:10,fontWeight:800,
+                    background:"#FFFFFF",color:"#1E36C2",fontSize:10,fontWeight:800,
                     borderRadius:20,minWidth:18,height:18,padding:"0 5px",
                     display:"inline-flex",alignItems:"center",justifyContent:"center",
-                    lineHeight:1,boxShadow:`0 0 0 0 ${YELLOW}`,
+                    lineHeight:1,
                   }}>{pendingReq}</span>
                 )}
               </button>

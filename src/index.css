@@ -13,22 +13,22 @@ body {
   padding-bottom: env(safe-area-inset-bottom);
 }
 
-/* ── Global blue, slim scrollbar (all pages) ─────────────────────────────── */
+/* ── Global dark, slim scrollbar (all pages) ─────────────────────────────── */
 * {
   scrollbar-width: thin;
-  scrollbar-color: rgba(96,165,250,0.55) transparent;
+  scrollbar-color: #1f1f1f #0a0a0a;
 }
 *::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
 }
 *::-webkit-scrollbar-track {
-  background: transparent;
+  background: #0a0a0a;
 }
 *::-webkit-scrollbar-thumb {
-  background: linear-gradient(180deg, #60A5FA, #6366F1);
+  background: #1f1f1f;
   border-radius: 6px;
 }
 *::-webkit-scrollbar-thumb:hover {
-  background: linear-gradient(180deg, #93C5FD, #818CF8);
+  background: #2c2c2c;
 }

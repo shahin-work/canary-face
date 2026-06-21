@@ -358,7 +358,7 @@ export default function EmployeeCard({ data, viewMode, onClick, isLive = false }
         background: "linear-gradient(155deg, #0D1545 0%, #070F30 100%)",
         border: "1px solid rgba(99,102,241,0.18)",
         borderRadius: 14,
-        padding: "18px 10px 16px",
+        padding: "15px 10px 7px",
         display: "flex", flexDirection: "column", gap: 9,
         position: "relative",
         boxShadow: "0 4px 20px rgba(0,0,0,0.45)",
@@ -518,7 +518,7 @@ export default function EmployeeCard({ data, viewMode, onClick, isLive = false }
       <div style={{
         display: "flex", alignItems: "center", justifyContent: "center",
         borderTop: "1px solid rgba(99,102,241,0.1)",
-        paddingTop: 1, gap: 114,
+        gap: 200, padding: "7px 1px 1px"
       }}>
         <div style={{ display: "flex", alignItems: "baseline", gap: 3 }}>
           <span style={{ color: "#FFD700", fontWeight: 600, fontSize: 12, lineHeight: 1 }}>{data.presentDays}</span>

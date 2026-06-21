@@ -8,6 +8,7 @@ import logo2 from "../assets/react1.png";
 import AddMeeting from "../components/AddMeeting";
 import Regularization from "../components/Regularization";
 import ReportIssue from "../components/ReportIssue";
+import DinuGame from "../components/DinuGame";
 import BorderGlow from "../components/BorderGlow";
 import CardGravity from "../components/CardGravity";
 import { useNavigate, useLocation } from "react-router-dom";
@@ -89,6 +90,7 @@ function isWeekend(dateStr: string): boolean {
 
 function AnimatedLogo() {
   const [showSparkle, setShowSparkle] = useState(false);
+  const [dropping, setDropping] = useState(false);   // per-minute fall/replace cycle (3s)
 
   useEffect(() => {
     const id = setInterval(() => {
@@ -98,19 +100,50 @@ function AnimatedLogo() {
     return () => clearInterval(id);
   }, []);
 
+  // At the :00 second of every minute, the old logo falls out and a fresh one drops in.
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout>;
+    const scheduleNext = () => {
+      const now = new Date();
+      const msToNextMinute = (60 - now.getSeconds()) * 1000 - now.getMilliseconds();
+      timer = setTimeout(() => {
+        setDropping(true);
+        setTimeout(() => setDropping(false), 3000); // animation length
+        scheduleNext();
+      }, msToNextMinute);
+    };
+    scheduleNext();
+    return () => clearTimeout(timer);
+  }, []);
+
   return (
-    <div style={{ position: "relative", width: 33, height: 33, flexShrink: 0 }}>
+    <div style={{ position: "relative", width: 33, height: 33, flexShrink: 0, overflow: "hidden", borderRadius: 8 }}>
+      {/* outgoing logo — falls down and fades when a new minute ticks */}
       <img
         src={logo}
         alt="Canary Face"
+        className={dropping ? "cf-logo-fall-out" : ""}
         style={{ width: 33, height: 33, borderRadius: 8, objectFit: "contain", background: SURF, position: "absolute", top: 0, left: 0 }}
       />
+      {/* incoming logo — drops in from the top during the cycle */}
+      <img
+        src={logo}
+        alt=""
+        aria-hidden
+        className={dropping ? "cf-logo-drop-in" : ""}
+        style={{
+          width: 33, height: 33, borderRadius: 8, objectFit: "contain", background: SURF,
+          position: "absolute", top: 0, left: 0,
+          opacity: dropping ? 1 : 0,
+        }}
+      />
+      {/* sparkle overlay (unchanged) */}
       <img
         src={logo2}
         alt=""
         style={{
           width: 33, height: 33, borderRadius: 8, objectFit: "contain", background: SURF,
-          position: "absolute", top: 0, left: 0,
+          position: "absolute", top: 0, left: 0, zIndex: 2,
           opacity: showSparkle ? 1 : 0,
           transition: showSparkle ? "opacity 0.05s ease" : "opacity 0.2s ease",
         }}
@@ -178,6 +211,24 @@ function useClock() {
     return () => clearInterval(id);
   }, []);
   return t;
+}
+
+// "just now" → "10 sec before" → … → "1 min before" → "5 min before" → "Xh ago"
+// Re-renders every 10s so the label stays fresh.
+function useRelativeUpdated(ts: number | null): string {
+  const [, force] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => force(n => n + 1), 10000);
+    return () => clearInterval(id);
+  }, []);
+  if (!ts) return "—";
+  const secs = Math.floor((Date.now() - ts) / 1000);
+  if (secs < 5) return "just now";
+  if (secs < 60) return `${Math.floor(secs / 10) * 10} sec before`;
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins} min before`;
+  const hrs = Math.floor(mins / 60);
+  return `${hrs}h before`;
 }
 
 // ─── colours ─────────────────────────────────────────────────────────────────
@@ -444,7 +495,7 @@ function HoverPopover({
 export default function Attendance() {
   const navigate = useNavigate();
   const clock    = useClock();
-  
+
     const location = useLocation();
 
     // track viewport width so isPhone re-evaluates on resize (not just refresh)
@@ -470,6 +521,10 @@ export default function Attendance() {
   const [cards,        setCards]       = useState<EmployeeCardData[]>([]);
   const [loading,      setLoading]     = useState(true);
   const [refreshing,   setRefreshing]  = useState(false);
+  const [lastUpdated,  setLastUpdated] = useState<number | null>(null);
+  const [gameOpen,     setGameOpen]    = useState(false);
+  const [gameFull,     setGameFull]    = useState(false);   // logo-launched game fills the page
+  const updatedLabel = useRelativeUpdated(lastUpdated);
   const [error,        setError]       = useState("");
   const [, setCurrentlyIn] = useState<number>(0);
   const [toast,        setToast]       = useState<string | null>(null);
@@ -485,8 +540,17 @@ export default function Attendance() {
   const marqueeBoxRef   = useRef<HTMLDivElement>(null);
   const marqueeTrackRef = useRef<HTMLDivElement>(null);
   const gridRef         = useRef<HTMLDivElement>(null);
- 
- 
+
+  // Logo click: 1st time on the main page → enable fun (gravity) mode.
+  // Once already in fun mode → clicking the logo opens the full-page game.
+  const onLogoClick = useCallback(() => {
+    if (location.pathname !== "/") return;
+    if (!gravityOn) { setGravityOn(true); return; }
+    setGameFull(true);
+    setGameOpen(true);
+  }, [location.pathname, gravityOn]);
+
+
   const displayDates = useMemo(
     () => viewMode === "week" ? getWeekDates(weekOffset) : getMonthDates(monthOffset),
     [viewMode, weekOffset, monthOffset]
@@ -652,6 +716,7 @@ async function fetchTodayInOffice() {
       );
 
       setCards(result);
+      setLastUpdated(Date.now());
     } catch (e) {
       if (!silent) setError("Failed to load attendance data.");
       console.error(e);
@@ -676,9 +741,15 @@ async function fetchTodayInOffice() {
 
   // ── Fun mode lock: while gravity is on, block ALL navigation/clicks app-wide.
   //     (Matter drag uses mousedown/move/up, which we leave alone.) Disable = refresh.
+  //     Suspended while the game is open so the game can receive Space/clicks.
   useEffect(() => {
-    if (!gravityOn) return;
-    const block = (e: Event) => { e.preventDefault(); e.stopPropagation(); };
+    if (!gravityOn || gameOpen) return;
+    const block = (e: Event) => {
+      // let the logo through so it can open the game while in fun mode
+      const t = e.target as HTMLElement | null;
+      if (t && t.closest?.("[data-logo-toggle]")) return;
+      e.preventDefault(); e.stopPropagation();
+    };
     // capture phase so it fires before any React/anchor handler
     document.addEventListener("click", block, true);
     document.addEventListener("auxclick", block, true);
@@ -694,10 +765,12 @@ async function fetchTodayInOffice() {
       document.removeEventListener("submit", block, true);
       document.removeEventListener("keydown", keyBlock, true);
     };
-  }, [gravityOn]);
+  }, [gravityOn, gameOpen]);
 
   // ── Auto-refresh on every minute boundary (when seconds hit :00), tab visible only ──
+  // Paused entirely while the game is open so play isn't interrupted by data fetches/re-renders.
   useEffect(() => {
+    if (gameOpen) return;
     let timer: ReturnType<typeof setTimeout>;
     const refresh = () => {
       if (document.visibilityState !== "visible") return;
@@ -716,10 +789,11 @@ async function fetchTodayInOffice() {
     // also pull fresh data the moment the tab becomes visible again
     document.addEventListener("visibilitychange", refresh);
     return () => { clearTimeout(timer); document.removeEventListener("visibilitychange", refresh); };
-  }, [viewMode, weekOffset, monthOffset]);
+  }, [viewMode, weekOffset, monthOffset, gameOpen]);
 
-  // ── Live tick: recalc hours every 60s for open sessions ──
+  // ── Live tick: recalc hours every 60s for open sessions ── (paused during the game)
   useEffect(() => {
+    if (gameOpen) return;
     const id = setInterval(() => {
       setCards(prev => prev.map(card => {
         const todayDay = card.weekDays.find(d => d.date === today);
@@ -746,7 +820,7 @@ async function fetchTodayInOffice() {
       }));
     }, 60_000);
     return () => clearInterval(id);
-  }, [today]);
+  }, [today, gameOpen]);
 
   const filtered = useMemo(() => {
     let base = cards;
@@ -1052,12 +1126,36 @@ async function fetchTodayInOffice() {
         @keyframes toast-bar { from{width:100%} to{width:0%} }
         /* marquee track is driven by JS (MARQUEE_SPEED), pause-on-hover handled in JS */
         @keyframes sk { 0%,100%{opacity:.35} 50%{opacity:.6} }
+        /* per-minute logo replace: old falls out, new drops in from top (3s total) */
+        @keyframes cf-logo-fall-out {
+          0%   { transform: translateY(0);     opacity: 1; }
+          40%  { transform: translateY(140%);  opacity: 0; }
+          100% { transform: translateY(140%);  opacity: 0; }
+        }
+        @keyframes cf-logo-drop-in {
+          0%   { transform: translateY(-140%);  opacity: 0; }
+          40%  { transform: translateY(-140%);  opacity: 0; }
+          62%  { transform: translateY(12%);    opacity: 1; }
+          78%  { transform: translateY(-6%);    opacity: 1; }
+          100% { transform: translateY(0);      opacity: 1; }
+        }
+        .cf-logo-fall-out { animation: cf-logo-fall-out 3s cubic-bezier(0.5,0,0.75,0) forwards; }
+        .cf-logo-drop-in  { animation: cf-logo-drop-in 3s cubic-bezier(0.34,1.4,0.64,1) forwards; }
       `}</style>
 
       {toast && <Toast message={toast} onDone={dismissToast} />}
 
-      {/* fun mode hint — everything is locked until the page is refreshed */}
-      {gravityOn && (
+      {gameOpen && (
+        <DinuGame
+          fullPage={gameFull}
+          players={cards.map(c => ({ name: c.name, emp_id: c.emp_id }))}
+          myId={myId}
+          onClose={() => { setGameOpen(false); setGameFull(false); }}
+        />
+      )}
+
+      {/* fun mode hint — everything is locked until the page is refreshed (hidden while the game is open) */}
+      {gravityOn && !gameOpen && (
         <div style={{
           position: "fixed", bottom: 16, left: "50%", transform: "translateX(-50%)",
           zIndex: 99999, display: "flex", alignItems: "center", gap: 9,
@@ -1103,21 +1201,40 @@ async function fetchTodayInOffice() {
       }}>
       <div className="att-headrow" style={{ maxWidth: 1500, margin: "0 auto", padding: "10px 8px", display: "flex", alignItems: "center", gap: 10 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
-            {/* logo image → ENABLE fun gravity (main page only). Disable = refresh the page. */}
+            {/* logo image → ENABLE fun gravity (main page only); once in fun mode, click opens the game */}
             <div
-              onClick={() => { if (location.pathname === "/" && !gravityOn) setGravityOn(true); }}
-               style={{ cursor: location.pathname === "/" && !gravityOn ? "pointer" : "default", lineHeight: 0 }}
+              data-logo-toggle
+              onClick={onLogoClick}
+               style={{ cursor: location.pathname === "/" ? "pointer" : "default", lineHeight: 0 }}
             >
               <AnimatedLogo />
             </div>
-            {/* name → link */}
-            <a href="https://canarysuite.in/cv" style={{ textDecoration: "none" }}>
-              <p style={{ fontWeight: 700, fontSize: 14, color: TEXT, lineHeight: 1, margin: 0 }}>Canary Face</p>
-              <p style={{ fontSize: 10, color: SUB, marginTop: 2 }}>AI-Powered Attendance Platform</p>
-            </a>
+            {/* name → link; tagline followed inline by the live "Updated …" stamp */}
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start" }}>
+              <a href="https://canarysuite.in/cv" style={{ textDecoration: "none" }}>
+                <p style={{ fontWeight: 700, fontSize: 14, color: TEXT, lineHeight: 1, margin: 0 }}>Canary Face</p>
+              </a>
+              <p style={{ display: "flex", alignItems: "center", fontSize: 10, color: SUB, marginTop: 2, marginBottom: 0, whiteSpace: "nowrap" }}>
+                AI-Powered Attendance Platform
+                <span style={{ color: DIM, margin: "0 5px" }}>—</span>
+                <span style={{
+                  display: "inline-flex", alignItems: "center", gap: 4,
+                  color: DIM, fontSize: 8.5, fontWeight: 600, letterSpacing: 0.2,
+                  fontFamily: "'JetBrains Mono',monospace",
+                }}>
+                  <span style={{
+                    width: 4, height: 4, borderRadius: "50%",
+                    background: refreshing ? YELLOW : "#4ADE80",
+                    boxShadow: `0 0 4px ${refreshing ? YELLOW : "#4ADE80"}`,
+                  }} />
+                  Updated {updatedLabel}
+                </span>
+              </p>
+            </div>
           </div>
 
           <div style={{ flex: 1 }} />
+
 
           {/* right group */}
           <div className="att-rightgroup" style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
@@ -1413,21 +1530,25 @@ async function fetchTodayInOffice() {
           </div>
 
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <div style={{ position: "relative", width: "min(220px,100%)" }}>
-              <svg style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)" }}
-                width="12" height="12" viewBox="0 0 24 24" fill="none">
-                <circle cx="11" cy="11" r="8" stroke={DIM} strokeWidth="2.2" />
-                <path d="M21 21l-4.35-4.35" stroke={DIM} strokeWidth="2.2" strokeLinecap="round" />
-              </svg>
-              <input type="text" placeholder="Search name, ID, dept..."
-                value={search} onChange={e => setSearch(e.target.value)}
-                style={{
-                  width: "100%", paddingLeft: 30, paddingRight: 12, paddingTop: 7, paddingBottom: 7,
-                  borderRadius: 10, border: `1px solid ${BORDER}`, background: SURF,
-                  color: TEXT, fontSize: 12, outline: "none", caretColor: YELLOW,
-                }}
-                onFocus={e => (e.currentTarget.style.borderColor = YELLOW)}
-                onBlur={e => (e.currentTarget.style.borderColor = BORDER)} />
+            <div style={{ display: "flex", flexDirection: "column", gap: 3, width: "min(220px,100%)" }}>
+              {/* tiny last-updated stamp, attached just above the search box */}
+             
+              <div style={{ position: "relative", width: "100%" }}>
+                <svg style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)" }}
+                  width="12" height="12" viewBox="0 0 24 24" fill="none">
+                  <circle cx="11" cy="11" r="8" stroke={DIM} strokeWidth="2.2" />
+                  <path d="M21 21l-4.35-4.35" stroke={DIM} strokeWidth="2.2" strokeLinecap="round" />
+                </svg>
+                <input type="text" placeholder="Search name, ID, dept..."
+                  value={search} onChange={e => setSearch(e.target.value)}
+                  style={{
+                    width: "100%", paddingLeft: 30, paddingRight: 12, paddingTop: 7, paddingBottom: 7,
+                    borderRadius: 10, border: `1px solid ${BORDER}`, background: SURF,
+                    color: TEXT, fontSize: 12, outline: "none", caretColor: YELLOW,
+                  }}
+                  onFocus={e => (e.currentTarget.style.borderColor = YELLOW)}
+                  onBlur={e => (e.currentTarget.style.borderColor = BORDER)} />
+              </div>
             </div>
             <FilterDropdown active={activeFilter} setActive={setActiveFilter} counts={filterCounts} />
           </div>
