@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { initializeApp, getApps } from "firebase/app";
 import { getFirestore, collection, getDocs, doc, setDoc, getDoc } from "firebase/firestore";
 import * as XLSX from "xlsx-js-style";
@@ -33,20 +33,25 @@ function getHrName(): string { return (localStorage.getItem(NAME_KEY) || "").tri
 function saveHrName(n: string) { localStorage.setItem(NAME_KEY, n.trim()); }
 
 // ── Colours ───────────────────────────────────────────────────────────────────
-const BG      = "#060D2E";
-const SURF    = "#0B1340";
-const SURF2   = "#0F1848";
-const SURF3   = "#121B52";
-const BORDER  = "rgba(99,102,241,0.22)";
-const TEXT    = "#EEF0FF";
-const SUB     = "#8090C0";
-const DIM     = "#3A4A7A";
-const YELLOW  = "#FFD700";
+const BG      = "#0D0D0D";
+const SURF    = "#121212";
+const SURF2   = "#121212";
+const SURF3   = "#1A1A1A";
+const BORDER  = "rgba(30,54,194,0.30)";
+const TEXT    = "#FFFFFF";
+const SUB     = "#C8C8C8";
+const DIM     = "#7A7A7A";
+const YELLOW  = "#1E36C2";   // unified to brand blue (decorative accent)
 const RED     = "#F87171";
 const GREEN   = "#4ADE80";
-const BLUE    = "#60A5FA";
-const TEAL    = "#84fcfa";
-const MAGENTA = "#EC4899";
+const BLUE    = "#1E36C2";
+const TEAL    = "#1E36C2";   // unified to brand blue
+const MAGENTA = "#1E36C2";   // unified to brand blue
+// Shared max content width so every HR tab fills the screen consistently.
+const HR_MAX_W = 1640;
+// Marquee motion — kept identical to the employee Attendance page so the preview matches exactly.
+const NOTICE_MARQUEE_SPEED = 0.9; // px per frame (higher = faster)
+const NOTICE_MARQUEE_GAP   = 20;  // px gap between the two copies of the track
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function toDateStr(d: Date) {
@@ -141,7 +146,7 @@ function TimeSelect({ label, hour, minute, onHour, onMinute, color }: {
     cursor:"pointer", fontFamily:"'JetBrains Mono',monospace", appearance:"none" as any, textAlign:"center",
   };
   return (
-    <div style={{ background: color===GREEN?"rgba(74,222,128,0.05)":"rgba(248,113,113,0.05)", border:`1px solid ${color}22`, borderRadius:11, padding:"12px 13px" }}>
+    <div style={{ background: `${color}0D`, border:`1px solid ${color}22`, borderRadius:11, padding:"12px 13px" }}>
       <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:9}}>
         <div style={{width:7,height:7,borderRadius:"50%",background:color,boxShadow:`0 0 5px ${color}`}}/>
         <span style={{color,fontWeight:700,fontSize:11,letterSpacing:0.5}}>{label}</span>
@@ -300,8 +305,8 @@ const HEAT: Record<string,{bg:string;fg:string}> = {
   R:  { bg:"rgba(236,72,153,0.78)", fg:"#2A0716" },
   A:  { bg:"rgba(248,113,113,0.85)", fg:"#330808" },
   H:  { bg:"rgba(255,215,0,0.16)",  fg:"#FFD700" },
-  W:  { bg:"rgba(99,102,241,0.10)", fg:"#8090C0" },
-  "": { bg:"rgba(99,102,241,0.04)", fg:"#3A4A7A" },
+  W:  { bg:"rgba(30,54,194,0.10)", fg:"#C8C8C8" },
+  "": { bg:"rgba(30,54,194,0.04)", fg:"#7A7A7A" },
 };
 
 function WeeklyHeatmap({ days, rows, loading }: {
@@ -353,7 +358,7 @@ function WeeklyHeatmap({ days, rows, loading }: {
         </div>
         {/* legend */}
         <div style={{display:"flex",flexWrap:"wrap",gap:12,marginTop:13,paddingTop:11,borderTop:`1px solid ${BORDER}`}}>
-          {([["Office",HEAT.P.bg],["Remote",HEAT.R.bg],["Absent",HEAT.A.bg],["Holiday","rgba(255,215,0,0.45)"],["Weekend","rgba(99,102,241,0.28)"]] as const).map(([lab,col]) => (
+          {([["Office",HEAT.P.bg],["Remote",HEAT.R.bg],["Absent",HEAT.A.bg],["Holiday","rgba(255,215,0,0.45)"],["Weekend","rgba(30,54,194,0.28)"]] as const).map(([lab,col]) => (
             <span key={lab} style={{display:"flex",alignItems:"center",gap:6}}>
               <span style={{width:13,height:13,borderRadius:4,background:col,display:"inline-block"}}/>
               <span style={{color:SUB,fontSize:10}}>{lab}</span>
@@ -376,7 +381,7 @@ function ConfirmModal({
   confirmLabel: string; busy: boolean;
   onConfirm: () => void; onClose: () => void;
 }) {
-  const TYPE_COLORS: Record<string,string> = { permanent:YELLOW, consultant:BLUE, intern:"#C084FC", guest:TEAL };
+  const TYPE_COLORS: Record<string,string> = { permanent:YELLOW, consultant:BLUE, intern:BLUE, guest:TEAL };
   return (
     <div onClick={busy ? undefined : onClose} style={{
       position:"fixed",inset:0,zIndex:10001,background:"rgba(2,6,23,0.78)",
@@ -419,7 +424,7 @@ function ConfirmModal({
               const c = TYPE_COLORS[emp.type] || YELLOW;
               return (
                 <span key={emp.emp_id} style={{
-                  display:"flex",alignItems:"center",gap:6,background:"rgba(99,102,241,0.08)",
+                  display:"flex",alignItems:"center",gap:6,background:"rgba(30,54,194,0.08)",
                   border:`1px solid ${BORDER}`,borderRadius:20,padding:"3px 10px 3px 4px",
                 }}>
                   <span style={{
@@ -437,7 +442,7 @@ function ConfirmModal({
 
           {note && (
             <div style={{
-              background:"rgba(255,215,0,0.05)",border:`1px solid ${YELLOW}22`,borderRadius:9,
+              background:"rgba(30,54,194,0.05)",border:`1px solid ${YELLOW}22`,borderRadius:9,
               padding:"8px 11px",marginBottom:18,
             }}>
               <span style={{color:DIM,fontSize:9,fontWeight:700,letterSpacing:0.6}}>REASON / NOTE</span>
@@ -524,7 +529,7 @@ function ExportModal({ onClose, onExport }: { onClose:()=>void; onExport:(from:s
         }}>
           <div style={{
             width:40,height:40,borderRadius:11,flexShrink:0,
-            background:"rgba(74,222,128,0.08)",border:`1px solid ${GREEN}33`,
+            background:"rgba(30,54,194,0.08)",border:`1px solid ${BLUE}33`,
             display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,
           }}>📊</div>
           <div>
@@ -545,18 +550,18 @@ function ExportModal({ onClose, onExport }: { onClose:()=>void; onExport:(from:s
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
               {options.map(opt => (
                 <button key={opt.id} onClick={()=>setSelected(opt.id)} style={{
-                  background: selected===opt.id ? "rgba(74,222,128,0.1)" : "rgba(99,102,241,0.05)",
-                  border: `1px solid ${selected===opt.id ? GREEN+"55" : BORDER}`,
+                  background: selected===opt.id ? "rgba(30,54,194,0.1)" : "rgba(30,54,194,0.05)",
+                  border: `1px solid ${selected===opt.id ? BLUE+"55" : BORDER}`,
                   borderRadius:11,padding:"11px 13px",cursor:"pointer",textAlign:"left",
                   transition:"all 0.15s",
                 }}>
                   <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:3}}>
                     <span style={{fontSize:14}}>{opt.icon}</span>
-                    <span style={{color:selected===opt.id?GREEN:TEXT,fontWeight:700,fontSize:12,fontFamily:"'Sora',sans-serif"}}>
+                    <span style={{color:selected===opt.id?BLUE:TEXT,fontWeight:700,fontSize:12,fontFamily:"'Sora',sans-serif"}}>
                       {opt.label}
                     </span>
                     {selected===opt.id && (
-                      <span style={{marginLeft:"auto",color:GREEN,fontSize:14}}>✓</span>
+                      <span style={{marginLeft:"auto",color:BLUE,fontSize:14}}>✓</span>
                     )}
                   </div>
                   <div style={{color:DIM,fontSize:9.5,fontFamily:"'JetBrains Mono',monospace",paddingLeft:21}}>{opt.sub}</div>
@@ -574,13 +579,13 @@ function ExportModal({ onClose, onExport }: { onClose:()=>void; onExport:(from:s
                 { id:"filled",  label:"Highlighted" },
               ] as const).map(opt => (
                 <button key={opt.id} onClick={()=>setTheme(opt.id)} style={{
-                  background: theme===opt.id ? "rgba(74,222,128,0.1)" : "rgba(99,102,241,0.05)",
-                  border: `1px solid ${theme===opt.id ? GREEN+"55" : BORDER}`,
+                  background: theme===opt.id ? "rgba(30,54,194,0.1)" : "rgba(30,54,194,0.05)",
+                  border: `1px solid ${theme===opt.id ? BLUE+"55" : BORDER}`,
                   borderRadius:11,padding:"11px 13px",cursor:"pointer",textAlign:"left",transition:"all 0.15s",
                 }}>
                   <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:3}}>
-                    <span style={{color:theme===opt.id?GREEN:TEXT,fontWeight:700,fontSize:12,fontFamily:"'Sora',sans-serif"}}>{opt.label}</span>
-                    {theme===opt.id && <span style={{marginLeft:"auto",color:GREEN,fontSize:14}}>✓</span>}
+                    <span style={{color:theme===opt.id?BLUE:TEXT,fontWeight:700,fontSize:12,fontFamily:"'Sora',sans-serif"}}>{opt.label}</span>
+                    {theme===opt.id && <span style={{marginLeft:"auto",color:BLUE,fontSize:14}}>✓</span>}
                   </div>
                 </button>
               ))}
@@ -590,27 +595,27 @@ function ExportModal({ onClose, onExport }: { onClose:()=>void; onExport:(from:s
           {/* Custom range inputs */}
           {selected==="custom" && (
             <div style={{
-              background:"rgba(99,102,241,0.04)",border:`1px solid ${BORDER}`,
+              background:"rgba(30,54,194,0.04)",border:`1px solid ${BORDER}`,
               borderRadius:11,padding:"13px",marginBottom:16,
             }}>
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
                 <div>
                   <div style={{display:"flex",alignItems:"center",gap:5,marginBottom:5}}>
-                    <div style={{width:6,height:6,borderRadius:"50%",background:GREEN}}/>
-                    <span style={{color:GREEN,fontSize:9,fontWeight:700,letterSpacing:0.6}}>FROM</span>
+                    <div style={{width:6,height:6,borderRadius:"50%",background:BLUE}}/>
+                    <span style={{color:BLUE,fontSize:9,fontWeight:700,letterSpacing:0.6}}>FROM</span>
                   </div>
                   <input type="date" value={customFrom}
                     onChange={e=>{setCustomFrom(e.target.value);if(e.target.value>customTo)setCustomTo(e.target.value);}}
-                    style={{width:"100%",background:SURF2,border:`1px solid ${GREEN}33`,borderRadius:7,color:TEXT,fontSize:12,padding:"7px 9px",outline:"none",fontFamily:"inherit",colorScheme:"dark"}}/>
+                    style={{width:"100%",background:SURF2,border:`1px solid ${BLUE}33`,borderRadius:7,color:TEXT,fontSize:12,padding:"7px 9px",outline:"none",fontFamily:"inherit",colorScheme:"dark"}}/>
                 </div>
                 <div>
                   <div style={{display:"flex",alignItems:"center",gap:5,marginBottom:5}}>
-                    <div style={{width:6,height:6,borderRadius:"50%",background:RED}}/>
-                    <span style={{color:RED,fontSize:9,fontWeight:700,letterSpacing:0.6}}>TO</span>
+                    <div style={{width:6,height:6,borderRadius:"50%",background:BLUE}}/>
+                    <span style={{color:BLUE,fontSize:9,fontWeight:700,letterSpacing:0.6}}>TO</span>
                   </div>
                   <input type="date" value={customTo} min={customFrom}
                     onChange={e=>setCustomTo(e.target.value)}
-                    style={{width:"100%",background:SURF2,border:`1px solid ${RED}33`,borderRadius:7,color:TEXT,fontSize:12,padding:"7px 9px",outline:"none",fontFamily:"inherit",colorScheme:"dark"}}/>
+                    style={{width:"100%",background:SURF2,border:`1px solid ${BLUE}33`,borderRadius:7,color:TEXT,fontSize:12,padding:"7px 9px",outline:"none",fontFamily:"inherit",colorScheme:"dark"}}/>
                 </div>
               </div>
             </div>
@@ -618,7 +623,7 @@ function ExportModal({ onClose, onExport }: { onClose:()=>void; onExport:(from:s
 
           {/* Summary pill */}
           <div style={{
-            background:"rgba(255,215,0,0.05)",border:`1px solid ${YELLOW}22`,
+            background:"rgba(30,54,194,0.05)",border:`1px solid ${YELLOW}22`,
             borderRadius:10,padding:"10px 13px",marginBottom:18,
             display:"flex",alignItems:"center",gap:10,
           }}>
@@ -639,8 +644,8 @@ function ExportModal({ onClose, onExport }: { onClose:()=>void; onExport:(from:s
             }}>Cancel</button>
             <button onClick={()=>onExport(from,to,theme)} style={{
               flex:2,padding:"10px",borderRadius:10,border:"none",
-              background:`linear-gradient(135deg,${GREEN},#22c55e)`,
-              color:"#022c0a",fontSize:12.5,fontWeight:800,cursor:"pointer",fontFamily:"'Sora',sans-serif",
+              background:"#1E36C2",
+              color:"#FFFFFF",fontSize:12.5,fontWeight:800,cursor:"pointer",fontFamily:"'Sora',sans-serif",
               display:"flex",alignItems:"center",justifyContent:"center",gap:7,
             }}>
               <span>⬇</span> Download Excel
@@ -677,7 +682,7 @@ function HrLogin({ onLogin }: { onLogin: () => void }) {
         @keyframes shake{0%,100%{transform:translateX(0)}20%{transform:translateX(-8px)}40%{transform:translateX(8px)}60%{transform:translateX(-6px)}80%{transform:translateX(6px)}}
       `}</style>
       <div style={{
-        background:"linear-gradient(155deg,#0D1545 0%,#070F30 100%)",
+        background:"linear-gradient(155deg,#161616 0%,#0D0D0D 100%)",
         border:`1px solid ${BORDER}`,borderRadius:20,padding:"38px 32px",
         width:300,maxWidth:"100%",textAlign:"center",boxShadow:"0 24px 80px rgba(0,0,0,0.7)",
         animation: shake ? "shake 0.6s ease" : "none",
@@ -693,7 +698,7 @@ function HrLogin({ onLogin }: { onLogin: () => void }) {
           {[0,1,2,3].map(i => (
             <div key={i} style={{
               width:42,height:48,borderRadius:9,
-              background: shake ? "rgba(248,113,113,0.1)" : "rgba(99,102,241,0.08)",
+              background: shake ? "rgba(248,113,113,0.1)" : "rgba(30,54,194,0.08)",
               border:`2px solid ${shake ? RED : (code.length > i ? MAGENTA : BORDER)}`,
               display:"flex",alignItems:"center",justifyContent:"center",
               fontSize:20,fontWeight:800,color:MAGENTA,
@@ -717,14 +722,14 @@ function HrLogin({ onLogin }: { onLogin: () => void }) {
               }}
               style={{
                 padding:"11px 0",borderRadius:8,
-                background: k==="" ? "transparent" : "rgba(99,102,241,0.1)",
+                background: k==="" ? "transparent" : "rgba(30,54,194,0.1)",
                 border: k==="" ? "none" : `1px solid ${BORDER}`,
                 color:TEXT,fontSize:16,fontWeight:700,
                 cursor: k==="" ? "default" : "pointer",
                 fontFamily:"'JetBrains Mono',monospace",transition:"background 0.12s",
               }}
-              onMouseEnter={e=>{ if(k!=="") (e.currentTarget as HTMLButtonElement).style.background=`rgba(236,72,153,0.12)`; }}
-              onMouseLeave={e=>{ if(k!=="") (e.currentTarget as HTMLButtonElement).style.background="rgba(99,102,241,0.1)"; }}
+              onMouseEnter={e=>{ if(k!=="") (e.currentTarget as HTMLButtonElement).style.background=`rgba(30,54,194,0.12)`; }}
+              onMouseLeave={e=>{ if(k!=="") (e.currentTarget as HTMLButtonElement).style.background="rgba(30,54,194,0.1)"; }}
             >{k}</button>
           ))}
         </div>
@@ -750,7 +755,7 @@ function NameCapture({ initial = "", onSave, onBack }: {
         *,*::before,*::after{box-sizing:border-box;}
       `}</style>
       <div style={{
-        background:"linear-gradient(155deg,#0D1545 0%,#070F30 100%)",
+        background:"linear-gradient(155deg,#161616 0%,#0D0D0D 100%)",
         border:`1px solid ${BORDER}`,borderRadius:20,padding:"36px 32px",
         width:350,maxWidth:"100%",textAlign:"center",boxShadow:"0 24px 80px rgba(0,0,0,0.7)",
       }}>
@@ -888,15 +893,27 @@ function RegRequestCard({
   const mins = regToMins(row.check_out) - regToMins(row.check_in);
   const m = REG_STATUS_META[row.status];
 
+  const resolved = row.status === "approved" || row.status === "rejected";
+
+  // compact, right-aligned action button
+  const actBtn = (color: string, solid: boolean): React.CSSProperties => ({
+    padding: "7px 14px", borderRadius: 8, fontSize: 11.5, fontWeight: 800,
+    border: solid ? "none" : `1px solid ${color}55`,
+    background: solid ? color : `${color}14`,
+    color: solid ? "#06130a" : color,
+    cursor: busy ? "not-allowed" : "pointer", fontFamily: "inherit",
+    whiteSpace: "nowrap", lineHeight: 1, transition: "opacity 0.12s",
+  });
+
   return (
     <div style={{
-      background: SURF2, border: `1px solid ${BORDER}`, borderRadius: 13, padding: 14,
-      display: "flex", flexDirection: "column", gap: 10,
+      background: SURF2, border: `1px solid ${BORDER}`, borderRadius: 12, padding: "12px 14px",
+      display: "flex", alignItems: "center", gap: 16,
     }}>
-      {/* who applied */}
-      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+      {/* ── identity (left) ── */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, width: 210, flexShrink: 0, minWidth: 0 }}>
         <span style={{
-          width: 34, height: 34, borderRadius: "50%", flexShrink: 0, overflow: "hidden", background: BG,
+          width: 36, height: 36, borderRadius: "50%", flexShrink: 0, overflow: "hidden", background: BG,
           border: `1.5px solid ${YELLOW}55`, display: "flex", alignItems: "center", justifyContent: "center",
           fontSize: 11, fontWeight: 700, color: YELLOW,
         }}>
@@ -904,102 +921,87 @@ function RegRequestCard({
             ? <img src={empMeta.profile_image} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
             : initials(row.emp_name)}
         </span>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ color: TEXT, fontSize: 13, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ color: TEXT, fontSize: 12.5, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
             {row.emp_name}
           </div>
-          <div style={{ color: DIM, fontSize: 9.5, fontFamily: "'JetBrains Mono',monospace" }}>
+          <div style={{ color: DIM, fontSize: 9.5, fontFamily: "'JetBrains Mono',monospace", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
             {row.emp_id}{empMeta?.department ? ` · ${empMeta.department}` : ""}
           </div>
         </div>
-        <span style={{
-          fontSize: 9.5, fontWeight: 700, color: m.color, background: `${m.color}18`,
-          border: `1px solid ${m.color}40`, borderRadius: 20, padding: "2px 9px", flexShrink: 0,
-        }}>{m.label}</span>
       </div>
 
-      {/* details */}
-      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-        <span style={{ color: TEXT, fontWeight: 700, fontSize: 12 }}>
-          {new Date(row.date + "T00:00:00").toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" })}
-        </span>
-        <span style={{
-          fontSize: 9.5, fontWeight: 700, color: BLUE, background: `${BLUE}15`,
-          border: `1px solid ${BLUE}33`, borderRadius: 20, padding: "2px 8px",
-        }}>{regReasonLabel(row.reason)}</span>
-        <span style={{ color: GREEN, fontFamily: "'JetBrains Mono',monospace", fontWeight: 700, fontSize: 11 }}>{row.check_in}</span>
-        <span style={{ color: DIM }}>→</span>
-        <span style={{ color: RED, fontFamily: "'JetBrains Mono',monospace", fontWeight: 700, fontSize: 11 }}>{row.check_out}</span>
-        <span style={{ color: SUB, fontSize: 11 }}>· {regFmtDuration(mins)}</span>
-        {row.created_at ? (
-          <span style={{ color: DIM, fontSize: 9.5, marginLeft: "auto" }}>{regFmtCreated(row.created_at)}</span>
-        ) : null}
-      </div>
-
-      <p style={{ color: SUB, fontSize: 11.5, margin: 0, lineHeight: 1.5 }}>{row.description}</p>
-
-      {row.attachment && (
-        <button onClick={() => onViewImg(row.attachment!)} style={{
-          alignSelf: "flex-start", display: "flex", alignItems: "center", gap: 7,
-          background: "transparent", border: `1px solid ${BLUE}33`, borderRadius: 9, padding: "5px 10px",
-          cursor: "pointer",
-        }}>
-          <img src={row.attachment} alt="" style={{ width: 26, height: 26, borderRadius: 6, objectFit: "cover" }} />
-          <span style={{ color: BLUE, fontSize: 10.5, fontWeight: 600 }}>View attachment</span>
-        </button>
-      )}
-
-      {/* reviewer info for resolved */}
-      {(row.status === "approved" || row.status === "rejected") && (
-        <div style={{
-          fontSize: 10.5, color: row.status === "rejected" ? RED : GREEN,
-          background: "rgba(99,102,241,0.06)", borderRadius: 8, padding: "6px 9px",
-        }}>
-          <span style={{ fontWeight: 700 }}>
-            {row.status === "rejected" ? "Rejected" : "Approved"}{row.reviewed_by ? ` by ${row.reviewed_by}` : ""}
-          </span>
-          {row.reviewer_note ? ` — ${row.reviewer_note}` : ""}
+      {/* ── details (middle, grows) ── */}
+      <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 5 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <span style={{
+            fontSize: 10, fontWeight: 700, color: BLUE, background: `${BLUE}15`,
+            border: `1px solid ${BLUE}33`, borderRadius: 20, padding: "2px 8px",
+          }}>{regReasonLabel(row.reason)}</span>
+          <span style={{ color: GREEN, fontFamily: "'JetBrains Mono',monospace", fontWeight: 700, fontSize: 17 }}>{row.check_in}</span>
+          <span style={{ color: DIM }}>→</span>
+          <span style={{ color: RED, fontFamily: "'JetBrains Mono',monospace", fontWeight: 700, fontSize: 17 }}>{row.check_out}</span>
+          <span style={{ color: SUB, fontSize: 22 }}>· {regFmtDuration(mins)}</span>
+          {row.created_at ? <span style={{ color: DIM, fontSize: 12 }}>· {regFmtCreated(row.created_at)}</span> : null}
+          {row.attachment && (
+            <button onClick={() => onViewImg(row.attachment!)} title="View attachment" style={{
+              display: "inline-flex", alignItems: "center", gap: 5, background: "transparent",
+              border: `1px solid ${BLUE}33`, borderRadius: 7, padding: "2px 8px", cursor: "pointer",
+            }}>
+              <span style={{ fontSize: 11 }}>📎</span>
+              <span style={{ color: BLUE, fontSize: 10, fontWeight: 600 }}>Attachment</span>
+            </button>
+          )}
         </div>
-      )}
+        {row.description ? (
+          <p style={{ color: SUB, fontSize: 11.5, margin: 0, lineHeight: 1.45, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={row.description}>
+            {row.description}
+          </p>
+        ) : null}
+        {resolved && (
+          <div style={{ fontSize: 10.5, color: row.status === "rejected" ? RED : GREEN }}>
+            <span style={{ fontWeight: 700 }}>
+              {row.status === "rejected" ? "Rejected" : "Approved"}{row.reviewed_by ? ` by ${row.reviewed_by}` : ""}
+            </span>
+            {row.reviewer_note ? ` — ${row.reviewer_note}` : ""}
+          </div>
+        )}
+      </div>
 
-      {/* actions for pending */}
-      {row.status === "pending" && (
-        rejecting ? (
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            <input value={note} onChange={e => setNote(e.target.value)} maxLength={120}
-              placeholder="Reason for rejection (optional)…"
-              style={{
-                width: "100%", background: SURF3, border: `1px solid ${RED}33`, borderRadius: 9,
-                color: TEXT, fontSize: 12, padding: "8px 11px", outline: "none", fontFamily: "'Sora',sans-serif",
-              }} />
-            <div style={{ display: "flex", gap: 8 }}>
-              <button onClick={() => setRejecting(false)} disabled={busy} style={{
-                flex: 1, padding: "8px", borderRadius: 9, border: `1px solid ${BORDER}`,
-                background: SURF, color: SUB, fontSize: 11.5, fontWeight: 700, cursor: "pointer", fontFamily: "inherit",
-              }}>Back</button>
-              <button onClick={() => onReject({ ...row, reviewer_note: note.trim() })} disabled={busy} style={{
-                flex: 2, padding: "8px", borderRadius: 9, border: "none",
-                background: RED, color: "#1a0606", fontSize: 11.5, fontWeight: 800,
-                cursor: busy ? "not-allowed" : "pointer", fontFamily: "inherit",
-              }}>{busy ? "Rejecting…" : "Confirm Reject"}</button>
+      {/* ── status + actions (right) ── */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0, justifyContent: "flex-end" }}>
+        {resolved && (
+          <span style={{
+            fontSize: 9.5, fontWeight: 700, color: m.color, background: `${m.color}18`,
+            border: `1px solid ${m.color}40`, borderRadius: 20, padding: "3px 10px",
+          }}>{m.label}</span>
+        )}
+
+        {row.status === "pending" && (
+          rejecting ? (
+            <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+              <input autoFocus value={note} onChange={e => setNote(e.target.value)} maxLength={120}
+                placeholder="Reason (optional)…"
+                onKeyDown={e => { if (e.key === "Enter") onReject({ ...row, reviewer_note: note.trim() }); if (e.key === "Escape") setRejecting(false); }}
+                style={{
+                  width: 200, background: SURF3, border: `1px solid ${RED}33`, borderRadius: 8,
+                  color: TEXT, fontSize: 11.5, padding: "7px 10px", outline: "none", fontFamily: "'Sora',sans-serif",
+                }} />
+              <button onClick={() => setRejecting(false)} disabled={busy} style={actBtn(SUB, false)}>Back</button>
+              <button onClick={() => onReject({ ...row, reviewer_note: note.trim() })} disabled={busy} style={actBtn(RED, true)}>
+                {busy ? "…" : "Confirm"}
+              </button>
             </div>
-          </div>
-        ) : (
-          <div style={{ display: "flex", gap: 8 }}>
-            <button onClick={() => setRejecting(true)} disabled={busy} style={{
-              flex: 1, padding: "9px", borderRadius: 9, border: `1px solid ${RED}44`,
-              background: "rgba(248,113,113,0.08)", color: RED, fontSize: 12, fontWeight: 700,
-              cursor: busy ? "not-allowed" : "pointer", fontFamily: "inherit",
-            }}>Reject</button>
-            <button onClick={() => onApprove(row)} disabled={busy} style={{
-              flex: 2, padding: "9px", borderRadius: 9, border: "none",
-              background: `linear-gradient(135deg,${GREEN},#16a34a)`, color: "#04130a", fontSize: 12, fontWeight: 800,
-              cursor: busy ? "not-allowed" : "pointer", fontFamily: "inherit",
-              display: "flex", alignItems: "center", justifyContent: "center", gap: 7,
-            }}>{busy ? "Approving…" : "Approve & Add to Attendance"}</button>
-          </div>
-        )
-      )}
+          ) : (
+            <div style={{ display: "flex", alignItems: "center", gap: 7}}>
+              <button onClick={() => setRejecting(true)} disabled={busy} style={actBtn(RED, false)}>Reject</button>
+              <button onClick={() => onApprove(row)} disabled={busy} title="Approve & add to attendance" style={actBtn(GREEN, true)}>
+                {busy ? "Approving…" : "Approve"}
+              </button>
+            </div>
+          )
+        )}
+      </div>
     </div>
   );
 }
@@ -1068,6 +1070,17 @@ function RegularizationRequests({
     [rows, tab]
   );
 
+  // group the visible rows by their request date (most recent date first),
+  // so a date label is shown once above all cards that share that date.
+  const groupedByDate = useMemo(() => {
+    const map = new Map<string, RegRow[]>();
+    for (const r of visible) {
+      if (!map.has(r.date)) map.set(r.date, []);
+      map.get(r.date)!.push(r);
+    }
+    return Array.from(map.entries()).sort((a, b) => (a[0] < b[0] ? 1 : -1));
+  }, [visible]);
+
   // persist a status change back to regularizations/{emp_id}
   async function patchRequest(empId: string, reqId: string, patch: Partial<RegRequest>) {
     const target = docs.find(d => d.emp_id === empId);
@@ -1132,7 +1145,7 @@ function RegularizationRequests({
     ["pending", "approved", "rejected", "cancelled", "all"];
 
   return (
-    <div style={{ maxWidth: 760 }}>
+    <div style={{ maxWidth: HR_MAX_W, margin: "0 auto", width: "100%" }}>
       {/* image lightbox */}
       {imgView && (
         <div onClick={() => setImgView(null)} style={{
@@ -1162,7 +1175,7 @@ function RegularizationRequests({
           </p>
         </div>
         <button onClick={load} disabled={loading} title="Refresh" style={{
-          background: "rgba(255,215,0,0.07)", border: `1px solid ${YELLOW}44`, borderRadius: 9,
+          background: "rgba(30,54,194,0.07)", border: `1px solid ${YELLOW}44`, borderRadius: 9,
           color: YELLOW, fontSize: 11, fontWeight: 700, padding: "7px 12px", cursor: "pointer", fontFamily: "inherit",
         }}>{loading ? "Loading…" : "↻ Refresh"}</button>
       </div>
@@ -1182,7 +1195,7 @@ function RegularizationRequests({
             }}>
               {label}
               <span style={{
-                background: active ? `${color}22` : "rgba(99,102,241,0.15)",
+                background: active ? `${color}22` : "rgba(30,54,194,0.15)",
                 color: active ? color : SUB, borderRadius: 8, padding: "0 6px", fontSize: 9.5, fontWeight: 700,
               }}>{counts[t]}</span>
             </button>
@@ -1203,18 +1216,44 @@ function RegularizationRequests({
           No {tab === "all" ? "" : REG_STATUS_META[tab].label.toLowerCase() + " "}requests.
         </div>
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          {visible.map(row => (
-            <RegRequestCard
-              key={`${row.emp_id}_${row.id}`}
-              row={row}
-              empMeta={empById[row.emp_id]}
-              busy={busyId === row.id}
-              onApprove={handleApprove}
-              onReject={handleReject}
-              onViewImg={setImgView}
-            />
-          ))}
+        <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+          {groupedByDate.map(([date, dayRows]) => {
+            const d = new Date(date + "T00:00:00");
+            const dateLabel = d.toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "short", year: "numeric" });
+            return (
+              <div key={date} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {/* date header — shown once for all cards on this date */}
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <span style={{
+                    display: "inline-flex", alignItems: "center", gap: 7,
+                    color: YELLOW, fontSize: 12, fontWeight: 800, letterSpacing: 0.3,
+                    background: `${YELLOW}12`, border: `1px solid ${YELLOW}33`,
+                    borderRadius: 8, padding: "5px 11px",
+                  }}>
+                    <span style={{ fontSize: 12 }}>📅</span>{dateLabel}
+                  </span>
+                  <span style={{ color: DIM, fontSize: 10.5, fontWeight: 600 }}>
+                    {dayRows.length} request{dayRows.length !== 1 ? "s" : ""}
+                  </span>
+                  <div style={{ flex: 1, height: 1, background: BORDER }} />
+                </div>
+
+                <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+                  {dayRows.map(row => (
+                    <RegRequestCard
+                      key={`${row.emp_id}_${row.id}`}
+                      row={row}
+                      empMeta={empById[row.emp_id]}
+                      busy={busyId === row.id}
+                      onApprove={handleApprove}
+                      onReject={handleReject}
+                      onViewImg={setImgView}
+                    />
+                  ))}
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
@@ -1608,7 +1647,7 @@ function SendMail({
   }
 
   return (
-    <div style={{ maxWidth: 880 }}>
+    <div style={{ maxWidth: HR_MAX_W, margin: "0 auto", width: "100%" }}>
       {/* heading + view toggle */}
       <div style={{
         display: "flex", alignItems: "center", gap: 11,
@@ -1665,7 +1704,7 @@ function SendMail({
                   <div style={{ marginTop: 8 }}>
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: 8 }}>
                       {l.to.map(c => (
-                        <span key={c.email} style={{ fontSize: 9, color: SUB, background: "rgba(99,102,241,0.08)", border: `1px solid ${BORDER}`, borderRadius: 14, padding: "2px 7px", fontFamily: "'JetBrains Mono',monospace" }}>{c.email}</span>
+                        <span key={c.email} style={{ fontSize: 9, color: SUB, background: "rgba(30,54,194,0.08)", border: `1px solid ${BORDER}`, borderRadius: 14, padding: "2px 7px", fontFamily: "'JetBrains Mono',monospace" }}>{c.email}</span>
                       ))}
                     </div>
                     <pre style={{ whiteSpace: "pre-wrap", color: SUB, fontSize: 11, lineHeight: 1.5, margin: 0, fontFamily: "'Sora',sans-serif" }}>{l.body}</pre>
@@ -1706,7 +1745,7 @@ function SendMail({
             {/* date range */}
             <div>
               <Label>Date Range *</Label>
-              <div style={{ background: "rgba(99,102,241,0.04)", border: `1px solid ${BORDER}`, borderRadius: 11, padding: 13, display: "flex", flexDirection: "column", gap: 9 }}>
+              <div style={{ background: "rgba(30,54,194,0.04)", border: `1px solid ${BORDER}`, borderRadius: 11, padding: 13, display: "flex", flexDirection: "column", gap: 9 }}>
                 <div>
                   <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 5 }}>
                     <div style={{ width: 6, height: 6, borderRadius: "50%", background: GREEN }} />
@@ -1826,7 +1865,7 @@ function SendMail({
 
             {/* config hint */}
             {settings && (!settings.emailjs.serviceId || !settings.emailjs.templateId || !settings.emailjs.publicKey) && (
-              <div style={{ background: "rgba(255,215,0,0.06)", border: `1px solid ${YELLOW}33`, color: "#FCE38A", borderRadius: 10, padding: "8px 12px", fontSize: 11 }}>
+              <div style={{ background: "rgba(30,54,194,0.06)", border: `1px solid ${YELLOW}33`, color: "#BCC6F5", borderRadius: 10, padding: "8px 12px", fontSize: 11 }}>
                 ⚠ EmailJS not configured. Add <b>serviceId</b>, <b>templateId</b> and <b>publicKey</b> to the Firebase <code>settings/mail</code> document to enable sending.
               </div>
             )}
@@ -1850,18 +1889,32 @@ function SendMail({
 }
 
 // ── Notices Manager (marquee texts shown on the employee Attendance page) ──────
+interface Notice { text: string; enabled: boolean; }
+
+// Normalises the stored value (legacy string[] OR new {text,enabled}[]) → Notice[]
+function normalizeNotices(list: any[]): Notice[] {
+  if (!Array.isArray(list)) return [];
+  return list.map(item =>
+    typeof item === "string"
+      ? { text: item, enabled: true }
+      : { text: String(item?.text ?? ""), enabled: item?.enabled !== false }
+  );
+}
+
 function NoticesManager({ onToast }: { onToast: (msg: string, type?: string) => void }) {
-  const [texts, setTexts]   = useState<string[]>([]);
+  const [notices, setNotices] = useState<Notice[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [draft, setDraft]   = useState("");
+  const [editIdx, setEditIdx] = useState<number | null>(null);   // which row is being edited
+  const [editVal, setEditVal] = useState("");                     // working copy while editing
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const snap = await getDoc(doc(db, "settings", "notices"));
-      const list = snap.exists() ? (snap.data().texts as string[]) : [];
-      setTexts(Array.isArray(list) ? list : []);
+      const list = snap.exists() ? (snap.data().texts as any[]) : [];
+      setNotices(normalizeNotices(list));
     } catch (e) {
       console.error(e); onToast("Could not load notices.", "error");
     } finally { setLoading(false); }
@@ -1869,11 +1922,12 @@ function NoticesManager({ onToast }: { onToast: (msg: string, type?: string) => 
 
   useEffect(() => { load(); }, [load]);
 
-  async function persist(next: string[]) {
+  async function persist(next: Notice[]) {
     setSaving(true);
     try {
+      // store the full objects so the enabled flag survives
       await setDoc(doc(db, "settings", "notices"), { texts: next }, { merge: true });
-      setTexts(next);
+      setNotices(next);
     } catch (e) {
       console.error(e); onToast("Could not save notices.", "error");
     } finally { setSaving(false); }
@@ -1882,100 +1936,610 @@ function NoticesManager({ onToast }: { onToast: (msg: string, type?: string) => 
   function addText() {
     const v = draft.trim();
     if (!v) return;
-    persist([...texts, v]); setDraft("");
+    persist([...notices, { text: v, enabled: true }]); setDraft("");
     onToast("Notice added ✓");
   }
   function removeText(i: number) {
-    persist(texts.filter((_, idx) => idx !== i));
+    if (editIdx === i) setEditIdx(null);
+    persist(notices.filter((_, idx) => idx !== i));
+    onToast("Notice removed");
   }
-  function editText(i: number, v: string) {
-    setTexts(prev => prev.map((t, idx) => idx === i ? v : t));
+  function startEdit(i: number) {
+    setEditIdx(i);
+    setEditVal(notices[i].text);
+  }
+  function cancelEdit() {
+    setEditIdx(null);
+    setEditVal("");
+  }
+  function saveEdit() {
+    if (editIdx === null) return;
+    const v = editVal.trim();
+    if (!v) { onToast("Notice can't be empty.", "error"); return; }
+    persist(notices.map((n, idx) => idx === editIdx ? { ...n, text: v } : n));
+    setEditIdx(null); setEditVal("");
+    onToast("Notice updated ✓");
+  }
+  function toggleEnabled(i: number) {
+    const next = notices.map((n, idx) => idx === i ? { ...n, enabled: !n.enabled } : n);
+    persist(next);
+    onToast(next[i].enabled ? "Notice is now visible on dashboard ✓" : "Notice hidden from dashboard");
   }
   function move(i: number, dir: -1 | 1) {
     const j = i + dir;
-    if (j < 0 || j >= texts.length) return;
-    const next = [...texts];
+    if (j < 0 || j >= notices.length) return;
+    if (editIdx !== null) cancelEdit();   // avoid editing the wrong row after a reorder
+    const next = [...notices];
     [next[i], next[j]] = [next[j], next[i]];
     persist(next);
   }
 
   const inputStyle: React.CSSProperties = {
-    width: "100%", background: SURF3, border: `1px solid ${BORDER}`, borderRadius: 9,
-    color: TEXT, fontSize: 12.5, padding: "9px 11px", outline: "none", fontFamily: "'Sora',sans-serif",
+    width: "100%", background: SURF3, border: `1px solid ${BORDER}`, borderRadius: 10,
+    color: TEXT, fontSize: 13.5, padding: "13px 15px", outline: "none", fontFamily: "'Sora',sans-serif",
   };
+  // small square icon-button used for the row actions
+  const iconBtn = (color: string, borderCol: string, bg = "transparent", disabled = false): React.CSSProperties => ({
+    width: 32, height: 32, borderRadius: 8, flexShrink: 0,
+    border: `1px solid ${borderCol}`, background: bg, color,
+    display: "flex", alignItems: "center", justifyContent: "center",
+    fontSize: 14, fontWeight: 800, lineHeight: 1,
+    cursor: disabled ? "not-allowed" : "pointer", transition: "background 0.12s, border 0.12s",
+  });
+
+  const enabledNotices = notices.filter(n => n.enabled && n.text.trim());
+  const shownCount = enabledNotices.length;
+  // duplicated track so the preview marquee scrolls seamlessly, just like the dashboard
+  const previewItems = enabledNotices.length ? [...enabledNotices, ...enabledNotices] : [];
+
+  // Live preview marquee — same rAF scroll as the employee Attendance page (NOTICE_MARQUEE_SPEED px/frame).
+  const previewBoxRef   = useRef<HTMLDivElement>(null);
+  const previewTrackRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (enabledNotices.length === 0) return;
+    const track = previewTrackRef.current;
+    const box   = previewBoxRef.current;
+    if (!track || !box) return;
+
+    let offset = 0, raf = 0, paused = false;
+    const onEnter = () => { paused = true; };
+    const onLeave = () => { paused = false; };
+    box.addEventListener("mouseenter", onEnter);
+    box.addEventListener("mouseleave", onLeave);
+
+    const step = () => {
+      const half = track.scrollWidth / 2;            // track holds two identical copies
+      if (!paused && half > 0) {
+        offset += NOTICE_MARQUEE_SPEED;
+        if (offset >= half) offset -= half;          // seamless wrap
+        track.style.transform = `translateX(${-offset}px)`;
+      }
+      raf = requestAnimationFrame(step);
+    };
+    raf = requestAnimationFrame(step);
+    return () => {
+      cancelAnimationFrame(raf);
+      box.removeEventListener("mouseenter", onEnter);
+      box.removeEventListener("mouseleave", onLeave);
+    };
+  }, [previewItems.length]);
 
   return (
-    <div style={{ maxWidth: 760 }}>
+    <div style={{ maxWidth: HR_MAX_W, margin: "0 auto", width: "100%" }}>
+      {/* header */}
       <div style={{
-        display: "flex", alignItems: "center", gap: 11,
-        paddingBottom: 14, marginBottom: 16, borderBottom: `1px solid ${BORDER}`,
+        display: "flex", alignItems: "center", gap: 14,
+        paddingBottom: 18, marginBottom: 22, borderBottom: `1px solid ${BORDER}`,
       }}>
         <span style={{
-          width: 38, height: 38, borderRadius: 11, flexShrink: 0,
+          width: 46, height: 46, borderRadius: 13, flexShrink: 0,
           background: `${YELLOW}18`, border: `1px solid ${YELLOW}40`,
-          display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18,
+          display: "flex", alignItems: "center", justifyContent: "center", fontSize: 21,
         }}>📢</span>
-        <div style={{ flex: 1 }}>
-          <h2 style={{ color: TEXT, fontWeight: 800, fontSize: 16, margin: 0, lineHeight: 1.15 }}>Notices / Marquee</h2>
-          <p style={{ color: SUB, fontSize: 11, margin: "3px 0 0" }}>
-            These scroll across the top of the employee Attendance page. Auto issue alerts (no check-out, &lt;8h) are appended automatically.
-          </p>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <h2 style={{ color: TEXT, fontWeight: 800, fontSize: 18, margin: 0, lineHeight: 1.15 }}>Notices / Marquee</h2>
+ 
         </div>
-        <button onClick={load} disabled={loading || saving} style={{
-          background: "rgba(255,215,0,0.07)", border: `1px solid ${YELLOW}44`, borderRadius: 9,
-          color: YELLOW, fontSize: 11, fontWeight: 700, padding: "7px 12px", cursor: "pointer", fontFamily: "inherit",
-        }}>{loading ? "Loading…" : "↻ Refresh"}</button>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
+          <Pill color={GREEN}>{shownCount} shown</Pill>
+          <Pill color={SUB}>{notices.length} total</Pill>
+          <button onClick={load} disabled={loading || saving} style={{
+            background: "rgba(30,54,194,0.07)", border: `1px solid ${YELLOW}44`, borderRadius: 10,
+            color: YELLOW, fontSize: 12, fontWeight: 700, padding: "9px 15px", cursor: "pointer", fontFamily: "inherit",
+          }}>{loading ? "Loading…" : "↻ Refresh"}</button>
+        </div>
+      </div>
+
+      {/* ── Live dashboard preview — same speed/gap as the employee Attendance marquee ── */}
+      <div style={{ marginBottom: 24 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 9 }}>
+          <Label>Dashboard preview</Label>
+          <span style={{ color: DIM, fontSize: 10.5, marginBottom: 6 }}>— exactly how employees see it · hover to pause</span>
+        </div>
+        <div ref={previewBoxRef} style={{
+          background: `linear-gradient(180deg, ${SURF} 0%, ${BG} 100%)`,
+          border: `1px solid ${BORDER}`, borderRadius: 12, padding: "0 18px",
+          height: 48, display: "flex", alignItems: "center", overflow: "hidden", position: "relative",
+        }}>
+          {/* "live" tag on the left */}
+          <span style={{
+            flexShrink: 0, marginRight: 16, display: "flex", alignItems: "center", gap: 6,
+            color: YELLOW, fontSize: 10, fontWeight: 800, letterSpacing: 0.6, textTransform: "uppercase", zIndex: 2,
+          }}>
+            <span style={{ width: 7, height: 7, borderRadius: "50%", background: YELLOW, boxShadow: `0 0 6px ${YELLOW}` }} />
+            Marquee
+          </span>
+          <div style={{
+            flex: 1, overflow: "hidden", position: "relative", height: "100%", display: "flex", alignItems: "center",
+            maskImage: "linear-gradient(90deg, transparent 0, #000 5%, #000 92%, transparent 100%)",
+            WebkitMaskImage: "linear-gradient(90deg, transparent 0, #000 5%, #000 92%, transparent 100%)",
+          }}>
+            {enabledNotices.length === 0 ? (
+              <span style={{ color: DIM, fontSize: 12.5, fontStyle: "italic" }}>
+                No notices are enabled — toggle one on to see it scroll here.
+              </span>
+            ) : (
+              <div ref={previewTrackRef} style={{ display: "inline-flex", whiteSpace: "nowrap", willChange: "transform" }}>
+                {[0, 1].map(dup => (
+                  <span key={dup} style={{ display: "inline-flex", alignItems: "center", paddingLeft: NOTICE_MARQUEE_GAP }} aria-hidden={dup === 1}>
+                    {enabledNotices.map((n, i) => (
+                      <span key={`${dup}-${i}`} style={{ display: "inline-flex", alignItems: "center" }}>
+                        {/* literal yellow — must match the real employee marquee, which is unaffected by the HR theme */}
+                        <span style={{ color: "#FFD700", fontSize: 11, fontWeight: 700 }}>{n.text}</span>
+                        <span style={{ color: "rgba(255,215,0,0.55)", fontSize: 11, fontWeight: 800, padding: "0 16px" }}>•</span>
+                      </span>
+                    ))}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* add */}
-      <div style={{ display: "flex", gap: 8, marginBottom: 18 }}>
-        <input value={draft} onChange={e => setDraft(e.target.value)}
-          onKeyDown={e => { if (e.key === "Enter") addText(); }}
-          placeholder="Type a notice (e.g. 'Any attendance/workplace issue — contact HR Vandana')…"
-          maxLength={200} style={inputStyle} />
-        <button onClick={addText} disabled={saving || !draft.trim()} style={{
-          background: draft.trim() ? YELLOW : "rgba(255,215,0,0.25)", border: "none", borderRadius: 9,
-          color: draft.trim() ? BG : "rgba(6,13,46,0.6)", fontSize: 12.5, fontWeight: 800,
-          padding: "0 18px", cursor: draft.trim() ? "pointer" : "not-allowed", fontFamily: "inherit", flexShrink: 0,
-        }}>Add</button>
+      <div style={{
+        background: SURF2, border: `1px solid ${BORDER}`, borderRadius: 14,
+        padding: 16, marginBottom: 24,
+      }}>
+        <Label>Add a new notice</Label>
+        <div style={{ display: "flex", gap: 12, marginTop: 2 }}>
+          <input value={draft} onChange={e => setDraft(e.target.value)}
+            onKeyDown={e => { if (e.key === "Enter") addText(); }}
+            placeholder="e.g. 'Any day left with incomplete scan data and no regularization request defaults to an absence.'"
+            maxLength={200} style={inputStyle} />
+          <button onClick={addText} disabled={saving || !draft.trim()} style={{
+            background: draft.trim() ? YELLOW : "rgba(30,54,194,0.25)", border: "none", borderRadius: 10,
+            color: draft.trim() ? BG : "rgba(6,13,46,0.6)", fontSize: 13.5, fontWeight: 800,
+            padding: "0 26px", cursor: draft.trim() ? "pointer" : "not-allowed", fontFamily: "inherit", flexShrink: 0,
+            display: "flex", alignItems: "center", gap: 7,
+          }}><span style={{ fontSize: 16 }}>+</span> Add Notice</button>
+        </div>
       </div>
 
       {/* list */}
       {loading ? (
-        <div style={{ padding: "30px 0", textAlign: "center", color: SUB, fontSize: 12.5 }}>Loading…</div>
-      ) : texts.length === 0 ? (
-        <div style={{ padding: "40px 0", textAlign: "center", color: SUB, fontSize: 13 }}>
-          <div style={{ fontSize: 30, marginBottom: 8 }}>📭</div>No notices yet. Add one above.
+        <div style={{ padding: "40px 0", textAlign: "center", color: SUB, fontSize: 13 }}>Loading…</div>
+      ) : notices.length === 0 ? (
+        <div style={{
+          padding: "52px 0", textAlign: "center", color: SUB, fontSize: 13.5,
+          background: SURF2, border: `1px dashed ${BORDER}`, borderRadius: 14,
+        }}>
+          <div style={{ fontSize: 34, marginBottom: 10 }}>📭</div>No notices yet. Add one above.
         </div>
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {texts.map((t, i) => (
-            <div key={i} style={{
-              display: "flex", alignItems: "center", gap: 8,
-              background: SURF2, border: `1px solid ${BORDER}`, borderRadius: 11, padding: 8,
-            }}>
-              <span style={{ color: DIM, fontSize: 10, fontWeight: 700, width: 18, textAlign: "center", flexShrink: 0 }}>{i + 1}</span>
-              <input value={t} onChange={e => editText(i, e.target.value)}
-                onBlur={() => persist(texts)} maxLength={200}
-                style={{ ...inputStyle, background: "transparent", border: "1px solid transparent", padding: "6px 8px" }} />
-              <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
-                <button onClick={() => move(i, -1)} disabled={i === 0 || saving} title="Move up" style={{
-                  width: 26, height: 26, borderRadius: 7, border: `1px solid ${BORDER}`, background: "transparent",
-                  color: i === 0 ? DIM : BLUE, cursor: i === 0 ? "not-allowed" : "pointer", fontSize: 13, fontWeight: 800,
-                }}>↑</button>
-                <button onClick={() => move(i, 1)} disabled={i === texts.length - 1 || saving} title="Move down" style={{
-                  width: 26, height: 26, borderRadius: 7, border: `1px solid ${BORDER}`, background: "transparent",
-                  color: i === texts.length - 1 ? DIM : BLUE, cursor: i === texts.length - 1 ? "not-allowed" : "pointer", fontSize: 13, fontWeight: 800,
-                }}>↓</button>
-                <button onClick={() => removeText(i)} disabled={saving} title="Remove" style={{
-                  width: 26, height: 26, borderRadius: 7, border: `1px solid ${RED}33`, background: "rgba(248,113,113,0.08)",
-                  color: RED, cursor: "pointer", fontSize: 14, fontWeight: 800, lineHeight: 1,
-                }}>×</button>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {/* column header for alignment */}
+          <div style={{
+            display: "grid", gridTemplateColumns: "30px 96px 1fr auto", alignItems: "center", gap: 14,
+            padding: "0 16px 2px", color: DIM, fontSize: 9.5, fontWeight: 700, letterSpacing: 0.7, textTransform: "uppercase",
+          }}>
+            <span style={{ textAlign: "center" }}>#</span>
+            <span>Visibility</span>
+            <span>Notice text</span>
+            <span style={{ textAlign: "right", paddingRight: 2 }}>Actions</span>
+          </div>
+
+          {notices.map((n, i) => {
+            const editing = editIdx === i;
+            return (
+              <div key={i} style={{
+                display: "grid", gridTemplateColumns: "30px 96px 1fr auto", alignItems: "center", gap: 14,
+                background: SURF2,
+                border: `1px solid ${editing ? YELLOW + "66" : n.enabled ? BORDER : "rgba(30,54,194,0.10)"}`,
+                borderRadius: 12, padding: "12px 16px",
+                opacity: !editing && !n.enabled ? 0.6 : 1,
+                transition: "opacity 0.15s, border 0.15s, background 0.15s",
+              }}>
+                {/* index */}
+                <span style={{ color: DIM, fontSize: 12, fontWeight: 700, textAlign: "center" }}>{i + 1}</span>
+
+                {/* show/hide toggle + state label */}
+                <div style={{ display: "flex", alignItems: "center", gap: 9, minWidth: 0 }}>
+                  <button onClick={() => toggleEnabled(i)} disabled={saving || editing}
+                    title={n.enabled ? "Showing on dashboard — click to hide" : "Hidden — click to show on dashboard"}
+                    style={{
+                      width: 42, height: 24, borderRadius: 13, flexShrink: 0, position: "relative",
+                      cursor: (saving || editing) ? "not-allowed" : "pointer",
+                      background: n.enabled ? GREEN : "rgba(30,54,194,0.20)",
+                      border: `1px solid ${n.enabled ? GREEN : BORDER}`, padding: 0,
+                      transition: "background 0.18s, border 0.18s",
+                    }}>
+                    <span style={{
+                      position: "absolute", top: 2, left: n.enabled ? 20 : 2,
+                      width: 18, height: 18, borderRadius: "50%", background: "#fff",
+                      boxShadow: "0 1px 3px rgba(0,0,0,0.4)", transition: "left 0.18s",
+                    }} />
+                  </button>
+                </div>
+
+                {/* text — read-only label, or an input while editing */}
+                {editing ? (
+                  <input autoFocus value={editVal} onChange={e => setEditVal(e.target.value)}
+                    onKeyDown={e => { if (e.key === "Enter") saveEdit(); if (e.key === "Escape") cancelEdit(); }}
+                    maxLength={200}
+                    style={{ ...inputStyle, border: `1px solid ${YELLOW}66`, padding: "10px 13px", fontSize: 13.5 }} />
+                ) : (
+                  <span style={{
+                    color: n.enabled ? TEXT : SUB, fontSize: 13.5, lineHeight: 1.5,
+                    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                  }} title={n.text}>{n.text}</span>
+                )}
+
+                {/* actions */}
+                <div style={{ display: "flex", gap: 6, flexShrink: 0, justifyContent: "flex-end" }}>
+                  {editing ? (
+                    <>
+                      <button onClick={cancelEdit} disabled={saving} title="Cancel"
+                        style={iconBtn(SUB, BORDER, SURF, saving)}>✕</button>
+                      <button onClick={saveEdit} disabled={saving || !editVal.trim()} title="Save"
+                        style={{
+                          ...iconBtn(BG, "transparent", editVal.trim() ? GREEN : "rgba(30,54,194,0.3)", saving || !editVal.trim()),
+                          width: "auto", padding: "0 14px", fontSize: 12.5,
+                        }}>Save</button>
+                    </>
+                  ) : (
+                    <>
+                      <button onClick={() => move(i, -1)} disabled={i === 0 || saving} title="Move up"
+                        style={iconBtn(i === 0 ? DIM : BLUE, BORDER, "transparent", i === 0 || saving)}>↑</button>
+                      <button onClick={() => move(i, 1)} disabled={i === notices.length - 1 || saving} title="Move down"
+                        style={iconBtn(i === notices.length - 1 ? DIM : BLUE, BORDER, "transparent", i === notices.length - 1 || saving)}>↓</button>
+                      <button onClick={() => startEdit(i)} disabled={saving} title="Edit"
+                        style={iconBtn(BLUE, `${BLUE}44`, "rgba(96,165,250,0.08)", saving)}>✎</button>
+                      <button onClick={() => removeText(i)} disabled={saving} title="Remove"
+                        style={iconBtn(RED, `${RED}33`, "rgba(248,113,113,0.08)", saving)}>×</button>
+                    </>
+                  )}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
+    </div>
+  );
+}
+
+// ── HR-added records history (Regularize / Remote) — view & remove what HR added ──
+interface HrAddedRow {
+  emp_id: string;
+  emp_name: string;
+  date: string;
+  index: number;          // index of this session within the day's sessions array
+  check_in: string;
+  check_out: string;
+  note?: string;
+}
+
+const HISTORY_STEP = 7;   // window grows by this many days each "Show more"
+
+function fmtSessTime(t?: string) { return t ? t.slice(0, 5) : "—"; }
+
+function HrAddedHistory({
+  mode, employees, onToast, onClose,
+}: {
+  mode: "office" | "remote";
+  accent: string;
+  employees: any[];
+  onToast: (msg: string, type?: string) => void;
+  onClose: () => void;
+}) {
+  // blue accent on near-black (Regularize / Remote history)
+  const G_TXT   = "#FFFFFF";                  // white text
+  const G       = "#1E36C2";                  // blue accent
+  const G_BOX   = "#121212";
+  const G_BOX2  = "#1A1A1A";
+  const G_BORD  = "rgba(30,54,194,0.30)";
+  const G_SUB   = "#C8C8C8";
+  const G_DIM   = "#7A7A7A";
+  const [rows, setRows]       = useState<HrAddedRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [daysBack, setDaysBack] = useState(HISTORY_STEP);   // current window size (grows on "Show more")
+  const [busyKey, setBusyKey] = useState<string | null>(null);
+  const [empFilter, setEmpFilter] = useState<string>("all");
+
+  // is this session an HR-added one matching the current mode?
+  const matchesMode = useCallback((s: any) => {
+    if (s?.source !== "hr") return false;
+    if (s?.removed === true) return false;            // already soft-removed
+    return mode === "remote" ? s.wfh === true : s.regularized === true;
+  }, [mode]);
+
+  // scan the last `days` dates (today inclusive) across all employees
+  const load = useCallback(async (days: number) => {
+    try {
+      const dates: string[] = [];
+      const cur = new Date();
+      for (let i = 0; i < days; i++) {
+        dates.push(toDateStr(cur));
+        cur.setDate(cur.getDate() - 1);
+      }
+
+      const out: HrAddedRow[] = [];
+      await Promise.all(employees.map(async (emp) => {
+        await Promise.all(dates.map(async (date) => {
+          try {
+            const snap = await getDoc(doc(db, emp.emp_id, date));
+            if (!snap.exists()) return;
+            const data = snap.data() as { sessions?: any[]; employee_name?: string };
+            (data.sessions || []).forEach((s, idx) => {
+              if (!matchesMode(s)) return;
+              out.push({
+                emp_id: emp.emp_id,
+                emp_name: data.employee_name || emp.name,
+                date,
+                index: idx,
+                check_in: s.check_in,
+                check_out: s.check_out,
+                note: s.note,
+              });
+            });
+          } catch (_) { /* skip this doc */ }
+        }));
+      }));
+
+      out.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : a.emp_name.localeCompare(b.emp_name)));
+      setRows(out);
+    } catch (e) {
+      console.error(e);
+      onToast("Could not load added records.", "error");
+    }
+  }, [employees, matchesMode, onToast]);
+
+  // initial load (and on refresh) for the current window
+  const reload = useCallback(async () => {
+    setLoading(true);
+    await load(daysBack);
+    setLoading(false);
+  }, [load, daysBack]);
+
+  // "Show more" — widen the window by another step and re-scan
+  const showMore = useCallback(async () => {
+    const next = daysBack + HISTORY_STEP;
+    setLoadingMore(true);
+    setDaysBack(next);
+    await load(next);
+    setLoadingMore(false);
+  }, [daysBack, load]);
+
+  useEffect(() => { reload(); }, [reload]);
+
+  // soft-remove: pull the session out of `sessions`, push it into `removed_sessions`
+  // (keeps an audit trail, and every consumer that reads `sessions` is automatically correct)
+  async function removeRow(row: HrAddedRow) {
+    const key = `${row.emp_id}_${row.date}_${row.index}`;
+    setBusyKey(key);
+    try {
+      const ref  = doc(db, row.emp_id, row.date);
+      const snap = await getDoc(ref);
+      if (!snap.exists()) { onToast("Record no longer exists.", "error"); await load(daysBack); return; }
+      const data = snap.data() as { sessions?: any[]; removed_sessions?: any[]; employee_name?: string };
+      const sessions = Array.isArray(data.sessions) ? [...data.sessions] : [];
+
+      // locate the exact session (prefer index, fall back to a content match)
+      let target = sessions[row.index];
+      let removeAt = row.index;
+      const looksRight = target && target.source === "hr" && target.check_in === row.check_in && target.check_out === row.check_out;
+      if (!looksRight) {
+        removeAt = sessions.findIndex(s => s.source === "hr" && s.check_in === row.check_in && s.check_out === row.check_out && s.removed !== true);
+        target = removeAt >= 0 ? sessions[removeAt] : undefined;
+      }
+      if (!target || removeAt < 0) { onToast("Record already removed.", "error"); await load(daysBack); return; }
+
+      sessions.splice(removeAt, 1);
+      // re-number remaining sessions so `session` stays 1-based & contiguous
+      sessions.forEach((s, i) => { s.session = i + 1; });
+
+      const audit = Array.isArray(data.removed_sessions) ? [...data.removed_sessions] : [];
+      audit.push({ ...target, removed: true, removed_at: Date.now() });
+
+      await setDoc(ref, { sessions, removed_sessions: audit }, { merge: true });
+
+      setRows(prev => prev.filter(r => !(r.emp_id === row.emp_id && r.date === row.date && r.index === row.index)));
+      onToast(`Removed ${mode === "remote" ? "remote log" : "regularization"} · ${row.emp_name} · ${fmtDateLabel(row.date)} ✓`);
+    } catch (e) {
+      console.error(e);
+      onToast("Could not remove the record.", "error");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  const empOptions = useMemo(() => {
+    const ids = Array.from(new Set(rows.map(r => r.emp_id)));
+    return ids.map(id => ({ id, name: rows.find(r => r.emp_id === id)?.emp_name || id }));
+  }, [rows]);
+
+  const visible = useMemo(
+    () => empFilter === "all" ? rows : rows.filter(r => r.emp_id === empFilter),
+    [rows, empFilter]
+  );
+
+  // group by date for a clean, scannable list
+  const grouped = useMemo(() => {
+    const map = new Map<string, HrAddedRow[]>();
+    for (const r of visible) {
+      if (!map.has(r.date)) map.set(r.date, []);
+      map.get(r.date)!.push(r);
+    }
+    return Array.from(map.entries());
+  }, [visible]);
+
+  const empById = useMemo(() => {
+    const m: Record<string, any> = {};
+    for (const e of employees) m[e.emp_id] = e;
+    return m;
+  }, [employees]);
+
+  const title = mode === "remote" ? "Logged Remote Work" : "Regularized Attendance";
+
+  return (
+    <div onClick={onClose} style={{
+      position: "fixed", inset: 0, zIndex: 10002, background: "rgba(2,6,23,0.8)",
+      backdropFilter: "blur(8px)", display: "flex", alignItems: "center", justifyContent: "center",
+      padding: 20, fontFamily: "'Sora',sans-serif",
+    }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        width: "min(760px,100%)", maxHeight: "88vh", display: "flex", flexDirection: "column",
+        background: "#0D0D0D", border: `1px solid ${G}66`,
+        borderRadius: 18, boxShadow: "0 32px 80px rgba(0,0,0,0.7)", overflow: "hidden",
+      }}>
+        {/* header */}
+        <div style={{ padding: "16px 20px", borderBottom: `1px solid ${G_BORD}`, display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{
+            width: 40, height: 40, borderRadius: 11, flexShrink: 0,
+            background: "rgba(30,54,194,0.14)", border: `1px solid ${G}44`,
+            display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18,
+          }}>🗂</div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <h2 style={{ color: G_TXT, fontWeight: 800, fontSize: 15, margin: 0 }}>{title} — added by HR</h2>
+            <p style={{ color: G_SUB, fontSize: 10.5, margin: "3px 0 0" }}>
+              Last {daysBack} days · {rows.length} record{rows.length !== 1 ? "s" : ""} · removing keeps an audit trail
+            </p>
+          </div>
+          <button onClick={reload} disabled={loading} title="Refresh" style={{
+            background: "#1E36C2", border: `1px solid #1E36C2`, borderRadius: 9,
+            color: "#FFFFFF", fontSize: 11, fontWeight: 700, padding: "7px 11px", cursor: "pointer", fontFamily: "inherit",
+          }}>{loading ? "…" : "↻"}</button>
+          <button onClick={onClose} style={{
+            width: 30, height: 30, borderRadius: 8, border: `1px solid ${G_BORD}`, background: G_BOX2,
+            color: G_TXT, cursor: "pointer", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center",
+          }}>×</button>
+        </div>
+
+        {/* employee filter */}
+        {empOptions.length > 1 && (
+          <div style={{ padding: "10px 20px", borderBottom: `1px solid ${G_BORD}`, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <span style={{ color: G_DIM, fontSize: 10, fontWeight: 700, letterSpacing: 0.5, textTransform: "uppercase" }}>Filter</span>
+            <button onClick={() => setEmpFilter("all")} style={{
+              padding: "4px 10px", borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "inherit",
+              border: `1px solid ${empFilter === "all" ? G + "88" : G_BORD}`,
+              background: empFilter === "all" ? "#1E36C2" : "transparent", color: empFilter === "all" ? "#FFFFFF" : G_SUB,
+            }}>All</button>
+            {empOptions.map(o => (
+              <button key={o.id} onClick={() => setEmpFilter(o.id)} style={{
+                padding: "4px 10px", borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "inherit",
+                border: `1px solid ${empFilter === o.id ? G + "88" : G_BORD}`,
+                background: empFilter === o.id ? "#1E36C2" : "transparent", color: empFilter === o.id ? "#FFFFFF" : G_SUB,
+              }}>{o.name}</button>
+            ))}
+          </div>
+        )}
+
+        {/* list */}
+        <div className="hr-scroll" style={{ overflowY: "auto", padding: "14px 20px 18px" }}>
+          {loading ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} style={{ height: 54, borderRadius: 11, background: G_BOX, opacity: 0.5 }} />
+              ))}
+            </div>
+          ) : visible.length === 0 ? (
+            <div style={{ textAlign: "center", padding: "40px 0", color: G_SUB, fontSize: 13 }}>
+              <div style={{ fontSize: 32, marginBottom: 10 }}>🗒️</div>
+              Nothing added by HR in the last {daysBack} days.
+              <div style={{ marginTop: 16 }}>
+                <button onClick={showMore} disabled={loadingMore} style={{
+                  padding: "8px 16px", borderRadius: 9, border: `1px solid ${G}`, background: "#1E36C2",
+                  color: "#FFFFFF", fontSize: 12, fontWeight: 700, cursor: loadingMore ? "not-allowed" : "pointer", fontFamily: "inherit",
+                }}>{loadingMore ? "Loading…" : `Look back ${HISTORY_STEP} more days`}</button>
+              </div>
+            </div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+              {grouped.map(([date, dayRows]) => (
+                <div key={date} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+                    <span style={{
+                      color: "#FFFFFF", fontSize: 11.5, fontWeight: 800,
+                      background: "rgba(30,54,194,0.22)", border: `1px solid ${G}55`, borderRadius: 8, padding: "4px 10px",
+                    }}>{new Date(date + "T00:00:00").toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short", year: "numeric" })}</span>
+                    <div style={{ flex: 1, height: 1, background: G_BORD }} />
+                  </div>
+
+                  {dayRows.map(row => {
+                    const emp = empById[row.emp_id];
+                    const key = `${row.emp_id}_${row.date}_${row.index}`;
+                    const removing = busyKey === key;
+                    return (
+                      <div key={key} style={{
+                        display: "flex", alignItems: "center", gap: 12,
+                        background: G_BOX, border: `1px solid ${G_BORD}`, borderRadius: 11, padding: "10px 12px",
+                      }}>
+                        <span style={{
+                          width: 32, height: 32, borderRadius: "50%", flexShrink: 0, overflow: "hidden", background: G_BOX2,
+                          border: `1.5px solid ${G}55`, display: "flex", alignItems: "center", justifyContent: "center",
+                          fontSize: 10, fontWeight: 700, color: G_TXT,
+                        }}>
+                          {emp?.profile_image
+                            ? <img src={emp.profile_image} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                            : initials(row.emp_name)}
+                        </span>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ color: G_TXT, fontSize: 12.5, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                            {row.emp_name}
+                          </div>
+                          <div style={{ display: "flex", alignItems: "center", gap: 7, marginTop: 1 }}>
+                            <span style={{ color: G_DIM, fontSize: 9.5, fontFamily: "'JetBrains Mono',monospace" }}>{row.emp_id}</span>
+                            <span style={{ color: G_TXT, fontFamily: "'JetBrains Mono',monospace", fontWeight: 700, fontSize: 10.5 }}>{fmtSessTime(row.check_in)}</span>
+                            <span style={{ color: G_DIM, fontSize: 10 }}>→</span>
+                            <span style={{ color: G_TXT, fontFamily: "'JetBrains Mono',monospace", fontWeight: 700, fontSize: 10.5 }}>{fmtSessTime(row.check_out)}</span>
+                            {row.note ? <span style={{ color: G_SUB, fontSize: 10 }}>· {row.note}</span> : null}
+                          </div>
+                        </div>
+                        <span style={{
+                          fontSize: 9, fontWeight: 700, color: "#FFFFFF", background: "#1E36C2",
+                          border: `1px solid #1E36C2`, borderRadius: 20, padding: "2px 8px", flexShrink: 0,
+                        }}>{mode === "remote" ? "REMOTE" : "OFFICE"}</span>
+                        <button onClick={() => removeRow(row)} disabled={removing} title="Remove this record" style={{
+                          flexShrink: 0, padding: "7px 12px", borderRadius: 8, fontSize: 11.5, fontWeight: 800,
+                          border: `1px solid #1E36C2`, background: "#1E36C2", color: "#FFFFFF",
+                          cursor: removing ? "not-allowed" : "pointer", fontFamily: "inherit",
+                        }}>{removing ? "Removing…" : "Remove"}</button>
+                      </div>
+                    );
+                  })}
+                </div>
+              ))}
+
+              {/* Show more — widen the window by another week, repeatedly */}
+              <div style={{ display: "flex", justifyContent: "center", paddingTop: 6 }}>
+                <button onClick={showMore} disabled={loadingMore} style={{
+                  display: "flex", alignItems: "center", gap: 8,
+                  padding: "9px 18px", borderRadius: 10, border: `1px solid ${G}`,
+                  background: "rgba(30,54,194,0.14)", color: G_TXT, fontSize: 12, fontWeight: 700,
+                  cursor: loadingMore ? "not-allowed" : "pointer", fontFamily: "inherit",
+                }}>
+                  {loadingMore
+                    ? "Loading…"
+                    : <><span style={{ fontSize: 13 }}>↓</span> Show {HISTORY_STEP} more days (last {daysBack + HISTORY_STEP})</>}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -2014,12 +2578,21 @@ function HrMain({ hrName, onLogout, onChangeName }: { hrName: string; onLogout: 
   const [note, setNote]         = useState("");
   const [saving, setSaving]     = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);   // "view HR-added records" modal
+
+  // Regularize / Remote tab — strict gold-on-dark theme (no blue / red / green)
+  const RT_TXT  = "#FFFFFF";                  // pure white text
+  const RT_ACC  = "#1E36C2";                  // blue — buttons / highlights / accents
+  const RT_BOX  = "#121212";                  // inner container/box background
+  const RT_BOX2 = "#1A1A1A";                  // slightly lifted (inputs)
+  const RT_BORDER = "rgba(30,54,194,0.30)";
+  const RT_SUB  = "#C8C8C8";
+  const RT_DIM  = "#7A7A7A";
 
   const { items, add, remove } = useToast();
 
   const isRemote   = nav === "remote";
   const accent     = isRemote ? MAGENTA : BLUE;
-  const accentDark = isRemote ? "#be185d" : "#2563eb";
   const tabIcon    = isRemote ? "🏠" : "🏢";
 
   const today = toDateStr(new Date());
@@ -2474,7 +3047,7 @@ const stats = useMemo(() => {
   }
 
   const TYPE_COLORS: Record<string,string> = {
-    permanent:YELLOW, consultant:BLUE, intern:"#C084FC", guest:TEAL,
+    permanent:YELLOW, consultant:BLUE, intern:BLUE, guest:TEAL,
   };
 
   const NAV: { id: NavId; label: string; icon: string; color: string }[] = [
@@ -2492,8 +3065,8 @@ const stats = useMemo(() => {
 
   const wkBtn = (dis: boolean): React.CSSProperties => ({
     width:26,height:26,borderRadius:7,flexShrink:0,
-    border:`1px solid ${BORDER}`,background:"rgba(96,165,250,0.08)",
-    color: dis ? DIM : BLUE, fontSize:16,fontWeight:800,lineHeight:1,
+    border:`2px solid ${YELLOW}`,background:"rgba(96,165,250,0.08)",
+    color: dis ? YELLOW : BLUE, fontSize:16,fontWeight:800,lineHeight:1,
     cursor: dis ? "not-allowed" : "pointer", opacity: dis ? 0.5 : 1,
     display:"flex",alignItems:"center",justifyContent:"center",
     fontFamily:"'Sora',sans-serif",
@@ -2506,16 +3079,17 @@ const stats = useMemo(() => {
         *,*::before,*::after{box-sizing:border-box;}
         ::-webkit-scrollbar{width:6px;height:6px;}
         ::-webkit-scrollbar-track{background:transparent;}
-        ::-webkit-scrollbar-thumb{background:rgba(99,102,241,0.3);border-radius:3px;}
-        option{background:#0B1340;color:#EEF0FF;}
+        ::-webkit-scrollbar-thumb{background:rgba(30,54,194,0.3);border-radius:3px;}
+        option{background:#121212;color:#FFFFFF;}
         input[type=date]::-webkit-calendar-picker-indicator{filter:invert(0.7);}
-        .emp-row:hover{background:rgba(99,102,241,0.12)!important;}
+        .emp-row:hover{background:rgba(30,54,194,0.12)!important;}
         select:focus{outline:none;}
-        .tab-btn{transition:all 0.15s;}
+        .tab-btn{transition:all 0.15s;border-radius:9px 9px 0 0;}
+        .tab-btn:hover:not(:disabled){background:rgba(30,54,194,0.08)!important;color:#FFFFFF!important;}
         .req-badge{ animation: reqblink 1.1s ease-in-out infinite; }
         @keyframes reqblink {
-          0%,100% { box-shadow:0 0 0 0 rgba(255,215,0,0.7); opacity:1; transform:scale(1); }
-          50%     { box-shadow:0 0 0 6px rgba(255,215,0,0); opacity:0.78; transform:scale(1.12); }
+          0%,100% { box-shadow:0 0 0 0 rgba(30,54,194,0.7); opacity:1; transform:scale(1); }
+          50%     { box-shadow:0 0 0 6px rgba(30,54,194,0); opacity:0.78; transform:scale(1.12); }
         }
         .save-btn:hover:not(:disabled){opacity:0.9;}
         .export-btn:hover{opacity:0.88;}
@@ -2524,6 +3098,7 @@ const stats = useMemo(() => {
         .hr-analytics{ display:flex; flex-direction:column; gap:16px; }
         @media (max-width: 760px) {
           .hr-header   { padding: 0 14px !important; }
+          .hr-nav      { padding: 0 14px !important; }
           .hr-page     { padding: 20px 14px 48px !important; }
           .hr-kpis     { grid-template-columns:1fr 1fr !important; gap:12px !important; }
           .hr-form-body{ grid-template-columns: 1fr !important; gap:18px !important; }
@@ -2536,6 +3111,10 @@ const stats = useMemo(() => {
         @media (max-width: 420px) {
           .hr-kpis     { grid-template-columns:1fr !important; }
         }
+        /* Regularize / Remote tab — blue accent on near-black: white labels & inputs */
+        .reg-tab label { color: #FFFFFF !important; }
+        .reg-tab input::placeholder { color: rgba(255,255,255,0.4) !important; }
+        .reg-tab input[type=date], .reg-tab input[type=text] { color: #FFFFFF !important; }
       `}</style>
 
       <ToastContainer items={items} remove={remove} />
@@ -2559,6 +3138,16 @@ const stats = useMemo(() => {
           busy={saving}
           onConfirm={doSave}
           onClose={()=>{ if(!saving) setConfirmOpen(false); }}
+        />
+      )}
+
+      {historyOpen && (
+        <HrAddedHistory
+          mode={isRemote ? "remote" : "office"}
+          accent={accent}
+          employees={employees}
+          onToast={add}
+          onClose={()=>setHistoryOpen(false)}
         />
       )}
 
@@ -2591,18 +3180,18 @@ const stats = useMemo(() => {
           className="export-btn"
           style={{
             display:"flex",alignItems:"center",gap:7,
-            background:`linear-gradient(135deg,${GREEN},#16a34a)`,border:`1px solid ${GREEN}`,
+            background:"#1E36C2",border:`1px solid #1E36C2`,
             borderRadius:10,padding:"8px 14px",cursor:"pointer",transition:"all 0.15s",
-            color:"#fff",fontSize:12,fontWeight:700,fontFamily:"'Sora',sans-serif",whiteSpace:"nowrap",
-            boxShadow:`0 4px 14px ${GREEN}44`,
+            color:"#FFFFFF",fontSize:13,fontWeight:700,fontFamily:"'Sora',sans-serif",whiteSpace:"nowrap",
+            boxShadow:`0 4px 14px rgba(30,54,194,0.4)`,
           }}>
-          <span style={{fontSize:13,color:"#fff"}}>⬇</span>
+          <span style={{fontSize:13,color:"#FFFFFF"}}>⬇</span>
           {exporting ? "Generating…" : "Export Report"}
         </button>
 
         <div className="hr-datepill" style={{
           display:"flex",alignItems:"center",gap:7,
-          background:"rgba(99,102,241,0.06)",border:`1px solid ${BORDER}`,
+          background:"rgba(30,54,194,0.06)",border:`1px solid ${BORDER}`,
           borderRadius:10,padding:"8px 13px",
         }}>
           <span style={{fontSize:13}}>📅</span>
@@ -2614,7 +3203,7 @@ const stats = useMemo(() => {
         {/* HR user chip — click to change name */}
         <button onClick={onChangeName} title="Change your name" className="hr-userchip" style={{
           display:"flex",alignItems:"center",gap:9,
-          background:"rgba(99,102,241,0.08)",border:`1px solid ${BORDER}`,
+          background:"rgba(30,54,194,0.08)",border:`1px solid ${BORDER}`,
           borderRadius:12,padding:"5px 12px 5px 6px",cursor:"pointer",fontFamily:"'Sora',sans-serif",
         }}>
           <span style={{
@@ -2640,9 +3229,9 @@ const stats = useMemo(() => {
       <nav className="hr-nav" style={{
         position:"sticky",top:60,zIndex:39,
         background:"rgba(8,15,46,0.9)",borderBottom:`1px solid ${BORDER}`,
-        backdropFilter:"blur(12px)",padding:"0 22px",overflowX:"auto",
+        backdropFilter:"blur(12px)",padding:"0 28px",
       }}>
-        <div style={{maxWidth:1500,margin:"0 auto",display:"flex",gap:2}}>
+        <div style={{maxWidth:HR_MAX_W,margin:"0 auto",display:"flex",gap:4,flexWrap:"wrap"}}>
           {NAV.map(n => {
             const on = nav === n.id;
             return (
@@ -2674,7 +3263,7 @@ const stats = useMemo(() => {
       </nav>
 
       {/* ── Page ── */}
-      <div className="hr-page" style={{maxWidth:1500,margin:"0 auto",padding:"24px 22px 56px"}}>
+      <div className="hr-page" style={{maxWidth:HR_MAX_W,margin:"0 auto",padding:"26px 28px 64px"}}>
 
         {/* ===== DASHBOARD ===== */}
         {nav === "dashboard" && (<> 
@@ -2690,24 +3279,23 @@ const stats = useMemo(() => {
         {/* Global week switcher — controls every week-based panel on the dashboard */}
         <div style={{
           display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,
-          background:"rgba(99,102,241,0.05)",border:`1px solid ${BORDER}`,borderRadius:12,
+          background:"rgba(30,54,194,0.05)",border:`1px solid ${BORDER}`,borderRadius:12,
           padding:"8px 12px",marginBottom:16,
         }}>
-          <span style={{color:SUB,fontSize:11.5,fontWeight:700,letterSpacing:0.3}}>
+          <span style={{color:TEXT,fontSize:11.5,fontWeight:700,letterSpacing:0.3}}>
             Showing data for
           </span>
           <div style={{display:"flex",alignItems:"center",gap:7}}>
             <button onClick={()=>setWeekOffset(o=>o-1)} title="Previous week" className="wk-nav" style={wkBtn(false)}>‹</button>
-            <span style={{minWidth:170,textAlign:"center",color:TEXT,fontSize:12,fontWeight:700,whiteSpace:"nowrap"}}>
+            <span style={{minWidth:170,textAlign:"center",color:YELLOW,fontSize:12,fontWeight:700,whiteSpace:"nowrap"}}>
               {weekLabel}
-              <span style={{color:DIM,fontWeight:500,fontFamily:"'JetBrains Mono',monospace"}}> · {weekRange}</span>
+              <span style={{color:YELLOW,fontWeight:500,fontFamily:"'JetBrains Mono',monospace"}}> · {weekRange}</span>
             </span>
             <button onClick={()=>setWeekOffset(o=>Math.min(0,o+1))} disabled={weekOffset>=0} title="Next week" className="wk-nav" style={wkBtn(weekOffset>=0)}>›</button>
           </div>
         </div>
 
-
-
+ 
           <Panel
             icon="⏰"
             title="Forgot to Check Out"
@@ -2731,7 +3319,7 @@ const stats = useMemo(() => {
                   const isTodayCol = date === today;
                   return (
                     <div key={date} style={{
-                      background:"rgba(99,102,241,0.04)",
+                      background:"rgba(30,54,194,0.04)",
                       border:`1px solid ${isTodayCol ? BLUE+"55" : BORDER}`,
                       borderRadius:10, overflow:"hidden", minWidth:0,
                     }}>
@@ -2804,31 +3392,44 @@ const stats = useMemo(() => {
 
         {/* ===== REGULARIZE / REMOTE ===== */}
         {(nav === "regularize" || nav === "remote") && (
-        <div style={{maxWidth:1080}}>
+        <div className="reg-tab" style={{
+          margin:"-26px -28px -64px",
+          background:"#0D0D0D",
+          padding:"30px 28px 64px",minHeight:"calc(100vh - 121px)",
+        }}>
+          <div style={{maxWidth:HR_MAX_W,margin:"0 auto",width:"100%"}}>
           {/* Section heading */}
           <div className="hr-toolbar" style={{
             display:"flex",alignItems:"center",gap:11,
-            paddingBottom:14,marginBottom:18,borderBottom:`1px solid ${BORDER}`,
+            paddingBottom:14,marginBottom:18,borderBottom:`1px solid rgba(30,54,194,0.22)`,
           }}>
             <span style={{
               width:38,height:38,borderRadius:11,flexShrink:0,
-              background:`${accent}18`,border:`1px solid ${accent}40`,
+              background:"rgba(30,54,194,0.14)",border:`1px solid rgba(30,54,194,0.4)`,
               display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,
             }}>{tabIcon}</span>
-            <div>
-              <h2 style={{color:TEXT,fontWeight:800,fontSize:16,margin:0,lineHeight:1.15}}>
+            <div style={{flex:1}}>
+              <h2 style={{color:"#FFFFFF",fontWeight:800,fontSize:16,margin:0,lineHeight:1.15}}>
                 {isRemote ? "Log Remote Work" : "Regularize Attendance"}
               </h2>
-              <p style={{color:SUB,fontSize:11,margin:"3px 0 0"}}>
+              <p style={{color:"#E8E8E8",fontSize:11,margin:"3px 0 0"}}>
                 {isRemote ? "Mark selected people as working from home." : "Mark selected people as present in office."}
               </p>
             </div>
+            <button onClick={()=>setHistoryOpen(true)} style={{
+              display:"flex",alignItems:"center",gap:7,flexShrink:0,
+              background:"#1E36C2",border:`1px solid #1E36C2`,borderRadius:10,
+              color:"#FFFFFF",fontSize:12,fontWeight:700,padding:"9px 14px",cursor:"pointer",fontFamily:"'Sora',sans-serif",
+            }}>
+              <span style={{fontSize:13}}>🗂</span>
+              {isRemote ? "View Logged Remote" : "View Regularized"}
+            </button>
           </div>
 
           {/* Inline mode note (no box) */}
           <div style={{display:"flex",alignItems:"flex-start",gap:8,marginBottom:18}}>
             <span style={{fontSize:14,lineHeight:1.4}}>{isRemote ? "🏠" : "🏢"}</span>
-            <span style={{color:SUB,fontSize:11.5,lineHeight:1.55}}>
+            <span style={{color:"#CFCFCF",fontSize:11.5,lineHeight:1.55}}>
               {isRemote
                 ? "Logs the selected people as working from home for the chosen dates."
                 : "Marks the selected people as present in office — use when face-scan was missed (network drop, off-site meeting, etc.). Counts as a normal in-office day."}
@@ -2842,8 +3443,8 @@ const stats = useMemo(() => {
             <div style={{display:"flex",flexDirection:"column",gap:16}}>
 
               <div style={{display:"flex",alignItems:"center",gap:8}}>
-                <div style={{width:3,height:18,borderRadius:2,background:accent}}/>
-                <span style={{color:TEXT,fontWeight:700,fontSize:13}}>Employees & Date Range</span>
+                <div style={{width:3,height:18,borderRadius:2,background:"#1E36C2"}}/>
+                <span style={{color:"#FFFFFF",fontWeight:700,fontSize:13}}>Employees & Date Range</span>
               </div>
 
               {/* Employee multi-select */}
@@ -2858,36 +3459,36 @@ const stats = useMemo(() => {
                     onBlur={()=>setTimeout(()=>setShowEmpDrop(false),180)}
                     placeholder={loadingEmps?"Loading employees…":"Search name or ID, then tap to add…"}
                     style={{
-                      width:"100%",background:SURF3,
-                      border:`1px solid ${selEmps.length?accent+"66":BORDER}`,
-                      borderRadius:9,color:TEXT,fontSize:12.5,padding:"9px 32px 9px 32px",
+                      width:"100%",background:RT_BOX,
+                      border:`1px solid ${selEmps.length?RT_ACC+"88":RT_BORDER}`,
+                      borderRadius:9,color:RT_TXT,fontSize:12.5,padding:"9px 32px 9px 32px",
                       outline:"none",fontFamily:"'Sora',sans-serif",
                     }}
                   />
                   {empSearch && (
                     <button onClick={()=>setEmpSearch("")}
                       style={{position:"absolute",right:9,top:"50%",transform:"translateY(-50%)",
-                      background:"none",border:"none",color:DIM,fontSize:16,cursor:"pointer",lineHeight:1}}>×</button>
+                      background:"none",border:"none",color:RT_DIM,fontSize:16,cursor:"pointer",lineHeight:1}}>×</button>
                   )}
                 </div>
 
                 {/* Selection toolbar */}
                 <div style={{display:"flex",alignItems:"center",gap:8,marginTop:8}}>
                   <span style={{
-                    color: selEmps.length ? accent : DIM, fontSize:10.5, fontWeight:700,
-                    background: selEmps.length ? `${accent}14` : "transparent",
-                    border:`1px solid ${selEmps.length ? accent+"33" : BORDER}`,
+                    color: selEmps.length ? RT_ACC : RT_DIM, fontSize:10.5, fontWeight:700,
+                    background: selEmps.length ? "rgba(30,54,194,0.12)" : "transparent",
+                    border:`1px solid ${selEmps.length ? "rgba(30,54,194,0.4)" : RT_BORDER}`,
                     borderRadius:20, padding:"2px 9px",
                   }}>{selEmps.length} selected</span>
                   <div style={{flex:1}}/>
                   <button onClick={selectAllFiltered} style={{
-                    background:"rgba(99,102,241,0.1)",border:`1px solid ${BORDER}`,borderRadius:7,
-                    color:SUB,fontSize:10,fontWeight:700,padding:"4px 9px",cursor:"pointer",fontFamily:"inherit",
+                    background:"rgba(30,54,194,0.08)",border:`1px solid ${RT_BORDER}`,borderRadius:7,
+                    color:RT_TXT,fontSize:10,fontWeight:700,padding:"4px 9px",cursor:"pointer",fontFamily:"inherit",
                   }}>Select all{empSearch?` (${filteredEmps.length})`:""}</button>
                   {selEmps.length>0 && (
                     <button onClick={clearAll} style={{
-                      background:"rgba(248,113,113,0.08)",border:`1px solid ${RED}33`,borderRadius:7,
-                      color:RED,fontSize:10,fontWeight:700,padding:"4px 9px",cursor:"pointer",fontFamily:"inherit",
+                      background:"rgba(30,54,194,0.08)",border:`1px solid rgba(30,54,194,0.4)`,borderRadius:7,
+                      color:RT_TXT,fontSize:10,fontWeight:700,padding:"4px 9px",cursor:"pointer",fontFamily:"inherit",
                     }}>Clear</button>
                   )}
                 </div>
@@ -2896,22 +3497,21 @@ const stats = useMemo(() => {
                 {selEmps.length > 0 && (
                   <div style={{display:"flex",flexWrap:"wrap",gap:6,marginTop:9,maxHeight:120,overflowY:"auto"}}>
                     {selEmps.map(emp => {
-                      const c = TYPE_COLORS[emp.type] || YELLOW;
                       return (
                         <span key={emp.emp_id} style={{
-                          display:"flex",alignItems:"center",gap:6,background:`${accent}10`,
-                          border:`1px solid ${accent}33`,borderRadius:20,padding:"3px 6px 3px 4px",
+                          display:"flex",alignItems:"center",gap:6,background:"rgba(30,54,194,0.10)",
+                          border:`1px solid rgba(30,54,194,0.33)`,borderRadius:20,padding:"3px 6px 3px 4px",
                         }}>
                           <span style={{
-                            width:20,height:20,borderRadius:"50%",flexShrink:0,overflow:"hidden",background:BG,
-                            border:`1.5px solid ${c}55`,display:"flex",alignItems:"center",justifyContent:"center",
-                            fontSize:8,fontWeight:700,color:c,
+                            width:20,height:20,borderRadius:"50%",flexShrink:0,overflow:"hidden",background:RT_BOX,
+                            border:`1.5px solid rgba(30,54,194,0.45)`,display:"flex",alignItems:"center",justifyContent:"center",
+                            fontSize:8,fontWeight:700,color:RT_TXT,
                           }}>
                             {emp.profile_image ? <img src={emp.profile_image} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/> : initials(emp.name)}
                           </span>
-                          <span style={{color:TEXT,fontSize:11,fontWeight:600,whiteSpace:"nowrap"}}>{emp.name}</span>
+                          <span style={{color:RT_TXT,fontSize:11,fontWeight:600,whiteSpace:"nowrap"}}>{emp.name}</span>
                           <button onClick={()=>removeEmp(emp.emp_id)} style={{
-                            background:"none",border:"none",color:accent,fontSize:14,cursor:"pointer",
+                            background:"none",border:"none",color:RT_TXT,fontSize:14,cursor:"pointer",
                             lineHeight:1,padding:"0 2px",
                           }}>×</button>
                         </span>
@@ -2924,43 +3524,42 @@ const stats = useMemo(() => {
                 {showEmpDrop && filteredEmps.length > 0 && (
                   <div onMouseDown={e=>e.preventDefault()} style={{
                     position:"absolute",top:"calc(100% + 5px)",left:0,right:0,zIndex:100,
-                    background:SURF2,border:`1px solid ${BORDER}`,borderRadius:10,
+                    background:RT_BOX,border:`1px solid ${RT_BORDER}`,borderRadius:10,
                     marginTop:3,maxHeight:240,overflowY:"auto",
                     boxShadow:"0 14px 40px rgba(0,0,0,0.65)",
                   }}>
                     {filteredEmps.map(emp => {
                       const on = isSelected(emp.emp_id);
-                      const c = TYPE_COLORS[emp.type] || YELLOW;
                       return (
                         <div key={emp.emp_id} className="emp-row"
                           onClick={()=>toggleEmp(emp)}
                           style={{display:"flex",alignItems:"center",gap:9,padding:"8px 12px",cursor:"pointer",
-                            background: on ? `${accent}12` : "transparent",
-                            borderBottom:`1px solid rgba(99,102,241,0.07)`,transition:"background 0.1s"}}>
+                            background: on ? "rgba(30,54,194,0.12)" : "transparent",
+                            borderBottom:`1px solid rgba(30,54,194,0.10)`,transition:"background 0.1s"}}>
                           {/* checkbox */}
                           <div style={{
                             width:16,height:10,borderRadius:5,flexShrink:0,
-                            border:`1.5px solid ${on?accent:BORDER}`,background:on?accent:"transparent",
+                            border:`1.5px solid ${on?RT_ACC:RT_BORDER}`,background:on?RT_ACC:"transparent",
                             display:"flex",alignItems:"center",justifyContent:"center",
                             color:"#0B1020",fontSize:11,fontWeight:900,
                           }}>{on?"✓":""}</div>
                           <div style={{
                             width:24,height:24,borderRadius:"50%",flexShrink:0,overflow:"hidden",
-                            background:BG,border:`1.5px solid ${c}44`,
+                            background:RT_BOX,border:`1.5px solid rgba(30,54,194,0.35)`,
                             display:"flex",alignItems:"center",justifyContent:"center",
                           }}>
                             {emp.profile_image
                               ? <img src={emp.profile_image} style={{width:"100%",height:"100%",objectFit:"cover"}} alt=""/>
-                              : <span style={{color:c,fontWeight:700,fontSize:9}}>{initials(emp.name)}</span>
+                              : <span style={{color:RT_TXT,fontWeight:700,fontSize:9}}>{initials(emp.name)}</span>
                             }
                           </div>
                           <div style={{flex:1,minWidth:0}}>
-                            <div style={{color:TEXT,fontSize:12,fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{emp.name}</div>
-                            <div style={{color:DIM,fontSize:9,fontFamily:"'JetBrains Mono',monospace"}}>{emp.emp_id} · {emp.department}</div>
+                            <div style={{color:RT_TXT,fontSize:12,fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{emp.name}</div>
+                            <div style={{color:RT_DIM,fontSize:9,fontFamily:"'JetBrains Mono',monospace"}}>{emp.emp_id} · {emp.department}</div>
                           </div>
                           <span style={{
-                            fontSize:8.5,color:c,flexShrink:0,
-                            background:`${c}14`,border:`1px solid ${c}22`,
+                            fontSize:8.5,color:RT_TXT,flexShrink:0,
+                            background:"rgba(30,54,194,0.12)",border:`1px solid rgba(30,54,194,0.25)`,
                             borderRadius:20,padding:"1px 6px",textTransform:"capitalize",
                           }}>{emp.type}</span>
                         </div>
@@ -2973,47 +3572,47 @@ const stats = useMemo(() => {
               {/* Date range */}
               <div>
                 <Label>Date Range *</Label>
-                <div style={{background:"rgba(99,102,241,0.04)",border:`1px solid ${BORDER}`,borderRadius:11,padding:"13px"}}>
+                <div style={{background:RT_BOX,border:`1px solid ${RT_BORDER}`,borderRadius:11,padding:"13px"}}>
                   <div style={{marginBottom:8}}>
                     <div style={{display:"flex",alignItems:"center",gap:5,marginBottom:5}}>
-                      <div style={{width:6,height:6,borderRadius:"50%",background:GREEN,boxShadow:`0 0 4px ${GREEN}`}}/>
-                      <span style={{color:GREEN,fontSize:9,fontWeight:700,letterSpacing:0.6}}>FROM</span>
+                      <div style={{width:6,height:6,borderRadius:"50%",background:RT_ACC,boxShadow:`0 0 4px ${RT_ACC}`}}/>
+                      <span style={{color:RT_TXT,fontSize:9,fontWeight:700,letterSpacing:0.6}}>FROM</span>
                     </div>
                     <div style={{display:"flex",gap:7}}>
                       <input type="date" value={fromDate}
                         onChange={e=>{setFromDate(e.target.value);if(e.target.value>toDate)setToDate(e.target.value);}}
-                        style={{flex:1,background:SURF2,border:`1px solid ${GREEN}33`,borderRadius:8,color:TEXT,fontSize:12,padding:"7px 9px",outline:"none",fontFamily:"inherit",colorScheme:"dark"}}/>
+                        style={{flex:1,background:RT_BOX2,border:`1px solid rgba(30,54,194,0.33)`,borderRadius:8,color:RT_TXT,fontSize:12,padding:"7px 9px",outline:"none",fontFamily:"inherit",colorScheme:"dark"}}/>
                       <button onClick={()=>{const t=toDateStr(new Date());setFromDate(t);if(t>toDate)setToDate(t);}}
-                        style={{background:"rgba(74,222,128,0.1)",border:`1px solid ${GREEN}44`,borderRadius:7,color:GREEN,fontSize:9,fontWeight:700,padding:"7px 10px",cursor:"pointer",fontFamily:"inherit",flexShrink:0,whiteSpace:"nowrap"}}>Today</button>
+                        style={{background:"rgba(30,54,194,0.12)",border:`1px solid rgba(30,54,194,0.44)`,borderRadius:7,color:RT_TXT,fontSize:9,fontWeight:700,padding:"7px 10px",cursor:"pointer",fontFamily:"inherit",flexShrink:0,whiteSpace:"nowrap"}}>Today</button>
                     </div>
                   </div>
-                  <div style={{textAlign:"center",color:DIM,fontSize:12,margin:"2px 0"}}>↕</div>
+                  <div style={{textAlign:"center",color:RT_DIM,fontSize:12,margin:"2px 0"}}>↕</div>
                   <div style={{marginTop:8}}>
                     <div style={{display:"flex",alignItems:"center",gap:5,marginBottom:5}}>
-                      <div style={{width:6,height:6,borderRadius:"50%",background:RED,boxShadow:`0 0 4px ${RED}`}}/>
-                      <span style={{color:RED,fontSize:9,fontWeight:700,letterSpacing:0.6}}>TO</span>
+                      <div style={{width:6,height:6,borderRadius:"50%",background:RT_ACC,boxShadow:`0 0 4px ${RT_ACC}`}}/>
+                      <span style={{color:RT_TXT,fontSize:9,fontWeight:700,letterSpacing:0.6}}>TO</span>
                     </div>
                     <div style={{display:"flex",gap:7}}>
                       <input type="date" value={toDate} min={fromDate}
                         onChange={e=>setToDate(e.target.value)}
-                        style={{flex:1,background:SURF2,border:`1px solid ${RED}33`,borderRadius:8,color:TEXT,fontSize:12,padding:"7px 9px",outline:"none",fontFamily:"inherit",colorScheme:"dark"}}/>
+                        style={{flex:1,background:RT_BOX2,border:`1px solid rgba(30,54,194,0.33)`,borderRadius:8,color:RT_TXT,fontSize:12,padding:"7px 9px",outline:"none",fontFamily:"inherit",colorScheme:"dark"}}/>
                       <button onClick={()=>setToDate(toDateStr(new Date()))}
-                        style={{background:"rgba(248,113,113,0.1)",border:`1px solid ${RED}44`,borderRadius:7,color:RED,fontSize:9,fontWeight:700,padding:"7px 10px",cursor:"pointer",fontFamily:"inherit",flexShrink:0,whiteSpace:"nowrap"}}>Today</button>
+                        style={{background:"rgba(30,54,194,0.12)",border:`1px solid rgba(30,54,194,0.44)`,borderRadius:7,color:RT_TXT,fontSize:9,fontWeight:700,padding:"7px 10px",cursor:"pointer",fontFamily:"inherit",flexShrink:0,whiteSpace:"nowrap"}}>Today</button>
                     </div>
                   </div>
 
                   {fromDate && toDate && toDate >= fromDate && (
                     <div style={{
                       marginTop:10,display:"flex",alignItems:"center",gap:7,
-                      background:`${accent}0F`,border:`1px solid ${accent}33`,
+                      background:"rgba(30,54,194,0.10)",border:`1px solid rgba(30,54,194,0.33)`,
                       borderRadius:8,padding:"6px 10px",
                     }}>
-                      <span style={{color:accent,fontFamily:"'JetBrains Mono',monospace",fontSize:11,fontWeight:700,flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                      <span style={{color:RT_TXT,fontFamily:"'JetBrains Mono',monospace",fontSize:11,fontWeight:700,flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
                         {fromDate}{fromDate!==toDate?` → ${toDate}`:""}
                       </span>
                       <span style={{
-                        background:`${accent}1F`,border:`1px solid ${accent}33`,
-                        borderRadius:20,padding:"1px 8px",color:accent,fontSize:10,fontWeight:700,flexShrink:0,
+                        background:"rgba(30,54,194,0.18)",border:`1px solid rgba(30,54,194,0.33)`,
+                        borderRadius:20,padding:"1px 8px",color:RT_TXT,fontSize:10,fontWeight:700,flexShrink:0,
                       }}>{rangeDays} {rangeDays===1?"day":"days"}</span>
                     </div>
                   )}
@@ -3025,28 +3624,28 @@ const stats = useMemo(() => {
             <div style={{display:"flex",flexDirection:"column",gap:16}}>
 
               <div style={{display:"flex",alignItems:"center",gap:8}}>
-                <div style={{width:3,height:18,borderRadius:2,background:BLUE}}/>
-                <span style={{color:TEXT,fontWeight:700,fontSize:13}}>Work Hours</span>
+                <div style={{width:3,height:18,borderRadius:2,background:"#1E36C2"}}/>
+                <span style={{color:"#FFFFFF",fontWeight:700,fontSize:13}}>Work Hours</span>
               </div>
 
-              <TimeSelect label="CHECK IN"  hour={fromHour} minute={fromMin} onHour={setFromHour} onMinute={setFromMin} color={GREEN}/>
-              <TimeSelect label="CHECK OUT" hour={toHour}   minute={toMin}   onHour={setToHour}   onMinute={setToMin}   color={RED}/>
+              <TimeSelect label="CHECK IN"  hour={fromHour} minute={fromMin} onHour={setFromHour} onMinute={setFromMin} color={RT_ACC}/>
+              <TimeSelect label="CHECK OUT" hour={toHour}   minute={toMin}   onHour={setToHour}   onMinute={setToMin}   color={RT_ACC}/>
 
               {/* Duration */}
               <div style={{
-                background: duration>0?"rgba(96,165,250,0.07)":"rgba(58,74,122,0.08)",
-                border:`1px solid ${duration>0?BLUE+"44":BORDER}`,
+                background: RT_BOX,
+                border:`1px solid ${duration>0?"rgba(30,54,194,0.44)":RT_BORDER}`,
                 borderRadius:11,padding:"11px 14px",
                 display:"flex",alignItems:"center",gap:10,
               }}>
                 <span style={{fontSize:16}}>⏱</span>
                 {duration>0 ? (
                   <div>
-                    <div style={{color:BLUE,fontFamily:"'JetBrains Mono',monospace",fontWeight:800,fontSize:15}}>
+                    <div style={{color:RT_TXT,fontFamily:"'JetBrains Mono',monospace",fontWeight:800,fontSize:15}}>
                       {dHr}h {String(dMin).padStart(2,"0")}m per day
                     </div>
                     {(rangeDays>1 || selEmps.length>1) && (
-                      <div style={{color:SUB,fontSize:10,marginTop:2}}>
+                      <div style={{color:RT_SUB,fontSize:10,marginTop:2}}>
                         {selEmps.length>1 ? `${selEmps.length} employees · ` : ""}
                         {rangeDays>1 ? `${rangeDays} days · ` : ""}
                         {totalRecords} record{totalRecords!==1?"s":""}
@@ -3054,7 +3653,7 @@ const stats = useMemo(() => {
                     )}
                   </div>
                 ) : (
-                  <span style={{color:DIM,fontSize:12}}>Set a valid time range</span>
+                  <span style={{color:RT_DIM,fontSize:12}}>Set a valid time range</span>
                 )}
               </div>
 
@@ -3065,9 +3664,9 @@ const stats = useMemo(() => {
                   placeholder="e.g. Network drop, off-site meeting, scanner issue…"
                   maxLength={80}
                   style={{
-                    width:"100%",background:SURF3,border:`1px solid ${BORDER}`,
-                    borderRadius:9,color:TEXT,fontSize:12.5,padding:"9px 11px",
-                    outline:"none",fontFamily:"'Sora',sans-serif",caretColor:accent,
+                    width:"100%",background:RT_BOX,border:`1px solid ${RT_BORDER}`,
+                    borderRadius:9,color:RT_TXT,fontSize:12.5,padding:"9px 11px",
+                    outline:"none",fontFamily:"'Sora',sans-serif",caretColor:RT_ACC,
                   }}
                 />
               </div>
@@ -3080,9 +3679,9 @@ const stats = useMemo(() => {
                 style={{
                   width:"100%",padding:"12px",borderRadius:11,border:"none",
                   background: (selEmps.length===0||saving||duration===0)
-                    ? `${accent}26`
-                    : `linear-gradient(135deg,${accent},${accentDark})`,
-                  color: (selEmps.length===0||saving||duration===0) ? `${accent}99` : "#fff",
+                    ? "rgba(30,54,194,0.30)"
+                    : "#1E36C2",
+                  color: (selEmps.length===0||saving||duration===0) ? "rgba(255,255,255,0.55)" : "#FFFFFF",
                   fontSize:13,fontWeight:800,letterSpacing:0.3,
                   cursor: (selEmps.length===0||saving||duration===0) ? "not-allowed" : "pointer",
                   fontFamily:"'Sora',sans-serif",
@@ -3093,6 +3692,7 @@ const stats = useMemo(() => {
                 {saving ? "Saving…" : submitLabel}
               </button>
             </div>
+          </div>
           </div>
         </div>
         )}

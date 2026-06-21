@@ -18,7 +18,7 @@ import { DATA_START } from "../App";
 // Marquee toggles (never shown on phone). If both false → nothing shows; one false → only the other.
 const SHOW_MARQUE_FROM_DB = true; // HR notices fetched from the DB (/hr), shown in yellow
 const SHOW_MARQUE_FROM_COMPUTING = true; // "Computing" marquee, shown in blue
-const MARQUEE_SPEED       = 0.7;  // px per frame (higher = faster)
+const MARQUEE_SPEED       = 0.9;  // px per frame (higher = faster)
 const MARQUEE_GAP         = 20;   // px gap between the two copies of the marquee track (higher = more space)
 
 
@@ -501,8 +501,16 @@ export default function Attendance() {
   async function fetchNotices() {
     try {
       const snap = await getDoc(doc(db, "settings", "notices"));
-      const list = snap.exists() ? (snap.data().texts as string[]) : [];
-      setNotices(Array.isArray(list) ? list.filter(t => t && t.trim()) : []);
+      const list = snap.exists() ? (snap.data().texts as any[]) : [];
+      // Supports both the legacy string[] format and the new {text,enabled}[] format.
+      // Only notices that are enabled (or legacy plain strings) are shown.
+      const out = Array.isArray(list)
+        ? list
+            .map(item => (typeof item === "string" ? { text: item, enabled: true } : item))
+            .filter(item => item && item.enabled !== false && item.text && String(item.text).trim())
+            .map(item => String(item.text))
+        : [];
+      setNotices(out);
     } catch (_) {
       setNotices([]);
     }
@@ -1093,13 +1101,12 @@ async function fetchTodayInOffice() {
         borderBottom: `1px solid ${BORDER}`,
         position: "sticky", top: 0, zIndex: 40, backdropFilter: "blur(12px)",
       }}>
-<div className="att-headrow" style={{ maxWidth: 1500, margin: "0 auto", padding: "10px 8px", display: "flex", alignItems: "center", gap: 10 }}>
+      <div className="att-headrow" style={{ maxWidth: 1500, margin: "0 auto", padding: "10px 8px", display: "flex", alignItems: "center", gap: 10 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
             {/* logo image → ENABLE fun gravity (main page only). Disable = refresh the page. */}
             <div
               onClick={() => { if (location.pathname === "/" && !gravityOn) setGravityOn(true); }}
-              title="✨"
-              style={{ cursor: location.pathname === "/" && !gravityOn ? "pointer" : "default", lineHeight: 0 }}
+               style={{ cursor: location.pathname === "/" && !gravityOn ? "pointer" : "default", lineHeight: 0 }}
             >
               <AnimatedLogo />
             </div>

@@ -610,6 +610,75 @@ function TodaySessionTimeline({ sessions: rawSessions, clipFuture = true }: { se
   );
 }
 
+// ─── PWA install ──────────────────────────────────────────────────────────────
+function isStandaloneInstalled() {
+  return window.matchMedia?.("(display-mode: standalone)").matches
+    || (navigator as any).standalone === true;
+}
+
+// Captures the install prompt and tracks installed state.
+// Returns a `prompt` fn only when the app can be installed (and isn't already).
+function usePwaInstall() {
+  const [deferred, setDeferred] = useState<any>(null);
+  const [installed, setInstalled] = useState<boolean>(() => isStandaloneInstalled());
+
+  useEffect(() => {
+    const onPrompt = (e: Event) => { e.preventDefault(); setDeferred(e); };
+    const onInstalled = () => { setInstalled(true); setDeferred(null); };
+    window.addEventListener("beforeinstallprompt", onPrompt);
+    window.addEventListener("appinstalled", onInstalled);
+
+    // also catch the case where it launches/installs into standalone after load
+    const mq = window.matchMedia?.("(display-mode: standalone)");
+    const onMq = () => { if (mq?.matches) setInstalled(true); };
+    mq?.addEventListener?.("change", onMq);
+
+    // best-effort: some browsers expose already-installed related apps
+    (navigator as any).getInstalledRelatedApps?.().then((apps: any[]) => {
+      if (apps && apps.length) setInstalled(true);
+    }).catch(() => {});
+
+    return () => {
+      window.removeEventListener("beforeinstallprompt", onPrompt);
+      window.removeEventListener("appinstalled", onInstalled);
+      mq?.removeEventListener?.("change", onMq);
+    };
+  }, []);
+
+  const canInstall = !installed && !!deferred;
+  const prompt = useCallback(async () => {
+    if (!deferred) return;
+    deferred.prompt();
+    try { await deferred.userChoice; } catch { /* ignore */ }
+    setDeferred(null);
+  }, [deferred]);
+
+  return { canInstall, prompt };
+}
+
+// Yellow pill install button, sized to sit beside the modal close button.
+function InstallButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      title="Install CanaryFace app"
+      style={{
+        display: "flex", alignItems: "center", gap: 7, flexShrink: 0,
+        background: YELLOW, color: "#0B1020", border: "none", borderRadius: 22,
+        padding: "9px 15px", cursor: "pointer", fontFamily: "'Sora',sans-serif",
+        fontSize: 12.5, fontWeight: 800, letterSpacing: 0.2,
+        boxShadow: `0 4px 16px ${YELLOW}44`,
+      }}
+    >
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
+        <path d="M12 3v11m0 0l-4-4m4 4l4-4" stroke="#0B1020" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M5 19h14" stroke="#0B1020" strokeWidth="2.4" strokeLinecap="round" />
+      </svg>
+      Install App
+    </button>
+  );
+}
+
 // ─── Summary Modal ────────────────────────────────────────────────────────────
 function SummaryModal({
   me, today, week, loading, refreshing, onClose, onSwitch,
@@ -624,6 +693,7 @@ function SummaryModal({
   navigate: (path: string) => void;
 }) {
   const todayStr = toDateStr(new Date());
+  const { canInstall, prompt: promptInstall } = usePwaInstall();
   const [selectedDate, setSelectedDate] = useState(todayStr);
   const isToday = selectedDate === todayStr;
   const selectedDay = week.find(d => d.date === selectedDate) || (isToday ? today : null);
@@ -698,6 +768,9 @@ function SummaryModal({
               {me?.emp_id} · {me?.department}
             </p>
           </div>
+          {/* install app — only shown when installable and not already installed */}
+          {canInstall && <InstallButton onClick={promptInstall} />}
+
           <button
             onClick={onClose}
             style={{
