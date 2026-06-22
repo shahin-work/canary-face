@@ -35,6 +35,7 @@ function calcHours(sessions: Session[], forDate?: string): number {
   const intervals: [number, number][] = [];
   for (const s of sessions) {
     if (!s || !s.check_in) continue;
+    if ((s as any).leave) continue;   // leave sessions never count toward worked hours
     const start = toMins(s.check_in);
     let end: number;
     if (s.check_out) end = toMins(s.check_out);
@@ -239,7 +240,12 @@ function TimelineRow({ day, attendanceMap, today, hoveredDay, onHover }: {
   const extraTime = att?.extra_time ?? null; 
   
 
-  const state: "present"|"weekend"|"holiday"|"absent"|"future" =
+  const workSess  = (att?.sessions ?? []).filter((s: any) => !s.leave);
+  const leaveSess = (att?.sessions ?? []).filter((s: any) => s.leave);
+  const hasLeave  = leaveSess.length > 0;
+
+  const state: "present"|"leave"|"weekend"|"holiday"|"absent"|"future" =
+    hasLeave ? "leave" :       // any leave on the day → leave (red), not present
     hasSess ? "present" :
     holiday ? "holiday" :
     weekend ? "weekend" :
@@ -366,8 +372,10 @@ function TimelineRow({ day, attendanceMap, today, hoveredDay, onHover }: {
             const isMeeting    = (s as any).meeting === true;
             const isWfhSession = (s as any).wfh === true;
             const isReg        = (s as any).regularized === true;
-            const sessColor  = isMeeting ? "#22D3EE" : isReg ? C.regGreen  : isWfhSession ? "#EC4899" : C.green;   // cyan=meeting, dark green=regularized
-            const sessColor2 = isMeeting ? "#0891B2" : isReg ? C.regGreen2 : isWfhSession ? "#BE185D" : C.green2;
+            const isLeaveSess  = (s as any).leave === true;
+            // leave → red; meeting=cyan, regularized=dark green, wfh=pink, else office green
+            const sessColor  = isLeaveSess ? C.red : isMeeting ? "#22D3EE" : isReg ? C.regGreen  : isWfhSession ? "#EC4899" : C.green;
+            const sessColor2 = isLeaveSess ? "#B91C1C" : isMeeting ? "#0891B2" : isReg ? C.regGreen2 : isWfhSession ? "#BE185D" : C.green2;
 
           const inPct  = timeToPercent(s.check_in);
           const outPct = s.check_out
@@ -404,6 +412,21 @@ function TimelineRow({ day, attendanceMap, today, hoveredDay, onHover }: {
                   zIndex:1,
                 transition:"height 0.12s, box-shadow 0.12s",
               }}/>
+
+              {/* LEAVE tag — sits above the leave session's time slot (always visible) */}
+              {isLeaveSess && width > 1.5 && (
+                <span style={{
+                  position:"absolute",
+                  left:`${midPct}%`,
+                  top:"calc(50% - 19px)",
+                  transform:"translateX(-50%)",
+                  fontSize:8, fontWeight:800, color:C.red,
+                  fontFamily:"'Sora',sans-serif", letterSpacing:1,
+                  whiteSpace:"nowrap", zIndex:9, pointerEvents:"none",
+                  background:`${C.bg}CC`, padding:"1px 5px", borderRadius:4,
+                  border:`1px solid ${C.red}44`,
+                }}>LEAVE{(s as any).leave_kind === "half" ? " ½" : (s as any).leave_kind === "quarter" ? " ¼" : ""}</span>
+              )}
 
               {/* Checkout not recorded — only for the last session of a past day with no check_out */}
               {(s.check_out === undefined || s.check_out === null) && !isToday && i === displaySessions.length - 1 && (
@@ -557,7 +580,20 @@ function TimelineRow({ day, attendanceMap, today, hoveredDay, onHover }: {
         textAlign:"right", paddingLeft:12,
         transition:"all 0.12s",
       }}>
-        {hasSess ? (
+        {hasLeave ? (
+          <>
+            <div style={{
+              fontSize: isHovered ? 15 : 13, fontWeight:800, color: C.red,
+              fontFamily:"'Sora',sans-serif", lineHeight:1, letterSpacing:0.5,
+              textShadow: isHovered ? `0 0 12px ${C.red}66` : "none",
+            }}>
+              Leave{leaveSess.some((s:any)=>s.leave_kind==="half") ? " ½" : leaveSess.some((s:any)=>s.leave_kind==="quarter") ? " ¼" : ""}
+            </div>
+            <div style={{ fontSize:8, color: isHovered ? C.sub : C.dim, marginTop:2, letterSpacing:0.5 }}>
+              {workSess.length > 0 ? `${fmtHM(hours)} worked` : "on leave"}
+            </div>
+          </>
+        ) : hasSess ? (
           <>
             <div style={{
               fontSize: isHovered ? 16 : 14, fontWeight:800,

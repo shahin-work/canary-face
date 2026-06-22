@@ -8,7 +8,7 @@ import logo2 from "../assets/react1.png";
 import AddMeeting from "../components/AddMeeting";
 import Regularization from "../components/Regularization";
 import ReportIssue from "../components/ReportIssue";
-import DinuGame from "../components/DinuGame";
+import CanaryGame from "../components/CanaryGame";
 import BorderGlow from "../components/BorderGlow";
 import CardGravity from "../components/CardGravity";
 import { useNavigate, useLocation } from "react-router-dom";
@@ -652,13 +652,36 @@ async function fetchTodayInOffice() {
             if (date > today)      return { date, status: "future"  as const };
 
             const d = byDate[date] as { sessions: Session[]; extra_time?: string | null } | undefined;
-            if (d?.sessions) {
-              const isWfh = d.sessions.length > 0 && d.sessions.every((s: any) => s.wfh === true);
+            if (d?.sessions && d.sessions.length > 0) {
+              const workSessions  = d.sessions.filter((s: any) => !s.leave);
+              const leaveSessions = d.sessions.filter((s: any) => s.leave);
+
+              // Any leave on the day → status "leave" (NOT present). Worked hours stay separate.
+              if (leaveSessions.length > 0) {
+                const kind: "full" | "half" | "quarter" =
+                  leaveSessions.some((s: any) => s.leave_kind === "full")    ? "full"
+                  : leaveSessions.some((s: any) => s.leave_kind === "half")  ? "half"
+                  : "quarter";
+                // leave slots as 0..1 fractions of the 09:00–18:00 (540 min) day, for the red/green split
+                const toMin = (t: string) => { const [h, m] = (t || "").split(":").map(Number); return (h || 0) * 60 + (m || 0); };
+                const leaveSlots = leaveSessions.map((s: any) => ({
+                  start: Math.max(0, Math.min(1, (toMin(s.check_in) - 540) / 540)),
+                  end:   Math.max(0, Math.min(1, (toMin(s.check_out) - 540) / 540)),
+                }));
+                return {
+                  date, status: "leave" as const, sessions: d.sessions,
+                  totalHours: 0,                                   // leave days don't add to the total
+                  workedHours: calcHours(workSessions, date),      // worked portion (kept separate)
+                  leaveKind: kind, leaveSlots,
+                };
+              }
+
+              const isWfh = workSessions.length > 0 && workSessions.every((s: any) => s.wfh === true);
               return {
                 date,
                 status: "present" as const,
                 sessions: d.sessions,
-                totalHours: calcHours(d.sessions, date),
+                totalHours: calcHours(workSessions, date),
                 extraTime: d.extra_time ?? null,
                 wfh: isWfh,
               };
@@ -1146,7 +1169,7 @@ async function fetchTodayInOffice() {
       {toast && <Toast message={toast} onDone={dismissToast} />}
 
       {gameOpen && (
-        <DinuGame
+        <CanaryGame
           fullPage={gameFull}
           players={cards.map(c => ({ name: c.name, emp_id: c.emp_id }))}
           myId={myId}

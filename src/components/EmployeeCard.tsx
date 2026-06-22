@@ -13,13 +13,17 @@ interface Session {
 
 interface DayStatus {
   date: string;
-  // "leave"    = a past working day with no attendance (was previously "absent")
+  // "leave"    = a past working day with no attendance, OR an HR-added leave session
   // "awaiting" = today, not yet checked in (the day isn't over)
   status: "present" | "absent" | "leave" | "awaiting" | "weekend" | "holiday" | "future";
   sessions?: Session[];
   totalHours?: number;
   extraTime?: string | null;  // ← ADD THIS
   wfh?: boolean;  // ← ADD THIS
+  leaveKind?: "full" | "half" | "quarter";  // HR-added leave → fraction marker (½, ¼)
+  // partial-leave support: worked hours kept separate; leave slots as 0..1 fractions of the 09:00–18:00 day
+  workedHours?: number;
+  leaveSlots?: { start: number; end: number }[];   // for red/green positional split
 }
 
 interface EmployeeCardData {
@@ -137,8 +141,13 @@ function WeekBar({ day, isCheckedIn = false, today }: { day: DayStatus; isChecke
     const underEight = SHOW_RED_BORDER_UNDER_8 && isPresent && h > 0 && h < 8;
 
 
+    // partial leave (leave + worked) → split the tile red (leave slots) / green (rest), by time-of-day
+    const worked = day.workedHours ?? 0;
+    const isPartialLeave = isLeave && worked > 0 && (day.leaveSlots?.length ?? 0) > 0 && day.leaveKind !== "full";
+
     return (
       <div style={{
+        position: "relative", overflow: "hidden",
         width: "100%", height: 35, background: bg, borderRadius: 3,
         opacity: isFuture ? 0.22 : 1,
         outline: isToday ? `1.9px solid #FFD700` : "none",
@@ -146,6 +155,19 @@ function WeekBar({ day, isCheckedIn = false, today }: { day: DayStatus; isChecke
         boxShadow: underEight && !isToday ? "0 0 0 1.5px rgb(161, 0, 0)" : "none",
         display: "flex", alignItems: "center", justifyContent: "center",
       }}>
+      {/* partial-leave split: green base = office, red bands = leave slots (positioned by time of day) */}
+      {isPartialLeave && (
+        <>
+          <div style={{ position: "absolute", inset: 0, background: "rgba(34,197,94,0.6)" }} />
+          {day.leaveSlots!.map((sl, i) => (
+            <div key={i} style={{
+              position: "absolute", top: 0, bottom: 0,
+              left: `${sl.start * 100}%`, width: `${Math.max(0, sl.end - sl.start) * 100}%`,
+              background: "rgba(239,68,68,0.78)",
+            }} />
+          ))}
+        </>
+      )}
       {isPresent && (isCheckedIn && h === 0) && (
         <span style={{ color: "rgba(150,255,150,0.9)", fontSize: 8, fontWeight: 800, letterSpacing: 0.3 }}>IN</span>
       )}
@@ -162,7 +184,14 @@ function WeekBar({ day, isCheckedIn = false, today }: { day: DayStatus; isChecke
         <span style={{ color: "#ff6b6b", fontSize: 8, fontWeight: 800 }}></span>
       )}
       {isLeave && (
-        <span style={{ color: "#ff6b6b", fontSize: 8.5, fontWeight: 800, letterSpacing: 0.3 }}>L</span>
+        <span style={{
+          position: "relative", zIndex: 1,
+          color: isPartialLeave ? "#fff" : "#ff6b6b",
+          fontSize: 8.5, fontWeight: 800, letterSpacing: 0.3,
+          textShadow: isPartialLeave ? "0 1px 2px rgba(0,0,0,0.6)" : "none",
+        }}>
+          L{day.leaveKind === "half" ? "½" : day.leaveKind === "quarter" ? "¼" : ""}
+        </span>
       )}
       {isHoliday && (
         <span style={{ color: "rgba(251,191,36,0.7)", fontSize: 7.5, fontWeight: 700 }}>★</span>
@@ -493,9 +522,7 @@ export default function EmployeeCard({ data, viewMode, onClick, isLive = false }
                 const isToday   = day.date === today;
                 const h         = day.totalHours ?? 0;
                 const dayNum    = new Date(day.date).getDate();
-
                 return (
-                  
                   <MonthMeetingCell
                     key={day.date}
                     day={day}
@@ -518,7 +545,7 @@ export default function EmployeeCard({ data, viewMode, onClick, isLive = false }
       <div style={{
         display: "flex", alignItems: "center", justifyContent: "center",
         borderTop: "1px solid rgba(99,102,241,0.1)",
-        gap: 200, padding: "7px 1px 1px"
+        gap: 170, padding: "7px 1px 1px"
       }}>
         <div style={{ display: "flex", alignItems: "baseline", gap: 3 }}>
           <span style={{ color: "#FFD700", fontWeight: 600, fontSize: 12, lineHeight: 1 }}>{data.presentDays}</span>

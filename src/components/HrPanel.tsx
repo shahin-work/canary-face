@@ -303,7 +303,8 @@ const HEAT: Record<string,{bg:string;fg:string}> = {
   P8: { bg:"#1E36C2",               fg:"#FFFFFF" },    // ≥8h → blue, shows "P"
   P:  { bg:"#FFFFFF",               fg:"#1E36C2" },    // <8h → white bg, blue text, shows "P(x.x)"
   R:  { bg:"rgba(236,72,153,0.78)", fg:"#2A0716" },
-  A:  { bg:"#4A1010",               fg:"#F3C2C2" },    // leave/absent → dark brown-red, shows "L"
+  A:  { bg:"#4A1010",               fg:"#F3C2C2" },    // absent → dark brown-red, shows "L"
+  L:  { bg:"#4A1010",               fg:"#F3C2C2" },    // HR-added leave → same dark brown-red
   H:  { bg:"rgba(255,215,0,0.16)",  fg:"#FFD700" },
   W:  { bg:"rgba(30,54,194,0.45)",  fg:"#DDE3FF" },    // weekend → blue
   "": { bg:"rgba(30,54,194,0.04)",  fg:"#7A7A7A" },
@@ -382,9 +383,10 @@ function WeeklyHeatmap({ days, rows, loading }: {
                 const isUnder8 = st.startsWith("P(");          // under-8 cell (white bg)
                 const key = st === "P8" ? "P8" : isUnder8 ? "P" : st;
                 const h = HEAT[key] || HEAT[""];
-                // "A" (absent) is shown as "L" (leave)
+                // both "A" (no-show) and "L" (HR leave) display as "L"
                 const display = st === "P8" ? "P" : st === "A" ? "L" : (st || "·");
-                return <div key={i} title={`${r.emp.name} · ${days[i].label}: ${display}`} style={{
+                const tip = st === "L" ? "On leave (HR)" : st === "A" ? "Leave / absent" : display;
+                return <div key={i} title={`${r.emp.name} · ${days[i].label}: ${tip}`} style={{
                   height:24,borderRadius:6,background:h.bg,color:h.fg,
                   display:"flex",alignItems:"center",justifyContent:"center",
                   fontSize: isUnder8 ? 11 : 9.5, fontWeight:800,
@@ -2257,6 +2259,312 @@ function NoticesManager({ onToast }: { onToast: (msg: string, type?: string) => 
   );
 }
 
+// ── Add Leave (HR marks employees on leave: full / half / quarter day) ──────────
+// Work day model: 09:00–18:00 with a 13:00–14:00 lunch (8h).
+type LeaveKind = "full" | "half" | "quarter";
+type LeaveHalf = "first" | "second";
+type LeaveQuarter = "q1" | "q2" | "q3" | "q4";
+
+// returns the { check_in, check_out } slot (HH:MM:SS) covered by a leave selection
+function leaveSlot(kind: LeaveKind, half: LeaveHalf, quarter: LeaveQuarter): { check_in: string; check_out: string; label: string } {
+  if (kind === "full") return { check_in: "09:00:00", check_out: "18:00:00", label: "Full Day · 09:00–18:00" };
+  if (kind === "half") {
+    return half === "first"
+      ? { check_in: "09:00:00", check_out: "13:00:00", label: "Half Day (1st) · 09:00–13:00" }
+      : { check_in: "14:00:00", check_out: "18:00:00", label: "Half Day (2nd) · 14:00–18:00" };
+  }
+  // quarter
+  const Q: Record<LeaveQuarter, { check_in: string; check_out: string; label: string }> = {
+    q1: { check_in: "09:00:00", check_out: "11:00:00", label: "Quarter 1 · 09:00–11:00" },
+    q2: { check_in: "11:00:00", check_out: "13:00:00", label: "Quarter 2 · 11:00–13:00" },
+    q3: { check_in: "14:00:00", check_out: "16:00:00", label: "Quarter 3 · 14:00–16:00" },
+    q4: { check_in: "16:00:00", check_out: "18:00:00", label: "Quarter 4 · 16:00–18:00" },
+  };
+  return Q[quarter];
+}
+
+function LeaveManager({
+  employees, onToast, onViewHistory,
+}: {
+  employees: any[];
+  onToast: (msg: string, type?: string) => void;
+  onViewHistory: () => void;
+}) {
+  const ACCENT = "#1E36C2";
+  const BOX = "#121212", BOX2 = "#1A1A1A", BORD = "rgba(30,54,194,0.30)";
+
+  const today = toDateStr(new Date());
+  const [selEmps, setSelEmps]     = useState<any[]>([]);
+  const [empSearch, setEmpSearch] = useState("");
+  const [showDrop, setShowDrop]   = useState(false);
+  const [fromDate, setFromDate]   = useState(today);
+  const [toDate,   setToDate]     = useState(today);
+  const [kind, setKind]           = useState<LeaveKind>("full");
+  const [half, setHalf]           = useState<LeaveHalf>("first");
+  const [quarter, setQuarter]     = useState<LeaveQuarter>("q1");
+  const [reason, setReason]       = useState("");
+  const [saving, setSaving]       = useState(false);
+
+  const filtered = useMemo(() => {
+    const q = empSearch.trim().toLowerCase();
+    const sel = new Set(selEmps.map(e => e.emp_id));
+    return employees.filter(e =>
+      !sel.has(e.emp_id) &&
+      (!q || e.name?.toLowerCase().includes(q) || e.emp_id?.toLowerCase().includes(q))
+    ).slice(0, 30);
+  }, [employees, empSearch, selEmps]);
+
+  const isSel = (id: string) => selEmps.some(e => e.emp_id === id);
+  const toggleEmp = (e: any) => setSelEmps(prev => isSel(e.emp_id) ? prev.filter(x => x.emp_id !== e.emp_id) : [...prev, e]);
+  const removeEmp = (id: string) => setSelEmps(prev => prev.filter(x => x.emp_id !== id));
+  const selectAll = () => setSelEmps(prev => {
+    const have = new Set(prev.map(e => e.emp_id));
+    return [...prev, ...filtered.filter(e => !have.has(e.emp_id))];
+  });
+
+  const dates = useMemo(() => (fromDate && toDate && toDate >= fromDate) ? getDaysInRange(fromDate, toDate) : [], [fromDate, toDate]);
+  const slot = leaveSlot(kind, half, quarter);
+  const totalRecords = selEmps.length * dates.length;
+  const canSave = selEmps.length > 0 && dates.length > 0 && !saving;
+
+  async function save() {
+    if (!canSave) return;
+    setSaving(true);
+    let ok = 0, fail = 0;
+    await Promise.all(selEmps.map(async (emp) => {
+      for (const date of dates) {
+        try {
+          const ref  = doc(db, emp.emp_id, date);
+          const snap = await getDoc(ref);
+          const existing = snap.exists() ? snap.data() : null;
+          const prev: any[] = existing?.sessions || [];
+          await setDoc(ref, {
+            employee_name: existing?.employee_name || emp.name,
+            sessions: [...prev, {
+              session: prev.length + 1,
+              check_in: slot.check_in,
+              check_out: slot.check_out,
+              leave: true,
+              leave_kind: kind,
+              ...(kind === "half" ? { leave_half: half } : {}),
+              ...(kind === "quarter" ? { leave_quarter: quarter } : {}),
+              source: "hr",
+              ...(reason.trim() ? { note: reason.trim() } : {}),
+            }],
+          }, { merge: true });
+          ok++;
+        } catch (_) { fail++; }
+      }
+    }));
+    setSaving(false);
+    if (fail === 0) {
+      const who  = selEmps.length === 1 ? selEmps[0].name : `${selEmps.length} employees`;
+      const when = dates.length === 1 ? dates[0] : `${dates.length} days`;
+      onToast(`Leave added · ${who} · ${when} ✓`);
+      setSelEmps([]); setEmpSearch(""); setReason("");
+    } else {
+      onToast(`Saved ${ok}, failed ${fail}. Please retry.`, ok > fail ? "ok" : "error");
+    }
+  }
+
+  const inputStyle: React.CSSProperties = {
+    width: "100%", background: BOX, border: `1px solid ${BORD}`, borderRadius: 9,
+    color: "#FFFFFF", fontSize: 12.5, padding: "9px 11px", outline: "none", fontFamily: "'Sora',sans-serif",
+  };
+  const optBtn = (active: boolean): React.CSSProperties => ({
+    padding: "9px 14px", borderRadius: 9, cursor: "pointer", fontFamily: "inherit",
+    fontSize: 12.5, fontWeight: 700, flex: 1, textAlign: "center",
+    border: `1px solid ${active ? ACCENT : BORD}`,
+    background: active ? ACCENT : "transparent",
+    color: active ? "#FFFFFF" : "#C8C8C8",
+    transition: "all 0.12s",
+  });
+
+  return (
+    <div className="reg-tab" style={{
+      margin: "-26px -28px -64px", background: "#0D0D0D",
+      padding: "30px 28px 64px", minHeight: "calc(100vh - 121px)",
+    }}>
+      <div style={{ maxWidth: HR_MAX_W, margin: "0 auto", width: "100%" }}>
+        {/* heading */}
+        <div style={{ display: "flex", alignItems: "center", gap: 12, paddingBottom: 16, marginBottom: 18, borderBottom: `1px solid ${BORD}` }}>
+          <span style={{
+            width: 42, height: 42, borderRadius: 12, flexShrink: 0,
+            background: "rgba(30,54,194,0.14)", border: `1px solid ${ACCENT}55`,
+            display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20,
+          }}>🌴</span>
+          <div style={{ flex: 1 }}>
+            <h2 style={{ color: "#FFFFFF", fontWeight: 800, fontSize: 17, margin: 0 }}>Add Leave</h2>
+            <p style={{ color: "#C8C8C8", fontSize: 11.5, margin: "4px 0 0" }}>
+              Mark employees on leave — full day, half day, or quarter day. Work day is 09:00–18:00 (lunch 13:00–14:00).
+            </p>
+          </div>
+          <button onClick={onViewHistory} style={{
+            display: "flex", alignItems: "center", gap: 7, flexShrink: 0,
+            background: "rgba(30,54,194,0.12)", border: `1px solid ${ACCENT}55`, borderRadius: 10,
+            color: "#FFFFFF", fontSize: 12, fontWeight: 700, padding: "9px 14px", cursor: "pointer", fontFamily: "'Sora',sans-serif",
+          }}>🗂 View Leave</button>
+        </div>
+
+        <div className="hr-form-body" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24, alignItems: "start" }}>
+          {/* ── LEFT: employees + dates ── */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <div style={{ width: 3, height: 18, borderRadius: 2, background: ACCENT }} />
+              <span style={{ color: "#FFFFFF", fontWeight: 700, fontSize: 13 }}>Employees & Date Range</span>
+            </div>
+
+            {/* employee multi-select */}
+            <div style={{ position: "relative" }}>
+              <Label>Employees * (select one or many)</Label>
+              <div style={{ position: "relative" }}>
+                <span style={{ position: "absolute", left: 11, top: "50%", transform: "translateY(-50%)", fontSize: 13, pointerEvents: "none" }}>🔍</span>
+                <input value={empSearch}
+                  onChange={e => { setEmpSearch(e.target.value); setShowDrop(true); }}
+                  onFocus={() => setShowDrop(true)}
+                  onBlur={() => setTimeout(() => setShowDrop(false), 180)}
+                  placeholder="Search name or ID, then tap to add…"
+                  style={{ ...inputStyle, paddingLeft: 32, paddingRight: 32 }} />
+                {empSearch && (
+                  <button onClick={() => setEmpSearch("")} style={{ position: "absolute", right: 9, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", color: "#7A7A7A", fontSize: 16, cursor: "pointer", lineHeight: 1 }}>×</button>
+                )}
+              </div>
+
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
+                <span style={{
+                  color: selEmps.length ? ACCENT : "#7A7A7A", fontSize: 10.5, fontWeight: 700,
+                  background: selEmps.length ? "rgba(30,54,194,0.12)" : "transparent",
+                  border: `1px solid ${selEmps.length ? "rgba(30,54,194,0.4)" : BORD}`, borderRadius: 20, padding: "2px 9px",
+                }}>{selEmps.length} selected</span>
+                <div style={{ flex: 1 }} />
+                <button onClick={selectAll} style={{ background: "rgba(30,54,194,0.08)", border: `1px solid ${BORD}`, borderRadius: 7, color: "#FFFFFF", fontSize: 10, fontWeight: 700, padding: "4px 9px", cursor: "pointer", fontFamily: "inherit" }}>Select all{empSearch ? ` (${filtered.length})` : ""}</button>
+                {selEmps.length > 0 && (
+                  <button onClick={() => setSelEmps([])} style={{ background: "rgba(248,113,113,0.08)", border: `1px solid ${RED}44`, borderRadius: 7, color: RED, fontSize: 10, fontWeight: 700, padding: "4px 9px", cursor: "pointer", fontFamily: "inherit" }}>Clear</button>
+                )}
+              </div>
+
+              {selEmps.length > 0 && (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 9, maxHeight: 120, overflowY: "auto" }}>
+                  {selEmps.map(emp => (
+                    <span key={emp.emp_id} style={{ display: "flex", alignItems: "center", gap: 6, background: "rgba(30,54,194,0.10)", border: `1px solid rgba(30,54,194,0.33)`, borderRadius: 20, padding: "3px 6px 3px 4px" }}>
+                      <span style={{ width: 20, height: 20, borderRadius: "50%", flexShrink: 0, overflow: "hidden", background: BOX, border: `1.5px solid ${ACCENT}55`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, fontWeight: 700, color: "#FFFFFF" }}>
+                        {emp.profile_image ? <img src={emp.profile_image} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : initials(emp.name)}
+                      </span>
+                      <span style={{ color: "#FFFFFF", fontSize: 11, fontWeight: 600, whiteSpace: "nowrap" }}>{emp.name}</span>
+                      <button onClick={() => removeEmp(emp.emp_id)} style={{ background: "none", border: "none", color: "#FFFFFF", fontSize: 14, cursor: "pointer", lineHeight: 1, padding: "0 2px" }}>×</button>
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              {showDrop && filtered.length > 0 && (
+                <div onMouseDown={e => e.preventDefault()} style={{ position: "absolute", top: "calc(100% + 5px)", left: 0, right: 0, zIndex: 100, background: BOX, border: `1px solid ${BORD}`, borderRadius: 10, maxHeight: 240, overflowY: "auto", boxShadow: "0 14px 40px rgba(0,0,0,0.65)" }}>
+                  {filtered.map(emp => (
+                    <div key={emp.emp_id} className="emp-row" onClick={() => toggleEmp(emp)} style={{ display: "flex", alignItems: "center", gap: 9, padding: "8px 12px", cursor: "pointer", borderBottom: `1px solid rgba(30,54,194,0.10)` }}>
+                      <div style={{ width: 24, height: 24, borderRadius: "50%", flexShrink: 0, overflow: "hidden", background: BOX2, border: `1.5px solid rgba(30,54,194,0.35)`, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                        {emp.profile_image ? <img src={emp.profile_image} style={{ width: "100%", height: "100%", objectFit: "cover" }} alt="" /> : <span style={{ color: "#FFFFFF", fontWeight: 700, fontSize: 9 }}>{initials(emp.name)}</span>}
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ color: "#FFFFFF", fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{emp.name}</div>
+                        <div style={{ color: "#7A7A7A", fontSize: 9, fontFamily: "'JetBrains Mono',monospace" }}>{emp.emp_id} · {emp.department}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* date range */}
+            <div>
+              <Label>Date Range *</Label>
+              <div style={{ background: BOX, border: `1px solid ${BORD}`, borderRadius: 11, padding: 13, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                <div>
+                  <span style={{ color: "#FFFFFF", fontSize: 9, fontWeight: 700, letterSpacing: 0.6 }}>FROM</span>
+                  <input type="date" value={fromDate} onChange={e => { setFromDate(e.target.value); if (e.target.value > toDate) setToDate(e.target.value); }}
+                    style={{ width: "100%", marginTop: 5, background: BOX2, border: `1px solid rgba(30,54,194,0.33)`, borderRadius: 8, color: "#FFFFFF", fontSize: 12, padding: "7px 9px", outline: "none", fontFamily: "inherit", colorScheme: "dark" }} />
+                </div>
+                <div>
+                  <span style={{ color: "#FFFFFF", fontSize: 9, fontWeight: 700, letterSpacing: 0.6 }}>TO</span>
+                  <input type="date" value={toDate} min={fromDate} onChange={e => setToDate(e.target.value)}
+                    style={{ width: "100%", marginTop: 5, background: BOX2, border: `1px solid rgba(30,54,194,0.33)`, borderRadius: 8, color: "#FFFFFF", fontSize: 12, padding: "7px 9px", outline: "none", fontFamily: "inherit", colorScheme: "dark" }} />
+                </div>
+                {dates.length > 0 && (
+                  <div style={{ gridColumn: "1 / -1", color: ACCENT, fontSize: 11, fontWeight: 700, fontFamily: "'JetBrains Mono',monospace" }}>
+                    {dates.length} day{dates.length !== 1 ? "s" : ""} selected
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* ── RIGHT: leave type ── */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <div style={{ width: 3, height: 18, borderRadius: 2, background: ACCENT }} />
+              <span style={{ color: "#FFFFFF", fontWeight: 700, fontSize: 13 }}>Leave Type</span>
+            </div>
+
+            <div>
+              <Label>Duration</Label>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button onClick={() => setKind("full")} style={optBtn(kind === "full")}>Full Day</button>
+                <button onClick={() => setKind("half")} style={optBtn(kind === "half")}>Half Day</button>
+                <button onClick={() => setKind("quarter")} style={optBtn(kind === "quarter")}>Quarter Day</button>
+              </div>
+            </div>
+
+            {/* half sub-buttons */}
+            {kind === "half" && (
+              <div>
+                <Label>Which Half</Label>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button onClick={() => setHalf("first")}  style={optBtn(half === "first")}>First Half<br/><span style={{ fontSize: 9, opacity: 0.8 }}>09:00–13:00</span></button>
+                  <button onClick={() => setHalf("second")} style={optBtn(half === "second")}>Second Half<br/><span style={{ fontSize: 9, opacity: 0.8 }}>14:00–18:00</span></button>
+                </div>
+              </div>
+            )}
+
+            {/* quarter sub-buttons */}
+            {kind === "quarter" && (
+              <div>
+                <Label>Which Quarter</Label>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                  <button onClick={() => setQuarter("q1")} style={optBtn(quarter === "q1")}>Q1<br/><span style={{ fontSize: 9, opacity: 0.8 }}>09:00–11:00</span></button>
+                  <button onClick={() => setQuarter("q2")} style={optBtn(quarter === "q2")}>Q2<br/><span style={{ fontSize: 9, opacity: 0.8 }}>11:00–13:00</span></button>
+                  <button onClick={() => setQuarter("q3")} style={optBtn(quarter === "q3")}>Q3<br/><span style={{ fontSize: 9, opacity: 0.8 }}>14:00–16:00</span></button>
+                  <button onClick={() => setQuarter("q4")} style={optBtn(quarter === "q4")}>Q4<br/><span style={{ fontSize: 9, opacity: 0.8 }}>16:00–18:00</span></button>
+                </div>
+              </div>
+            )}
+
+            {/* selected slot summary */}
+            <div style={{ background: BOX, border: `1px solid ${ACCENT}44`, borderRadius: 11, padding: "11px 14px", display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{ fontSize: 16 }}>🗓</span>
+              <span style={{ color: "#FFFFFF", fontWeight: 700, fontSize: 13, fontFamily: "'JetBrains Mono',monospace" }}>{slot.label}</span>
+            </div>
+
+            <div>
+              <Label>Reason / Note (optional)</Label>
+              <input type="text" value={reason} onChange={e => setReason(e.target.value)} maxLength={80}
+                placeholder="e.g. Sick leave, personal, casual leave…" style={inputStyle} />
+            </div>
+
+            <button onClick={save} disabled={!canSave} style={{
+              width: "100%", padding: 12, borderRadius: 11, border: "none",
+              background: canSave ? ACCENT : "rgba(30,54,194,0.30)",
+              color: canSave ? "#FFFFFF" : "rgba(255,255,255,0.5)",
+              fontSize: 13, fontWeight: 800, cursor: canSave ? "pointer" : "not-allowed",
+              fontFamily: "'Sora',sans-serif", display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+            }}>
+              🌴 {saving ? "Saving…" : (totalRecords > 1 ? `Add Leave · ${totalRecords} records` : "Add Leave")}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── HR-added records history (Regularize / Remote) — view & remove what HR added ──
 interface HrAddedRow {
   emp_id: string;
@@ -2275,7 +2583,7 @@ function fmtSessTime(t?: string) { return t ? t.slice(0, 5) : "—"; }
 function HrAddedHistory({
   mode, employees, onToast, onClose,
 }: {
-  mode: "office" | "remote";
+  mode: "office" | "remote" | "leave";
   accent: string;
   employees: any[];
   onToast: (msg: string, type?: string) => void;
@@ -2300,7 +2608,9 @@ function HrAddedHistory({
   const matchesMode = useCallback((s: any) => {
     if (s?.source !== "hr") return false;
     if (s?.removed === true) return false;            // already soft-removed
-    return mode === "remote" ? s.wfh === true : s.regularized === true;
+    if (mode === "leave")  return s.leave === true;
+    if (mode === "remote") return s.wfh === true && !s.leave;
+    return s.regularized === true && !s.leave;        // office
   }, [mode]);
 
   // scan the last `days` dates (today inclusive) across all employees
@@ -2394,7 +2704,7 @@ function HrAddedHistory({
       await setDoc(ref, { sessions, removed_sessions: audit }, { merge: true });
 
       setRows(prev => prev.filter(r => !(r.emp_id === row.emp_id && r.date === row.date && r.index === row.index)));
-      onToast(`Removed ${mode === "remote" ? "remote log" : "regularization"} · ${row.emp_name} · ${fmtDateLabel(row.date)} ✓`);
+      onToast(`Removed ${mode === "leave" ? "leave" : mode === "remote" ? "remote log" : "regularization"} · ${row.emp_name} · ${fmtDateLabel(row.date)} ✓`);
     } catch (e) {
       console.error(e);
       onToast("Could not remove the record.", "error");
@@ -2429,7 +2739,7 @@ function HrAddedHistory({
     return m;
   }, [employees]);
 
-  const title = mode === "remote" ? "Logged Remote Work" : "Regularized Attendance";
+  const title = mode === "leave" ? "Leave" : mode === "remote" ? "Logged Remote Work" : "Regularized Attendance";
 
   return (
     <div onClick={onClose} style={{
@@ -2548,7 +2858,7 @@ function HrAddedHistory({
                         <span style={{
                           fontSize: 9, fontWeight: 700, color: "#FFFFFF", background: "#1E36C2",
                           border: `1px solid #1E36C2`, borderRadius: 20, padding: "2px 8px", flexShrink: 0,
-                        }}>{mode === "remote" ? "REMOTE" : "OFFICE"}</span>
+                        }}>{mode === "leave" ? "LEAVE" : mode === "remote" ? "REMOTE" : "OFFICE"}</span>
                         <button onClick={() => removeRow(row)} disabled={removing} title="Remove this record" style={{
                           flexShrink: 0, padding: "7px 12px", borderRadius: 8, fontSize: 11.5, fontWeight: 800,
                           border: `1px solid #1E36C2`, background: "#1E36C2", color: "#FFFFFF",
@@ -2582,7 +2892,7 @@ function HrAddedHistory({
 }
 
 // ── HR Main ───────────────────────────────────────────────────────────────────
-type NavId = "dashboard" | "requests" | "notices" | "mail" | "regularize" | "remote";
+type NavId = "dashboard" | "requests" | "notices" | "mail" | "regularize" | "remote" | "leave";
 
 function HrMain({ hrName, onLogout, onChangeName }: { hrName: string; onLogout: () => void; onChangeName: () => void }) {
   const [employees, setEmployees]     = useState<any[]>([]);
@@ -2764,9 +3074,20 @@ const dayStatus = useCallback((empId: string, date: string): string => {
     if (date > today) return "";
     const dd = weekData[empId]?.[date];
     if (dd && dd.sessions?.length > 0) {
-      const wfh = dd.sessions.every((s:any) => s.wfh === true);
+      const work  = dd.sessions.filter((s:any) => !s.leave);
+      const leave = dd.sessions.filter((s:any) => s.leave);
+
+      if (leave.length > 0) {
+        // Heatmap rule: count worked + leave hours together.
+        // If the combined total reaches a full day → show "P" (blue) like a present day; else "L".
+        const combined = calcHours(work) + calcHours(leave);
+        if (combined >= 8) return "P8";
+        return "L";
+      }
+
+      const wfh = work.length > 0 && work.every((s:any) => s.wfh === true);
       if (wfh) return "R";
-      const hrs = calcHours(dd.sessions);
+      const hrs = calcHours(work);
       if (hrs >= 8) return "P8";                       // full day → light green, just "P"
       return `P(${(Math.round(hrs*10)/10).toFixed(1)})`; // under 8 → dark green, "P(7.6)"
     }
@@ -2998,10 +3319,12 @@ const stats = useMemo(() => {
             cellStyles[cellAddr] = styleWeekend;
           } else {
             const dayData = days[date];
-            if (dayData && dayData.sessions?.length > 0) {
-              const sessions = dayData.sessions;
-              const isWfh = sessions.every((s: any) => s.wfh === true);
-              const hrs = calcHours(sessions);
+            const allSessions: any[] = dayData?.sessions || [];
+            const workSessions = allSessions.filter((s: any) => !s.leave);
+            const leaveSessions = allSessions.filter((s: any) => s.leave);
+            if (workSessions.length > 0) {
+              const isWfh = workSessions.every((s: any) => s.wfh === true);
+              const hrs = calcHours(workSessions);
               totalHrs += hrs;
               const hr1 = Math.round(hrs * 10) / 10;   // value as shown (1 decimal)
               const isFull = hr1 >= 8;                  // 8.0 and above → no ()
@@ -3012,6 +3335,10 @@ const stats = useMemo(() => {
                 row.push(isFull ? "P" : `P(${hr1.toFixed(1)})`);
                 cellStyles[cellAddr] = isFull ? stylePresent8 : stylePresent7;
               }
+            } else if (leaveSessions.length > 0) {
+              // HR-added leave (full/half/quarter) → "L"
+              row.push("L");
+              cellStyles[cellAddr] = styleAbsent;
             } else {
               row.push("A");
               cellStyles[cellAddr] = styleAbsent;
@@ -3023,7 +3350,7 @@ const stats = useMemo(() => {
       }
 
       ws_data.push([]);
-      const legendText = "Legend:   P = Present (≥8h)   ·   P(x.x) = Present below 8h   ·   R = Remote   ·   A = Absent   ·   H = Holiday   ·   W = Weekend";
+      const legendText = "Legend:   P = Present (≥8h)   ·   P(x.x) = Present below 8h   ·   R = Remote   ·   L = Leave   ·   A = Absent   ·   H = Holiday   ·   W = Weekend";
       ws_data.push([legendText]);
       const legendRowIndex = ws_data.length - 1;
 
@@ -3092,6 +3419,7 @@ const stats = useMemo(() => {
     { id: "requests",   label: "Regularization Requests", icon: "📥", color: YELLOW },
     { id: "regularize", label: "Regularize Attendance", icon: "🏢", color: BLUE    },
     { id: "remote",     label: "Log Remote Work",       icon: "🏠", color: MAGENTA },
+    { id: "leave",      label: "Add Leave",             icon: "🌴", color: RED     },
     { id: "notices",    label: "Notices",               icon: "📢", color: YELLOW  },
     { id: "mail",       label: "Send Email",             icon: "✉️", color: TEAL    },
   ];
@@ -3180,7 +3508,7 @@ const stats = useMemo(() => {
 
       {historyOpen && (
         <HrAddedHistory
-          mode={isRemote ? "remote" : "office"}
+          mode={nav === "leave" ? "leave" : nav === "remote" ? "remote" : "office"}
           accent={accent}
           employees={employees}
           onToast={add}
@@ -3732,6 +4060,11 @@ const stats = useMemo(() => {
           </div>
           </div>
         </div>
+        )}
+
+        {/* ===== ADD LEAVE ===== */}
+        {nav === "leave" && (
+          <LeaveManager employees={employees} onToast={add} onViewHistory={()=>setHistoryOpen(true)} />
         )}
 
         {/* ===== REGULARIZATION REQUESTS ===== */}
