@@ -106,6 +106,20 @@ function AppInner() {
   const online   = useOnline();
   const location = useLocation();
 
+  // While we're over the Firebase daily read limit, send every direct open of the
+  // dashboard straight to the maintenance screen (?maint=1). We only redirect the
+  // main attendance routes — admin/HR/profile/employee pages are left alone.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.has("maint")) return;                       // already there
+    const p = location.pathname;
+    const isDashboard = p === "/" || p === "/phone";
+    if (isDashboard) {
+      params.set("maint", "1");
+      window.location.replace(`${p}?${params.toString()}`);
+    }
+  }, [location.pathname]);
+
   const isPhoneRoute =
     location.pathname === "/phone" ||
     location.pathname.startsWith("/phone/");

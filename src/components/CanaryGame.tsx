@@ -40,6 +40,7 @@ const CANARY = "#FFD43B";
 const CANARY_DK = "#E0A800";
 const DANGER = "#F8595B";
 const GOOD = "#34E08A";
+const JUMP_ARC_FRAMES = 35;   // ~ airtime of a single jump (2 * 14.4 / 0.82) — used for fair obstacle spacing
 
 // ── obstacles / collectibles (react-icons rasterised to canvas images) ──────────
 const OBSTACLE_DEFS = [
@@ -101,6 +102,12 @@ export default function CanaryGame({
   const [score, setScore] = useState(0);
   const [muted, setMuted] = useState(false);
   const [achievement, setAchievement] = useState<string | null>(null);
+  const [isPhone, setIsPhone] = useState(() => typeof window !== "undefined" && window.innerWidth < 760);
+  useEffect(() => {
+    const onR = () => setIsPhone(window.innerWidth < 760);
+    window.addEventListener("resize", onR);
+    return () => window.removeEventListener("resize", onR);
+  }, []);
 
   // player
   const myName = useMemo(() => players.find(p => p.emp_id === myId)?.name || "", [players, myId]);
@@ -111,7 +118,7 @@ export default function CanaryGame({
   const [scores, setScores] = useState<Record<string, ScoreEntry>>(() => loadScores());
   const [hi, setHi] = useState<number>(() => { const v = parseInt(localStorage.getItem(HISCORE_KEY) || "0", 10); return Number.isFinite(v) ? v : 0; });
 
-  const leaderboard = useMemo(() => Object.values(scores).filter(e => e && e.score > 0).sort((a, b) => b.score - a.score).slice(0, 5), [scores]);
+  const leaderboard = useMemo(() => Object.values(scores).filter(e => e && e.score > 0).sort((a, b) => b.score - a.score).slice(0, 10), [scores]);
   const myBest = (playerId && scores[playerId]?.score) || 0;
 
   // build the icon images once
@@ -145,12 +152,18 @@ export default function CanaryGame({
   const sfx = (k: "jump" | "flap" | "collect" | "over") => { if (!mutedRef.current) audioRef.current[k](); };
 
   // difficulty derived from score — simple at first, harder after 100/200/300…
+  // The gap is expressed as a MULTIPLE of the jump-arc distance, so there is always
+  // physically enough room to clear one obstacle and land before the next.
+  // Easy  → big multiple (lots of breathing room).  Hard → smaller multiple (tighter, but fair).
   const tuning = (sc: number) => {
-    const lvl = Math.min(6, Math.floor(sc / 100));            // 0..6
+    const lvl = Math.min(7, Math.floor(sc / 100));            // 0..7 (every 100 pts a notch)
+    const speed = 8.2 + lvl * 1.0;                            // faster base + steeper ramp
+    const arc = JUMP_ARC_FRAMES * speed;                      // px the bird travels in one jump
+    const mult = 1.85 - lvl * 0.12;                           // tighter spacing → more obstacles (1.85× → ~1.0×)
     return {
-      speed: 6 + lvl * 0.9,                                   // base speed grows per level
-      gap:   Math.max(150, 360 - lvl * 34),                   // obstacle gap shrinks
-      varies: 60 + lvl * 18,                                  // gap randomness
+      speed,
+      gapPx:    arc * mult,                                   // clearable distance (px)
+      variesPx: arc * 0.5,                                    // extra random spacing (px)
     };
   };
 
@@ -185,11 +198,11 @@ export default function CanaryGame({
     const st = g.current;
     if (phaseRef.current !== "playing" || st.dead) return;
     if (st.onGround) {
-      st.vy = -13.4; st.onGround = false; st.jumps = 1; sfx("jump");
+      st.vy = -14.4; st.onGround = false; st.jumps = 1; sfx("jump");
       for (let i = 0; i < 9; i++) st.particles.push({ x: 0, y: 0, vx: -1 - Math.random() * 3, vy: 1 + Math.random() * 3, life: 0, max: 24 + Math.random() * 18, col: Math.random() < 0.7 ? "255,212,59" : "255,255,255" });
     } else if (st.jumps < 2) {
       // mid-air second flap → go higher
-      st.vy = -11.5; st.jumps = 2; sfx("flap");
+      st.vy = -12.4; st.jumps = 2; sfx("flap");
       for (let i = 0; i < 7; i++) st.particles.push({ x: 0, y: 0, vx: -1 - Math.random() * 2.5, vy: 0.5 + Math.random() * 2, life: 0, max: 22 + Math.random() * 14, col: "255,212,59" });
     }
   }, []);
@@ -274,7 +287,7 @@ export default function CanaryGame({
     const ro = new ResizeObserver(fit);
     ro.observe(canvas);
 
-    const BIRD_X = 86, BIRD_W = 48, BIRD_H = 40, GRAV = 0.72;
+    const BIRD_X = 86, BIRD_W = 48, BIRD_H = 40, GRAV = 0.82;
     let raf = 0;
 
     const rrect = (x: number, y: number, w: number, h: number, r: number) => {
@@ -295,12 +308,14 @@ export default function CanaryGame({
         st.dist += st.speed;
         st.speed += (tune.speed - st.speed) * 0.02;            // ease toward target speed
 
-        // obstacles
+        // obstacles — spacing is a DISTANCE (px), guaranteeing room to jump & land before the next
         st.spawn -= st.speed;
         if (st.spawn <= 0) {
           const h = 30 + Math.floor(Math.random() * 26);
           st.obstacles.push({ x: W + 30, w: 34, h, idx: (Math.random() * OBSTACLE_DEFS.length) | 0 });
-          st.spawn = tune.gap + Math.random() * tune.varies;
+          // landing buffer keeps it fair but tighter → more obstacles on screen
+          const minGap = JUMP_ARC_FRAMES * tune.speed * 1.05 + 8 * tune.speed + 34;
+          st.spawn = Math.max(minGap, tune.gapPx) + Math.random() * tune.variesPx;
         }
         st.obstacles.forEach(o => { o.x -= st.speed; });
         st.obstacles = st.obstacles.filter(o => o.x + o.w > -40);
@@ -339,9 +354,19 @@ export default function CanaryGame({
 
       // scenery always drifts (alive on every screen); faster while playing
       const flow = playing ? st.speed : 2.4;
-      st.cityFar.forEach(b => { b.x -= flow * 0.10; if (b.x + b.w < -4) { b.x = W + Math.random() * 70; b.h = 50 + Math.random() * 90; } });
-      st.cityMid.forEach(b => { b.x -= flow * 0.26; if (b.x + b.w < -4) { b.x = W + Math.random() * 80; b.h = 80 + Math.random() * 140; } });
-      st.cityNear.forEach(b => { b.x -= flow * 0.5;  if (b.x + b.w < -4) { b.x = W + Math.random() * 90; b.h = 110 + Math.random() * 200; } });
+      // recycle a building seamlessly: place it just after the current rightmost one (no skyline "jump")
+      const recycle = (arr: { x: number; w: number; h: number }[], gapMin: number, gapVar: number, hMin: number, hVar: number) => {
+        for (const b of arr) {
+          if (b.x + b.w < -4) {
+            let maxR = -Infinity; for (const o of arr) maxR = Math.max(maxR, o.x + o.w);
+            b.x = maxR + gapMin + Math.random() * gapVar;
+            b.h = hMin + Math.random() * hVar;
+          }
+        }
+      };
+      st.cityFar.forEach(b => { b.x -= flow * 0.10; });  recycle(st.cityFar, 18, 24, 50, 90);
+      st.cityMid.forEach(b => { b.x -= flow * 0.26; });  recycle(st.cityMid, 22, 30, 80, 140);
+      st.cityNear.forEach(b => { b.x -= flow * 0.5;  }); recycle(st.cityNear, 26, 40, 110, 200);
       st.streams.forEach(s => { s.x -= s.sp + flow * 0.55; if (s.x + s.len < 0) { s.x = W + Math.random() * 90; s.y = Math.random() * (H * 0.62); } });
       st.code.forEach(p => { p.x -= p.sp + flow * 0.22; p.y -= 0.25; if (p.x < -10) { p.x = W + Math.random() * 40; p.y = Math.random() * H; } if (p.y < -10) p.y = H + 10; });
       st.clouds.forEach(c => { c.x -= c.sp + flow * 0.07; if (c.x + c.s < -10) { c.x = W + Math.random() * 90; c.y = 14 + Math.random() * (H * 0.34); } });
@@ -450,13 +475,13 @@ export default function CanaryGame({
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 5000, background: T.sky0, display: "flex", flexDirection: "column", fontFamily: "'Sora',sans-serif" }}>
       {/* header */}
-      <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 18px", borderBottom: `1px solid ${T.panelBord}`, flexShrink: 0 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: isPhone ? 8 : 12, padding: isPhone ? "10px 12px" : "12px 18px", borderBottom: `1px solid ${T.panelBord}`, flexShrink: 0, flexWrap: "wrap" }}>
         <div style={{ width: 34, height: 34, borderRadius: 10, background: `${CANARY}22`, border: `1px solid ${CANARY}66`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
           <LuBird size={20} color={CANARY} />
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ color: T.text, fontWeight: 800, fontSize: 15 }}>Canary Runner</div>
-          <div style={{ color: T.dim, fontSize: 10 }}>Space to jump · double-tap to fly higher · P pause · M mute · Esc close</div>
+          {!isPhone && <div style={{ color: T.dim, fontSize: 10 }}>Space to jump · double-tap to fly higher · P pause · M mute · Esc close</div>}
         </div>
 
         {/* player picker */}
@@ -498,22 +523,42 @@ export default function CanaryGame({
           : <button onClick={onClose} title="Close (Esc)" style={iconBtn}>×</button>}
       </div>
 
-      {/* play area — fills the rest of the screen */}
-      <div style={{ flex: 1, display: "flex", minHeight: 0 }}>
-        {/* leaderboard rail */}
-        <div style={{ width: 248, flexShrink: 0, borderRight: `1px solid ${T.panelBord}`, background: "rgba(8,12,30,0.6)", padding: "16px 16px", display: "flex", flexDirection: "column", gap: 12, overflowY: "auto" }}>
-          <div style={{ color: T.text, fontSize: 13, fontWeight: 800 }}>🏆 Top Runners</div>
+      {/* play area — fills the rest of the screen (canvas first on phone, sidebar below) */}
+      <div style={{ flex: 1, display: "flex", flexDirection: isPhone ? "column-reverse" : "row", minHeight: 0 }}>
+        {/* leaderboard rail — full sidebar on desktop, compact scroll panel under the game on phone */}
+        <div style={{
+          width: isPhone ? "100%" : 248, flexShrink: 0,
+          borderRight: isPhone ? "none" : `1px solid ${T.panelBord}`,
+          borderTop: isPhone ? `1px solid ${T.panelBord}` : "none",
+          background: "rgba(8,12,30,0.6)", padding: isPhone ? "10px 14px" : "16px 16px",
+          display: "flex", flexDirection: "column", gap: isPhone ? 8 : 12,
+          maxHeight: isPhone ? "34vh" : "none", overflowY: "auto",
+        }}>
+          <div style={{ color: T.text, fontSize: 13, fontWeight: 800 }}>🏆 Top 10 Runners</div>
           {leaderboard.length === 0 ? (
             <div style={{ color: T.dim, fontSize: 11 }}>No scores yet — be the first!</div>
           ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {leaderboard.map((e, i) => (
-                <div key={i} style={{ display: "flex", alignItems: "center", gap: 9 }}>
-                  <span style={{ width: 21, height: 21, borderRadius: "50%", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 800, background: i === 0 ? CANARY : i === 1 ? "#C0C0C0" : i === 2 ? "#CD7F32" : T.panelBord, color: i < 3 ? "#1a1400" : T.text }}>{i + 1}</span>
-                  <span style={{ flex: 1, minWidth: 0, color: T.text, fontSize: 12.5, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{e.name}</span>
-                  <span style={{ color: CANARY, fontSize: 12.5, fontWeight: 800, fontFamily: "'JetBrains Mono',monospace" }}>{e.score}</span>
-                </div>
-              ))}
+            <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+              {leaderboard.map((e, i) => {
+                // gradient: #1 brightest yellow → orange as rank drops
+                const ramp = ["#FFD400", "#FFC107", "#FFB300", "#FFA000", "#FF8F00", "#FB8C00", "#F57C00", "#EF6C00", "#E65100", "#DD5A00"];
+                const col = ramp[Math.min(i, ramp.length - 1)];
+                const medal = i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : null;
+                const me = e.name === playerName;
+                return (
+                  <div key={i} style={{
+                    display: "flex", alignItems: "center", gap: 9, padding: "4px 6px", borderRadius: 8,
+                    background: me ? "rgba(255,212,59,0.10)" : i === 0 ? "rgba(255,212,59,0.08)" : "transparent",
+                    border: i === 0 ? `1px solid ${col}66` : "1px solid transparent",
+                  }}>
+                    <span style={{ width: 22, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: medal ? 15 : 11, fontWeight: 800, color: col }}>
+                      {medal || i + 1}
+                    </span>
+                    <span style={{ flex: 1, minWidth: 0, color: i === 0 ? col : T.text, fontSize: i === 0 ? 13 : 12.5, fontWeight: i < 3 ? 800 : 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", textShadow: i === 0 ? `0 0 10px ${col}66` : "none" }}>{e.name}</span>
+                    <span style={{ color: col, fontSize: 12.5, fontWeight: 800, fontFamily: "'JetBrains Mono',monospace" }}>{e.score}</span>
+                  </div>
+                );
+              })}
             </div>
           )}
           <div style={{ marginTop: "auto", paddingTop: 12, borderTop: `1px solid ${T.panelBord}` }}>
@@ -541,9 +586,9 @@ export default function CanaryGame({
           {phase === "start" && (
             <div style={{ position: "absolute", inset: 0, background: "rgba(5,8,20,0.5)" }}>
               {overlay([
-                { t: "Canary Runner", size: 46, color: CANARY },
-                { t: "Dodge bugs, crashes & failed deploys · grab the wins", size: 15, color: T.sub, weight: 600, mt: 4 },
-                { t: "Press SPACE to Start", size: 17, color: T.text, mt: 16 },
+                { t: "Canary Runner", size: isPhone ? 30 : 46, color: CANARY },
+                { t: isPhone ? "Dodge bugs · grab the wins" : "Dodge bugs, crashes & failed deploys · grab the wins", size: isPhone ? 12 : 15, color: T.sub, weight: 600, mt: 4 },
+                { t: isPhone ? "Tap to Start" : "Press SPACE to Start", size: isPhone ? 15 : 17, color: T.text, mt: isPhone ? 12 : 16 },
               ])}
             </div>
           )}
@@ -555,10 +600,10 @@ export default function CanaryGame({
           {phase === "over" && (
             <div style={{ position: "absolute", inset: 0, background: "rgba(5,8,20,0.66)" }}>
               {overlay([
-                { t: "Game Over", size: 40, color: DANGER },
-                { t: `${playerName} · Score ${score}`, size: 16, color: T.text, weight: 700, mt: 8 },
+                { t: "Game Over", size: isPhone ? 28 : 40, color: DANGER },
+                { t: `${playerName} · Score ${score}`, size: isPhone ? 14 : 16, color: T.text, weight: 700, mt: 8 },
                 { t: `Best ${Math.max(myBest, score)}${score >= hi && score > 0 ? "  🏆 New record!" : ""}`, size: 13, color: T.sub, weight: 600, mt: 2 },
-                { t: "Press SPACE to Play Again", size: 16, color: CANARY, mt: 16 },
+                { t: isPhone ? "Tap to Play Again" : "Press SPACE to Play Again", size: isPhone ? 14 : 16, color: CANARY, mt: isPhone ? 12 : 16 },
               ])}
             </div>
           )}

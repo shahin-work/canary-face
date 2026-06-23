@@ -9,6 +9,7 @@ import AddMeeting from "../components/AddMeeting";
 import Regularization from "../components/Regularization";
 import ReportIssue from "../components/ReportIssue";
 import CanaryGame from "../components/CanaryGame";
+import MaintenanceOverlay from "../components/MaintenanceOverlay";
 import BorderGlow from "../components/BorderGlow";
 import CardGravity from "../components/CardGravity";
 import { useNavigate, useLocation } from "react-router-dom";
@@ -35,6 +36,17 @@ function isHoliday(dateStr: string): boolean {
 
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
+// True when Firestore says we've burned through the day's free read quota.
+// (firebase throws { code: "resource-exhausted" } once the daily limit is hit)
+function isQuotaError(e: any): boolean {
+  const code = e?.code || "";
+  const msg  = String(e?.message || e || "").toLowerCase();
+  return code === "resource-exhausted"
+    || msg.includes("resource-exhausted")
+    || msg.includes("quota")
+    || msg.includes("exceeded");
+}
+
 function toDateStr(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
@@ -526,6 +538,10 @@ export default function Attendance() {
   const [gameFull,     setGameFull]    = useState(false);   // logo-launched game fills the page
   const updatedLabel = useRelativeUpdated(lastUpdated);
   const [error,        setError]       = useState("");
+  const [quotaHit,     setQuotaHit]    = useState(false);   // Firebase daily read limit reached → fun maintenance overlay
+  // Dev/preview override: add ?maint=1 to the URL to force the maintenance modal (so it can be seen without burning the quota).
+  const forceMaint = typeof window !== "undefined" && new URLSearchParams(window.location.search).has("maint");
+  const showMaintenance = quotaHit || forceMaint;
   const [, setCurrentlyIn] = useState<number>(0);
   const [toast,        setToast]       = useState<string | null>(null);
   const [activeFilter, setActiveFilter] = useState<FilterChip>("all");
@@ -617,6 +633,7 @@ async function fetchTodayInOffice() {
     setInOffice(inList);
     setCurrentlyIn(inList.length);
   } catch (e) {
+    if (isQuotaError(e)) setQuotaHit(true);
     console.error(e);
   }
 }
@@ -741,7 +758,8 @@ async function fetchTodayInOffice() {
       setCards(result);
       setLastUpdated(Date.now());
     } catch (e) {
-      if (!silent) setError("Failed to load attendance data.");
+      if (isQuotaError(e)) setQuotaHit(true);
+      else if (!silent) setError("Failed to load attendance data.");
       console.error(e);
     } finally {
       if (silent) setRefreshing(false);
@@ -1168,6 +1186,11 @@ async function fetchTodayInOffice() {
 
       {toast && <Toast message={toast} onDone={dismissToast} />}
 
+      {/* Firebase daily read limit reached → fun maintenance screen (data still saving in background) */}
+      {showMaintenance && !gameOpen && (
+        <MaintenanceOverlay onPlay={() => { setGameFull(true); setGameOpen(true); }} />
+      )}
+
       {gameOpen && (
         <CanaryGame
           fullPage={gameFull}
@@ -1221,8 +1244,10 @@ async function fetchTodayInOffice() {
         background: "linear-gradient(180deg,rgba(10,18,64,0.98) 0%,rgba(6,13,46,0.95) 100%)",
         borderBottom: `1px solid ${BORDER}`,
         position: "sticky", top: 0, zIndex: 40, backdropFilter: "blur(12px)",
+        // sit below the phone notch / status bar
+        paddingTop: "env(safe-area-inset-top)",
       }}>
-      <div className="att-headrow" style={{ maxWidth: 1500, margin: "0 auto", padding: "10px 8px", display: "flex", alignItems: "center", gap: 10 }}>
+      <div className="att-headrow" style={{ maxWidth: 1500, margin: "0 auto", padding: "10px max(8px, env(safe-area-inset-right)) 10px max(8px, env(safe-area-inset-left))", display: "flex", alignItems: "center", gap: 10 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
             {/* logo image → ENABLE fun gravity (main page only); once in fun mode, click opens the game */}
             <div
