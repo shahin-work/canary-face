@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+// import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import frbsProof from "../assets/frbs.png";
 import DecryptedText from "./DecryptedText";
 import ASCIIText from "./ASCIIText";
@@ -30,18 +31,18 @@ const QUIPS = [
 ];
 
 // the fake 'agents working on it' terminal feed — funnier, longer
-const TERMINAL = [
-  // "$ canary scale --reason \"free tier said enough\" --vibes immaculate",
-  // "→ booting 3 agents… 🤖🤖🤖  (one of them is very caffeinated ☕)",
-  // "→ agent#1: today's check-ins are saving in the background ✓",
-  // "→ agent#2: writes flowing smoothly (108 and counting) ✓",
-  // "→ agent#3: gently arguing with the read counter… ⏳",
-  // "→ agent#3: read counter said \"50K or nothing\" 😤",
-  // "→ negotiating more quota with the billing gods 🙏💸",
-  // "→ ETA: tomorrow, fresh quota, dashboard wide awake ☀️",
-  // "→ note to team: maybe stop refreshing 64,000 times 😅",
-  // "$ all systems: ✅ data safe   ⏳ display catching up   🐤 morale: high",
-];
+// const TERMINAL = [
+//   // "$ canary scale --reason \"free tier said enough\" --vibes immaculate",
+//   // "→ booting 3 agents… 🤖🤖🤖  (one of them is very caffeinated ☕)",
+//   // "→ agent#1: today's check-ins are saving in the background ✓",
+//   // "→ agent#2: writes flowing smoothly (108 and counting) ✓",
+//   // "→ agent#3: gently arguing with the read counter… ⏳",
+//   // "→ agent#3: read counter said \"50K or nothing\" 😤",
+//   // "→ negotiating more quota with the billing gods 🙏💸",
+//   // "→ ETA: tomorrow, fresh quota, dashboard wide awake ☀️",
+//   // "→ note to team: maybe stop refreshing 64,000 times 😅",
+//   // "$ all systems: ✅ data safe   ⏳ display catching up   🐤 morale: high",
+// ];
 
 // little 'did you know' facts that rotate at the bottom
 const FACTS = [
@@ -58,7 +59,7 @@ const Y = "#FFD43B", BG0 = "#05080F", BG1 = "#0A1226", SUB = "#A8B8E8", DIM = "#
 const clampPx = (min: number, vw: number, pref: number, max: number) =>
   Math.max(min, Math.min(max, min + (max - min) * Math.min(1, Math.max(0, (vw - 360) / (pref - 360)))));
 
-export default function MaintenanceOverlay({ onPlay }: { onPlay?: () => void }) {
+export default function MaintenanceOverlay(_props: { onPlay?: () => void }) {
   // ── live viewport width → drives all responsive sizing ──
   const [vw, setVw] = useState(() => (typeof window !== "undefined" ? window.innerWidth : 1280));
   useEffect(() => {
@@ -107,7 +108,7 @@ export default function MaintenanceOverlay({ onPlay }: { onPlay?: () => void }) 
     };
   }, []);
 
-  const terminal = useMemo(() => TERMINAL, []);
+  // const terminal = useMemo(() => TERMINAL, []);
 
   return (
     <div
@@ -197,7 +198,7 @@ export default function MaintenanceOverlay({ onPlay }: { onPlay?: () => void }) 
             }}>
               <div style={{ color: DIM, fontSize: 9.5, letterSpacing: 0.5, textTransform: "uppercase" }}>{s.k}</div>
               <div style={{ color: s.c, fontSize: 18, fontWeight: 800, fontFamily: "'JetBrains Mono',monospace", lineHeight: 1.2 }}>{s.v}</div>
-              <div style={{ color: DIM, fontSize: 10, marginTop: 1 }}>{s.note}</div>
+              {/* <div style={{ color: DIM, fontSize: 10, marginTop: 1 }}>{s.note}</div> */}
             </div>
           ))}
         </div>
@@ -231,14 +232,14 @@ export default function MaintenanceOverlay({ onPlay }: { onPlay?: () => void }) 
           padding: "14px 16px", fontFamily: "'JetBrains Mono','IBM Plex Mono',monospace",
           fontSize: S.term, lineHeight: 1.9, color: "#9FE8B6", overflowX: "auto",
         }}>
-          {terminal.map((l, i) => (
+          {/* {terminal.map((l, i) => (
             <div key={i} style={{
               color: l.startsWith("$") ? Y : l.includes("⏳") || l.includes("😤") ? "#FFB300" : "#9FE8B6",
               whiteSpace: "pre-wrap",
             }}>
               {l}
             </div>
-          ))}
+          ))} */}
           <div style={{ color: DIM }}>
             <span className="mo-blink">▌</span>
           </div>
