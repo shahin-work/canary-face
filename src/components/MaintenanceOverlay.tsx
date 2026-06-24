@@ -244,7 +244,7 @@ export default function MaintenanceOverlay({ onPlay }: { onPlay?: () => void }) 
           </div>
         </div>
 
-        {onPlay && (
+        {/* {onPlay && (
           <button onClick={onPlay} style={{
             marginTop: 4, display: "inline-flex", alignItems: "center", gap: 9,
             padding: "12px 24px", borderRadius: 26, cursor: "pointer", fontFamily: "inherit",
@@ -253,7 +253,7 @@ export default function MaintenanceOverlay({ onPlay }: { onPlay?: () => void }) 
           }}>
             🐤 Bored while we scale? Make the Canary lose its energy → Play Canary Runner
           </button>
-        )}
+        )} */}
 
         <div style={{ color: DIM, fontSize: 11.5, marginTop: 2, minHeight: 18, maxWidth: 640, transition: "opacity .3s" }}>
           {FACTS[fi]}
