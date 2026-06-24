@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { collection, getDocs, doc, getDoc } from "firebase/firestore";
+import { collection, getDocs, doc, getDoc, query, where, documentId } from "firebase/firestore";
 import { db } from "../firebase";
 import EmployeeCard from "../components/EmployeeCard";
 import type { EmployeeCardData, DayStatus, Session } from "../components/EmployeeCard";
@@ -13,7 +13,7 @@ import MaintenanceOverlay from "../components/MaintenanceOverlay";
 import BorderGlow from "../components/BorderGlow";
 import CardGravity from "../components/CardGravity";
 import { useNavigate, useLocation } from "react-router-dom";
-import { DATA_START } from "../App";
+import { DATA_START, getAttendanceOverride } from "../App";
 // ─── constants ───────────────────────────────────────────────────────────────
 
 
@@ -652,13 +652,25 @@ async function fetchTodayInOffice() {
       const employees = sortEmployees(raw);
       const dates     = datesToFetch ?? displayDates;
 
+      // Firebase read optimisation: only fetch the docs INSIDE the visible date window
+      // (this week / this month), not the whole attendance history. Doc IDs are
+      // "YYYY-MM-DD" (lexicographically sortable), so a documentId() range query returns
+      // just the days on screen → on week view ≈7 reads/employee, month view ≈31, instead
+      // of every day ever recorded. Switching week/month or prev/next re-fetches only that
+      // new window.
+      const rangeStart = dates[0];
+      const rangeEnd   = dates[dates.length - 1];
+
       const result: EmployeeCardData[] = await Promise.all(
         employees.map(async (emp) => {
-          // ONE query per employee for the whole collection, then pick the visible dates
-          // locally — far fewer reads than one getDoc per (employee × day).
+          // ONE ranged query per employee for ONLY the visible dates → minimal reads.
           let byDate: Record<string, any> = {};
           try {
-            const snap = await getDocs(collection(db, emp.emp_id));
+            const snap = await getDocs(query(
+              collection(db, emp.emp_id),
+              where(documentId(), ">=", rangeStart),
+              where(documentId(), "<=", rangeEnd),
+            ));
             snap.docs.forEach(dDoc => { byDate[dDoc.id] = dDoc.data(); });
           } catch (_) {}
 
@@ -668,7 +680,14 @@ async function fetchTodayInOffice() {
             if (isWeekend(date))   return { date, status: "weekend" as const };
             if (date > today)      return { date, status: "future"  as const };
 
-            const d = byDate[date] as { sessions: Session[]; extra_time?: string | null } | undefined;
+            // ###########################################################
+            // ###  HARDCODED ATTENDANCE OVERRIDE (see App.tsx)        ###
+            // ###  If this (emp, date) is hardcoded → use it as       ###
+            // ###  PRESENT; otherwise fall back to the real DB data.  ###
+            const override = getAttendanceOverride(emp.emp_id, date);
+            const d = (override ?? byDate[date]) as { sessions: Session[]; extra_time?: string | null } | undefined;
+            // ###  END OVERRIDE                                       ###
+            // ###########################################################
             if (d?.sessions && d.sessions.length > 0) {
               const workSessions  = d.sessions.filter((s: any) => !s.leave);
               const leaveSessions = d.sessions.filter((s: any) => s.leave);
@@ -808,29 +827,10 @@ async function fetchTodayInOffice() {
     };
   }, [gravityOn, gameOpen]);
 
-  // ── Auto-refresh on every minute boundary (when seconds hit :00), tab visible only ──
-  // Paused entirely while the game is open so play isn't interrupted by data fetches/re-renders.
-  useEffect(() => {
-    if (gameOpen) return;
-    let timer: ReturnType<typeof setTimeout>;
-    const refresh = () => {
-      if (document.visibilityState !== "visible") return;
-      const dates = viewMode === "week" ? getWeekDates(weekOffset) : getMonthDates(monthOffset);
-      fetchAll(dates, true);   // silent: keep cards on screen, just pull latest
-      fetchTodayInOffice();
-      fetchNotices();
-    };
-    // schedule the next tick exactly at the next :00 second, then re-schedule each minute
-    const scheduleNext = () => {
-      const now = new Date();
-      const msToNextMinute = (60 - now.getSeconds()) * 1000 - now.getMilliseconds();
-      timer = setTimeout(() => { refresh(); scheduleNext(); }, msToNextMinute);
-    };
-    scheduleNext();
-    // also pull fresh data the moment the tab becomes visible again
-    document.addEventListener("visibilitychange", refresh);
-    return () => { clearTimeout(timer); document.removeEventListener("visibilitychange", refresh); };
-  }, [viewMode, weekOffset, monthOffset, gameOpen]);
+  // ── Auto-refresh DISABLED ──
+  // Data is only fetched from the DB on initial load, a manual page refresh, or by
+  // clicking the Refresh button. No per-minute polling and no fetch-on-tab-focus, so
+  // we never pull new DB data in the background (keeps Firebase reads down).
 
   // ── Live tick: recalc hours every 60s for open sessions ── (paused during the game)
   useEffect(() => {
@@ -1186,7 +1186,6 @@ async function fetchTodayInOffice() {
 
       {toast && <Toast message={toast} onDone={dismissToast} />}
 
-      {/* Firebase daily read limit reached → fun maintenance screen (data still saving in background) */}
       {showMaintenance && !gameOpen && (
         <MaintenanceOverlay onPlay={() => { setGameFull(true); setGameOpen(true); }} />
       )}

@@ -145,6 +145,7 @@ export default function CanaryGame({
     dead: false, paused: false,
   });
   const phaseRef = useRef(phase), mutedRef = useRef(muted), lastScoreRef = useRef(0), playerIdRef = useRef(playerId), milestoneRef = useRef(0);
+  const bigObstacleRef = useRef(100);   // next score milestone (~every 100) at which one taller obstacle appears
   useEffect(() => { phaseRef.current = phase; g.current.paused = phase === "paused"; }, [phase]);
   useEffect(() => { mutedRef.current = muted; }, [muted]);
   useEffect(() => { playerIdRef.current = playerId; }, [playerId]);
@@ -157,7 +158,7 @@ export default function CanaryGame({
   // Easy  → big multiple (lots of breathing room).  Hard → smaller multiple (tighter, but fair).
   const tuning = (sc: number) => {
     const lvl = Math.min(7, Math.floor(sc / 100));            // 0..7 (every 100 pts a notch)
-    const speed = 8.2 + lvl * 1.0;                            // faster base + steeper ramp
+    const speed = 9.0 + lvl * 1.15;                           // slightly faster base + ramp (keeps the world moving past the bird)
     const arc = JUMP_ARC_FRAMES * speed;                      // px the bird travels in one jump
     const mult = 1.85 - lvl * 0.12;                           // tighter spacing → more obstacles (1.85× → ~1.0×)
     return {
@@ -189,7 +190,7 @@ export default function CanaryGame({
       speed: 6, dist: 0, spawn: 200, cSpawn: 300, scoreF: 0, shake: 0,
       dead: false, paused: false,
     };
-    lastScoreRef.current = 0; milestoneRef.current = 0;
+    lastScoreRef.current = 0; milestoneRef.current = 0; bigObstacleRef.current = 100;
     setScore(0);
   }, []);
 
@@ -287,7 +288,11 @@ export default function CanaryGame({
     const ro = new ResizeObserver(fit);
     ro.observe(canvas);
 
-    const BIRD_X = 86, BIRD_W = 48, BIRD_H = 40, GRAV = 0.82;
+    const BIRD_W = 48, BIRD_H = 40, GRAV = 0.82;
+    // Bird sits a bit left of centre so there's room to react, but always fully on screen.
+    // Scales with canvas width (≈18%), clamped so it never hugs the far-left edge on wide displays.
+    let BIRD_X = 86;
+    const computeBirdX = () => { BIRD_X = Math.round(Math.max(96, Math.min(W * 0.18, 260))); };
     let raf = 0;
 
     const rrect = (x: number, y: number, w: number, h: number, r: number) => {
@@ -298,6 +303,7 @@ export default function CanaryGame({
 
     const loop = () => {
       const st = g.current;
+      computeBirdX();   // keep the bird at a sensible left-of-centre spot for the current width
       const playing = phaseRef.current === "playing" && !st.dead;
 
       if (playing) {
@@ -311,8 +317,15 @@ export default function CanaryGame({
         // obstacles — spacing is a DISTANCE (px), guaranteeing room to jump & land before the next
         st.spawn -= st.speed;
         if (st.spawn <= 0) {
-          const h = 30 + Math.floor(Math.random() * 26);
-          st.obstacles.push({ x: W + 30, w: 34, h, idx: (Math.random() * OBSTACLE_DEFS.length) | 0 });
+          // Most obstacles are short & simple (easy hops). Roughly every ~100 score, ONE taller
+          // (but still single-jump-clearable) obstacle shows up for a little variety/spice.
+          const sc = Math.floor(st.scoreF);
+          const isBig = sc >= bigObstacleRef.current;
+          if (isBig) bigObstacleRef.current += 100;          // arm the next big one ~100 points later
+          const h = isBig
+            ? 60 + Math.floor(Math.random() * 18)            // taller spike: 60–78px (clears under a single jump)
+            : 26 + Math.floor(Math.random() * 20);           // normal: low & simple 26–46px
+          st.obstacles.push({ x: W + 30, w: isBig ? 38 : 34, h, idx: (Math.random() * OBSTACLE_DEFS.length) | 0 });
           // landing buffer keeps it fair but tighter → more obstacles on screen
           const minGap = JUMP_ARC_FRAMES * tune.speed * 1.05 + 8 * tune.speed + 34;
           st.spawn = Math.max(minGap, tune.gapPx) + Math.random() * tune.variesPx;

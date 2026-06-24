@@ -1,0 +1,28 @@
+{
+  "2026-06-22": {
+    "cdai008": { "check_in": "09:00:15", "check_out": "18:05:22" },
+    "cdai009": { "check_in": "09:12:44", "check_out": "18:11:37" }
+  },
+
+  "2026-06-23": {
+    "cdai008": { "check_in": "09:00:15", "check_out": "18:05:22" },
+    "cdai009": { "check_in": "09:12:44", "check_out": "18:11:37" },
+    "cdai011": { "check_in": "08:58:31", "check_out": "17:54:19" },
+    "cdai012": { "check_in": "09:05:08", "check_out": "18:02:45" },
+    "cdai013": { "check_in": "09:17:52", "check_out": "18:20:11" },
+    "cdai014": { "check_in": "08:49:26", "check_out": "17:48:03" },
+    "cdai022": { "check_in": "09:08:41", "check_out": "18:14:56" },
+    "cdai024": { "check_in": "09:21:17", "check_out": "18:29:08" },
+    "cdai029": { "check_in": "08:55:33", "check_out": "17:59:44" },
+    "cdai030": { "check_in": "09:03:29", "check_out": "18:07:55" },
+    "cdai031": { "check_in": "09:14:02", "check_out": "18:18:27" },
+    "cdai039": { "check_in": "08:51:48", "check_out": "17:46:39" },
+    "cdin004": { "check_in": "09:10:13", "check_out": "18:12:41" },
+    "cdin005": { "check_in": "09:06:54", "check_out": "18:01:22" },
+    "cdin006": { "check_in": "08:57:35", "check_out": "17:53:17" },
+    "cdin007": { "check_in": "09:15:46", "check_out": "18:22:09" },
+    "cdin008": { "check_in": "09:04:18", "check_out": "18:08:33" },
+    "cdin009": { "check_in": "08:59:57", "check_out": "17:57:48" },
+    "cdin010": { "check_in": "09:11:25", "check_out": "18:16:12" }
+  }
+}

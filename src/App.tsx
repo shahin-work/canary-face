@@ -13,6 +13,48 @@ import InstallPrompt from './InstallPrompt'
 const MOBILE_BLOCK_ENABLED = false; // toggle: set false to allow mobile
 export const DATA_START = "2026-06-01";
 
+// ###########################################################################
+// ###  HARDCODED ATTENDANCE OVERRIDES  (temporary)                        ###
+// ###########################################################################
+// Some employees have wrong / missing attendance in the DB for a few specific
+// dates. Rather than touch Firestore, we patch those exact (date, emp_id) cells
+// here from a JSON file. Behaviour:
+//   • If the JSON has an entry for that emp_id ON that date  → show it as PRESENT.
+//   • If it does NOT (emp_id missing, or date missing)       → fall through to the
+//                                                              real DB data, untouched.
+// The JSON is keyed by date in the app's own format (YYYY-MM-DD), then by emp_id:
+//   { "2026-06-23": { "cdai008": { "check_in": "09:00:15", "check_out": "18:05:22" } } }
+//
+// TO REMOVE LATER: delete this block + the JSON import below, and remove the
+// getAttendanceOverride() call inside Attendance.tsx (also fenced with ###).
+import attendanceOverrides from "./data/attendanceOverrides.json";
+
+type OverrideEntry = { check_in: string; check_out?: string };
+type OverrideMap = Record<string, Record<string, OverrideEntry>>;
+
+/**
+ * Returns a `sessions`-shaped present-day record for (emp_id, date) IF a hardcoded
+ * override exists, otherwise null (caller then uses the DB data as-is).
+ * The returned shape matches exactly what Attendance.tsx expects from Firestore:
+ *   { sessions: [{ session, check_in, check_out }] }
+ */
+export function getAttendanceOverride(empId: string, date: string):
+  | { sessions: { session: number; check_in: string; check_out?: string }[] }
+  | null {
+  const day = (attendanceOverrides as OverrideMap)[date];
+  if (!day) return null;                       // no overrides for this date → use DB
+  const rec = day[empId];
+  if (!rec || !rec.check_in) return null;      // this employee not overridden → use DB
+  return {
+    sessions: [
+      { session: 1, check_in: rec.check_in, check_out: rec.check_out },
+    ],
+  };
+}
+// ###########################################################################
+// ###  END HARDCODED ATTENDANCE OVERRIDES                                 ###
+// ###########################################################################
+
 // ── screen width hook ─────────────────────────────────────────────────────────
 function useIsMobileDevice() {
   const [isMobile, setIsMobile] = useState(false);

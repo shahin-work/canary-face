@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { collection, getDocs } from "firebase/firestore";
 import { db } from "../firebase";
-import { query, where } from "firebase/firestore";
+import { query, where, documentId } from "firebase/firestore";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface Session { session: number; check_in: string; check_out?: string; }
@@ -687,7 +687,17 @@ export default function EmployeeDetails() {
       const employeeData = snap.docs[0].data() as Employee;
       setEmployee(employeeData);
 
-      const attendanceSnap = await getDocs(collection(db, empId));
+      // Firebase read optimisation: only fetch the docs for the month being viewed,
+      // not the whole attendance history. Doc IDs are "YYYY-MM-DD" (sortable), so a
+      // documentId() range query returns just that month (≈31 reads). Switching to the
+      // next/prev month re-fetches only that month's days.
+      const rangeStart = monthDates[0];
+      const rangeEnd   = monthDates[monthDates.length - 1];
+      const attendanceSnap = await getDocs(query(
+        collection(db, empId),
+        where(documentId(), ">=", rangeStart),
+        where(documentId(), "<=", rangeEnd),
+      ));
       const days = attendanceSnap.docs.map(d => ({ date: d.id, ...d.data() } as AttendanceDay));
       days.sort((a, b) => b.date.localeCompare(a.date));
       setAttendance(days);
@@ -697,18 +707,11 @@ export default function EmployeeDetails() {
     } finally {
       if (!silent) setLoading(false);
     }
-  }, [empId]);
+  }, [empId, monthDates]);
 
+  // Load on mount and whenever the viewed month changes (loadData depends on monthDates).
+  // No auto-refresh: data is only pulled on load, month switch, or a manual refresh.
   useEffect(() => { loadData(); }, [loadData]);
-
-  // ── Auto-refresh from DB every 60s — only while this tab is actively visible ──
-  useEffect(() => {
-    if (!empId) return;
-    const refresh = () => { if (document.visibilityState === "visible") loadData(true); };
-    const id = setInterval(refresh, 60_000);
-    document.addEventListener("visibilitychange", refresh);
-    return () => { clearInterval(id); document.removeEventListener("visibilitychange", refresh); };
-  }, [empId, loadData]);
 
  
  

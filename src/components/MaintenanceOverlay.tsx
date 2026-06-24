@@ -1,9 +1,20 @@
 import { useEffect, useMemo, useState } from "react";
 import frbsProof from "../assets/frbs.png";
-import logo from "../assets/react.png";
 import DecryptedText from "./DecryptedText";
 import ASCIIText from "./ASCIIText";
- 
+
+/**
+ * Shown when Firebase throws "resource-exhausted" — i.e. we've burned through the
+ * day's free read quota. It's a maintenance screen, but make it fun: nothing is
+ * actually broken. Writes still work, today's data is saving fine, and it becomes
+ * visible tomorrow once the read quota resets.
+ *
+ * It is a HARD MODAL — no close button, no Esc, no click-outside, scroll locked.
+ * The only escape hatch is the game (onPlay), which returns here when closed.
+ *
+ * Everything scales with the viewport width → looks right from phone to ultrawide.
+ */
+
 // rotating dev-humor headlines (the big yellow line)
 const QUIPS = [
   "Our Firebase took one look at today's traffic, said “nah fam”, and clocked out. 🐤",
@@ -20,16 +31,16 @@ const QUIPS = [
 
 // the fake 'agents working on it' terminal feed — funnier, longer
 const TERMINAL = [
-  "$ canary scale --reason \"free tier said enough\" --vibes immaculate",
-  "→ booting 3 agents… 🤖🤖🤖  (one of them is very caffeinated ☕)",
-  "→ agent#1: today's check-ins are saving in the background ✓",
-  "→ agent#2: writes flowing smoothly (108 and counting) ✓",
-  "→ agent#3: gently arguing with the read counter… ⏳",
-  "→ agent#3: read counter said \"50K or nothing\" 😤",
-  "→ negotiating more quota with the billing gods 🙏💸",
-  "→ ETA: tomorrow, fresh quota, dashboard wide awake ☀️",
-  "→ note to team: maybe stop refreshing 64,000 times 😅",
-  "$ all systems: ✅ data safe   ⏳ display catching up   🐤 morale: high",
+  // "$ canary scale --reason \"free tier said enough\" --vibes immaculate",
+  // "→ booting 3 agents… 🤖🤖🤖  (one of them is very caffeinated ☕)",
+  // "→ agent#1: today's check-ins are saving in the background ✓",
+  // "→ agent#2: writes flowing smoothly (108 and counting) ✓",
+  // "→ agent#3: gently arguing with the read counter… ⏳",
+  // "→ agent#3: read counter said \"50K or nothing\" 😤",
+  // "→ negotiating more quota with the billing gods 🙏💸",
+  // "→ ETA: tomorrow, fresh quota, dashboard wide awake ☀️",
+  // "→ note to team: maybe stop refreshing 64,000 times 😅",
+  // "$ all systems: ✅ data safe   ⏳ display catching up   🐤 morale: high",
 ];
 
 // little 'did you know' facts that rotate at the bottom
@@ -175,10 +186,10 @@ export default function MaintenanceOverlay({ onPlay }: { onPlay?: () => void }) 
         {/* stat chips — playful, responsive wrap */}
         <div style={{ display: "flex", flexWrap: "wrap", gap: 10, justifyContent: "center", maxWidth: 760 }}>
           {[
-            { k: "reads today", v: "64,000", c: "#56B3FF", note: "free tier: 50K 😬" },
-            { k: "writes today", v: "108", c: "#34E08A", note: "very polite ✓" },
-            { k: "data lost", v: "0", c: Y, note: "zero. zilch. nada." },
-            { k: "dashboard ETA", v: "tomorrow", c: "#FF8FB1", note: "fresh quota ☀️" },
+            { k: "reads today", v: "64,000", c: "#56B3FF"},
+            { k: "writes today", v: "108", c: "#34E08A"},
+            { k: "data lost", v: "0", c: Y },
+            { k: "dashboard ETA", v: "tomorrow", c: "#FF8FB1" },
           ].map((s, i) => (
             <div key={i} style={{
               minWidth: 132, flex: "1 1 132px", maxWidth: 200, padding: "10px 12px", borderRadius: 12,
