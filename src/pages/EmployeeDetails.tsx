@@ -582,20 +582,30 @@ function TimelineRow({ day, attendanceMap, today, hoveredDay, onHover }: {
         textAlign:"right", paddingLeft:12,
         transition:"all 0.12s",
       }}>
-        {hasLeave ? (
+        {hasLeave ? (() => {
+          // leave fraction → available work hours (8h day − leave portion): half→4, quarter→6, full→0
+          const isHalf    = leaveSess.some((s:any)=>s.leave_kind==="half");
+          const isQuarter = !isHalf && leaveSess.some((s:any)=>s.leave_kind==="quarter");
+          const available = isHalf ? 4 : isQuarter ? 6 : 0;
+          // worked hours = non-leave sessions only
+          const workedHrs = workSess.length > 0 ? calcHours(workSess, day) : 0;
+          return (
           <>
             <div style={{
               fontSize: isHovered ? 15 : 13, fontWeight:800, color: C.red,
               fontFamily:"'Sora',sans-serif", lineHeight:1, letterSpacing:0.5,
               textShadow: isHovered ? `0 0 12px ${C.red}66` : "none",
             }}>
-              Leave{leaveSess.some((s:any)=>s.leave_kind==="half") ? " ½" : leaveSess.some((s:any)=>s.leave_kind==="quarter") ? " ¼" : ""}
+              Leave{isHalf ? " ½" : isQuarter ? " ¼" : ""}
             </div>
             <div style={{ fontSize:8, color: isHovered ? C.sub : C.dim, marginTop:2, letterSpacing:0.5 }}>
-              {workSess.length > 0 ? `${fmtHM(hours)} worked` : "on leave"}
+              {available > 0
+                ? <><span style={{ fontFamily:"'JetBrains Mono',monospace", fontWeight:700 }}>{fmtHM(workedHrs)}/{available}</span> worked</>
+                : "on leave"}
             </div>
           </>
-        ) : hasSess ? (
+          );
+        })() : hasSess ? (
           <>
             <div style={{
               fontSize: isHovered ? 16 : 14, fontWeight:800,

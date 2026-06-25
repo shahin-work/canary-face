@@ -7,6 +7,7 @@ import logo from "../assets/react.png";
 import logo2 from "../assets/react1.png";
 import AddMeeting from "../components/AddMeeting";
 import Regularization from "../components/Regularization";
+import LeaveRequest from "../components/LeaveRequest";
 import ReportIssue from "../components/ReportIssue";
 import CanaryGame from "../components/CanaryGame";
 import MaintenanceOverlay from "../components/MaintenanceOverlay";
@@ -549,6 +550,7 @@ export default function Attendance() {
   const [inOffice, setInOffice] = useState<{ emp_id: string; name: string; profile_image?: string; checkIn?: string }[]>([]);
   const [meetingOpen,  setMeetingOpen] = useState(false);
   const [regOpen,      setRegOpen]     = useState(false);
+  const [leaveOpen,    setLeaveOpen]   = useState(false);
   const [notices,      setNotices]     = useState<string[]>([]);
   const [issueOpen,    setIssueOpen]   = useState(false);
   const [gravityOn,    setGravityOn]   = useState(false);   // fun-only gravity toggle
@@ -1234,6 +1236,12 @@ async function fetchTodayInOffice() {
         onSaved={(msg) => setToast(msg)}
       />
 
+      <LeaveRequest
+        open={leaveOpen}
+        onClose={() => setLeaveOpen(false)}
+        onSaved={(msg) => setToast(msg)}
+      />
+
       <ReportIssue
         open={issueOpen}
         onClose={() => setIssueOpen(false)}
@@ -1367,6 +1375,35 @@ async function fetchTodayInOffice() {
                 )}
               </button>
               <div className="adm-tip">Request an attendance correction for a missed scan, remote workday, or system discrepancy.</div>
+            </div>
+
+            {/* Request Leave — available everywhere (employee self-service) */}
+            <div className="adm-wrap" style={{ flexShrink: 0 }}>
+              <button
+                onClick={() => setLeaveOpen(true)}
+                className="meetbtn"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  flexShrink: 0,
+                  background: "rgba(255,215,0,0.07)",
+                  border: `1px solid ${YELLOW}44`,
+                  borderRadius: 10,
+                  padding: "6px 12px",
+                  cursor: "pointer",
+                  transition: "all 0.15s",
+                }}
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
+                  <path d="M12 3c0 5-4 7-4 11a4 4 0 008 0c0-4-4-6-4-11z" stroke={YELLOW} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                  <path d="M12 21v-7" stroke={YELLOW} strokeWidth="1.8" strokeLinecap="round"/>
+                </svg>
+                {!isPhone && (
+                  <span style={{ color: YELLOW, fontSize: 11, fontWeight: 600 }}>Request Leave</span>
+                )}
+              </button>
+              <div className="adm-tip">Apply for a full, half, or quarter day leave. HR will review and approve it.</div>
             </div>
 
 

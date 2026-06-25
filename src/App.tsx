@@ -9,46 +9,20 @@ import Guide from "./pages/Guide";
 import MyAttendance from "./components/MyAttendance";
 import InstallPrompt from './InstallPrompt'
 
-
 const MOBILE_BLOCK_ENABLED = false; // toggle: set false to allow mobile
 export const DATA_START = "2026-06-01";
 
-// Dates whose attendance data must be HIDDEN everywhere in the app. The app loads
-// normally on every day; these specific days simply render as blank (no data) —
-// not present, not leave, not counted — like a non-working day. All OTHER dates
-// show their real data untouched. Dates are in the app's YYYY-MM-DD format.
-// TO REMOVE LATER: empty this array (and the isHiddenDate() use in Attendance.tsx).
-export const HIDDEN_DATES = new Set(["2026-06-23", "2026-06-24"]);
+export const HIDDEN_DATES = new Set(["2026-06-24"]);
 
 export function isHiddenDate(date: string): boolean {
   return HIDDEN_DATES.has(date);
 }
 
-// ###########################################################################
-// ###  HARDCODED ATTENDANCE OVERRIDES  (temporary)                        ###
-// ###########################################################################
-// Some employees have wrong / missing attendance in the DB for a few specific
-// dates. Rather than touch Firestore, we patch those exact (date, emp_id) cells
-// here from a JSON file. Behaviour:
-//   • If the JSON has an entry for that emp_id ON that date  → show it as PRESENT.
-//   • If it does NOT (emp_id missing, or date missing)       → fall through to the
-//                                                              real DB data, untouched.
-// The JSON is keyed by date in the app's own format (YYYY-MM-DD), then by emp_id:
-//   { "2026-06-23": { "cdai008": { "check_in": "09:00:15", "check_out": "18:05:22" } } }
-//
-// TO REMOVE LATER: delete this block + the JSON import below, and remove the
-// getAttendanceOverride() call inside Attendance.tsx (also fenced with ###).
 import attendanceOverrides from "./data/attendanceOverrides.json";
 
 type OverrideEntry = { check_in: string; check_out?: string };
 type OverrideMap = Record<string, Record<string, OverrideEntry>>;
 
-/**
- * Returns a `sessions`-shaped present-day record for (emp_id, date) IF a hardcoded
- * override exists, otherwise null (caller then uses the DB data as-is).
- * The returned shape matches exactly what Attendance.tsx expects from Firestore:
- *   { sessions: [{ session, check_in, check_out }] }
- */
 export function getAttendanceOverride(empId: string, date: string):
   | { sessions: { session: number; check_in: string; check_out?: string }[] }
   | null {
@@ -62,9 +36,6 @@ export function getAttendanceOverride(empId: string, date: string):
     ],
   };
 }
-// ###########################################################################
-// ###  END HARDCODED ATTENDANCE OVERRIDES                                 ###
-// ###########################################################################
 
 // ── screen width hook ─────────────────────────────────────────────────────────
 function useIsMobileDevice() {
@@ -72,14 +43,11 @@ function useIsMobileDevice() {
 
   useEffect(() => {
     const ua = navigator.userAgent || navigator.vendor;
-
     const mobile =
       /android|iphone|ipad|ipod|opera mini|iemobile|mobile/i.test(ua) ||
       (navigator.maxTouchPoints > 2);
-
     setIsMobile(mobile);
   }, []);
-
   return isMobile;
 }
 
@@ -222,76 +190,3 @@ export default function App() {
     </BrowserRouter>
   );
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-// import React, { useState } from "react";
-// import emailjs from "@emailjs/browser";
-
-// export default function App() {
-//   const [sending, setSending] = useState(false);
-
-//   const sendEmail = async () => {
-//     try {
-//       setSending(true);
-
-//       const result = await emailjs.send(
-//         "service_skoy7lm",
-//         "template_lhb9bjw",
-//         {
-//           name: "Shahin",
-//           email: "shahincanary@gmail.com",
-//           subject: "React EmailJS Test",
-//           message: "Hello from React + EmailJS",
-//         },
-//         "yRqB12zhJfiYANARr"
-//       );
-
-//       console.log("SUCCESS:", result);
-//       alert("Email sent successfully!");
-//     } catch (error) {
-//       console.error("EMAIL ERROR:", error);
-//       alert("Failed to send email. Check console.");
-//     } finally {
-//       setSending(false);
-//     }
-//   };
-
-//   return (
-//     <div
-//       style={{
-//         height: "100vh",
-//         display: "flex",
-//         justifyContent: "center",
-//         alignItems: "center",
-//       }}
-//     >
-//       <button
-//         onClick={sendEmail}
-//         disabled={sending}
-//         style={{
-//           padding: "16px 24px",
-//           fontSize: "16px",
-//           cursor: "pointer",
-//         }}
-//       >
-//         {sending ? "Sending..." : "Send Email"}
-//       </button>
-//     </div>
-//   );
-// }

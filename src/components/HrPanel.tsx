@@ -1299,6 +1299,445 @@ function RegularizationRequests({
   );
 }
 
+// ── Leave Requests (employee-submitted, HR approves/rejects) ───────────────────
+// Mirrors RegularizationRequests, but approval writes a LEAVE session into the
+// employee's daily doc (same shape as HR's "Add Leave"), so it renders as leave.
+type LvKind    = "full" | "half" | "quarter";
+type LvHalf    = "first" | "second";
+type LvQuarter = "q1" | "q2" | "q3" | "q4";
+type LvCategory = "casual" | "sick" | "compensatory" | "paternity" | "lwp" | "unpaid";
+
+const LV_CATEGORY_LABEL: Record<string, string> = {
+  casual: "Casual Leave", sick: "Sick Leave", compensatory: "Compensatory Leave",
+  paternity: "Paternity Leave", lwp: "Leave Without Pay", unpaid: "Unpaid Leave",
+};
+const lvCategoryLabel = (c?: string) => (c ? (LV_CATEGORY_LABEL[c] || c) : "Leave");
+
+interface LeaveReqItem {
+  id: string;
+  date: string;
+  day: string;
+  category?: LvCategory;  // optional for back-compat with older requests
+  kind: LvKind;
+  half?: LvHalf;
+  quarter?: LvQuarter;
+  check_in: string;   // "HH:MM:SS"
+  check_out: string;  // "HH:MM:SS"
+  reason: string;
+  attachment?: string | null;
+  status: RegStatus;
+  created_at: number;
+  reviewed_by?: string;
+  reviewer_note?: string;
+}
+interface LeaveDoc {
+  emp_id: string;
+  emp_name: string;
+  requests: LeaveReqItem[];
+}
+interface LeaveRow extends LeaveReqItem {
+  emp_id: string;
+  emp_name: string;
+}
+
+const LV_GREEN = "#34D399";
+
+function lvKindLabel(r: Pick<LeaveReqItem, "kind" | "half" | "quarter">): string {
+  if (r.kind === "full") return "Full day";
+  if (r.kind === "half") return r.half === "second" ? "Half day · 2nd" : "Half day · 1st";
+  const qn = { q1: "Q1", q2: "Q2", q3: "Q3", q4: "Q4" }[r.quarter || "q1"];
+  return `Quarter · ${qn}`;
+}
+
+function LeaveRequestCard({
+  row, empMeta, busy, onApprove, onReject, onViewImg,
+}: {
+  row: LeaveRow;
+  empMeta?: any;
+  busy: boolean;
+  onApprove: (r: LeaveRow) => void;
+  onReject: (r: LeaveRow) => void;
+  onViewImg: (img: string) => void;
+}) {
+  const [rejecting, setRejecting] = useState(false);
+  const [note, setNote] = useState("");
+  const m = REG_STATUS_META[row.status];
+  const resolved = row.status === "approved" || row.status === "rejected";
+
+  const actBtn = (color: string, solid: boolean): React.CSSProperties => ({
+    padding: "7px 14px", borderRadius: 8, fontSize: 11.5, fontWeight: 800,
+    border: solid ? "none" : `1px solid ${color}55`,
+    background: solid ? color : `${color}14`,
+    color: solid ? "#06130a" : color,
+    cursor: busy ? "not-allowed" : "pointer", fontFamily: "inherit",
+    whiteSpace: "nowrap", lineHeight: 1, transition: "opacity 0.12s",
+  });
+
+  return (
+    <div style={{
+      background: SURF2, border: `1px solid ${BORDER}`, borderRadius: 12, padding: "12px 14px",
+      display: "flex", alignItems: "center", gap: 16,
+    }}>
+      {/* identity (left) */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, width: 210, flexShrink: 0, minWidth: 0 }}>
+        <span style={{
+          width: 36, height: 36, borderRadius: "50%", flexShrink: 0, overflow: "hidden", background: BG,
+          border: `1.5px solid ${LV_GREEN}55`, display: "flex", alignItems: "center", justifyContent: "center",
+          fontSize: 11, fontWeight: 700, color: LV_GREEN,
+        }}>
+          {empMeta?.profile_image
+            ? <img src={empMeta.profile_image} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+            : initials(row.emp_name)}
+        </span>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ color: TEXT, fontSize: 12.5, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+            {row.emp_name}
+          </div>
+          <div style={{ color: DIM, fontSize: 9.5, fontFamily: "'JetBrains Mono',monospace", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+            {row.emp_id}{empMeta?.department ? ` · ${empMeta.department}` : ""}
+          </div>
+        </div>
+      </div>
+
+      {/* details (middle, grows) */}
+      <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 5 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <span style={{
+            fontSize: 10, fontWeight: 700, color: YELLOW, background: `${YELLOW}15`,
+            border: `1px solid ${YELLOW}33`, borderRadius: 20, padding: "2px 8px",
+          }}>{lvCategoryLabel(row.category)}</span>
+          <span style={{
+            fontSize: 10, fontWeight: 700, color: LV_GREEN, background: `${LV_GREEN}15`,
+            border: `1px solid ${LV_GREEN}33`, borderRadius: 20, padding: "2px 8px",
+          }}>🌴 {lvKindLabel(row)}</span>
+          <span style={{ color: SUB, fontFamily: "'JetBrains Mono',monospace", fontWeight: 700, fontSize: 14 }}>
+            {row.check_in?.slice(0, 5)}–{row.check_out?.slice(0, 5)}
+          </span>
+          {row.created_at ? <span style={{ color: DIM, fontSize: 12 }}>· {regFmtCreated(row.created_at)}</span> : null}
+          {row.attachment && (
+            <button onClick={() => onViewImg(row.attachment!)} title="View attachment" style={{
+              display: "inline-flex", alignItems: "center", gap: 5, background: "transparent",
+              border: `1px solid ${BLUE}33`, borderRadius: 7, padding: "2px 8px", cursor: "pointer",
+            }}>
+              <span style={{ fontSize: 11 }}>📎</span>
+              <span style={{ color: BLUE, fontSize: 10, fontWeight: 600 }}>Attachment</span>
+            </button>
+          )}
+        </div>
+        {row.reason ? (
+          <p style={{ color: SUB, fontSize: 11.5, margin: 0, lineHeight: 1.45, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={row.reason}>
+            {row.reason}
+          </p>
+        ) : (
+          <p style={{ color: DIM, fontSize: 11, margin: 0, fontStyle: "italic" }}>No reason provided.</p>
+        )}
+        {resolved && (
+          <div style={{ fontSize: 10.5, color: row.status === "rejected" ? RED : GREEN }}>
+            <span style={{ fontWeight: 700 }}>
+              {row.status === "rejected" ? "Rejected" : "Approved"}{row.reviewed_by ? ` by ${row.reviewed_by}` : ""}
+            </span>
+            {row.reviewer_note ? ` — ${row.reviewer_note}` : ""}
+          </div>
+        )}
+      </div>
+
+      {/* status + actions (right) */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0, justifyContent: "flex-end" }}>
+        {resolved && (
+          <span style={{
+            fontSize: 9.5, fontWeight: 700, color: m.color, background: `${m.color}18`,
+            border: `1px solid ${m.color}40`, borderRadius: 20, padding: "3px 10px",
+          }}>{m.label}</span>
+        )}
+
+        {row.status === "pending" && (
+          rejecting ? (
+            <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+              <input autoFocus value={note} onChange={e => setNote(e.target.value)} maxLength={120}
+                placeholder="Reason (optional)…"
+                onKeyDown={e => { if (e.key === "Enter") onReject({ ...row, reviewer_note: note.trim() }); if (e.key === "Escape") setRejecting(false); }}
+                style={{
+                  width: 200, background: SURF3, border: `1px solid ${RED}33`, borderRadius: 8,
+                  color: TEXT, fontSize: 11.5, padding: "7px 10px", outline: "none", fontFamily: "'Sora',sans-serif",
+                }} />
+              <button onClick={() => setRejecting(false)} disabled={busy} style={actBtn(SUB, false)}>Back</button>
+              <button onClick={() => onReject({ ...row, reviewer_note: note.trim() })} disabled={busy} style={actBtn(RED, true)}>
+                {busy ? "…" : "Confirm"}
+              </button>
+            </div>
+          ) : (
+            <div style={{ display: "flex", alignItems: "center", gap: 7}}>
+              <button onClick={() => setRejecting(true)} disabled={busy} style={actBtn(RED, false)}>Reject</button>
+              <button onClick={() => onApprove(row)} disabled={busy} title="Approve & add leave to attendance" style={actBtn(LV_GREEN, true)}>
+                {busy ? "Approving…" : "Approve"}
+              </button>
+            </div>
+          )
+        )}
+      </div>
+    </div>
+  );
+}
+
+function LeaveRequests({
+  hrName, employees, onToast, onResolved,
+}: {
+  hrName: string;
+  employees: any[];
+  onToast: (msg: string, type?: string) => void;
+  onResolved?: () => void;
+}) {
+  const [docs, setDocs]       = useState<LeaveDoc[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [tab, setTab]         = useState<"pending" | "approved" | "rejected" | "cancelled" | "all">("pending");
+  const [busyId, setBusyId]   = useState<string | null>(null);
+  const [imgView, setImgView] = useState<string | null>(null);
+
+  const empById = useMemo(() => {
+    const map: Record<string, any> = {};
+    for (const e of employees) map[e.emp_id] = e;
+    return map;
+  }, [employees]);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const snap = await getDocs(collection(db, "leaveRequests"));
+      setDocs(snap.docs.map(d => {
+        const data = d.data() as Partial<LeaveDoc>;
+        return {
+          emp_id: data.emp_id || d.id,
+          emp_name: data.emp_name || d.id,
+          requests: Array.isArray(data.requests) ? data.requests : [],
+        };
+      }));
+    } catch (e) {
+      console.error(e);
+      onToast("Could not load leave requests.", "error");
+    } finally {
+      setLoading(false);
+    }
+  }, [onToast]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const rows: LeaveRow[] = useMemo(() => {
+    const out: LeaveRow[] = [];
+    for (const d of docs) {
+      for (const r of d.requests) {
+        out.push({ ...r, emp_id: d.emp_id, emp_name: d.emp_name });
+      }
+    }
+    out.sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+    return out;
+  }, [docs]);
+
+  const counts = useMemo(() => {
+    const c = { all: rows.length, pending: 0, approved: 0, rejected: 0, cancelled: 0 } as Record<string, number>;
+    for (const r of rows) c[r.status] += 1;
+    return c;
+  }, [rows]);
+
+  const visible = useMemo(
+    () => tab === "all" ? rows : rows.filter(r => r.status === tab),
+    [rows, tab]
+  );
+
+  const groupedByDate = useMemo(() => {
+    const map = new Map<string, LeaveRow[]>();
+    for (const r of visible) {
+      if (!map.has(r.date)) map.set(r.date, []);
+      map.get(r.date)!.push(r);
+    }
+    return Array.from(map.entries()).sort((a, b) => (a[0] < b[0] ? 1 : -1));
+  }, [visible]);
+
+  async function patchRequest(empId: string, reqId: string, patch: Partial<LeaveReqItem>) {
+    const target = docs.find(d => d.emp_id === empId);
+    const updated = (target?.requests || []).map(r => r.id === reqId ? { ...r, ...patch } : r);
+    await setDoc(doc(db, "leaveRequests", empId), { requests: updated }, { merge: true });
+    setDocs(prev => prev.map(d => d.emp_id === empId ? { ...d, requests: updated } : d));
+  }
+
+  async function handleApprove(row: LeaveRow) {
+    setBusyId(row.id);
+    try {
+      // 1) write a LEAVE session into the employee's daily doc <emp_id>/<date>
+      //    (same shape HR's "Add Leave" writes → renders as leave everywhere)
+      const ref = doc(db, row.emp_id, row.date);
+      const snap = await getDoc(ref);
+      const existing = snap.exists() ? snap.data() : null;
+      const prev: any[] = existing?.sessions || [];
+      const newSession = {
+        session: prev.length + 1,
+        check_in: row.check_in,
+        check_out: row.check_out,
+        leave: true,
+        leave_kind: row.kind,
+        ...(row.kind === "half" ? { leave_half: row.half } : {}),
+        ...(row.kind === "quarter" ? { leave_quarter: row.quarter } : {}),
+        ...(row.category ? { leave_category: row.category } : {}),
+        source: "leave_request",
+        ...(hrName ? { approved_by: hrName } : {}),
+        ...(row.reason ? { note: row.reason } : {}),
+      };
+      await setDoc(ref, {
+        employee_name: existing?.employee_name || row.emp_name,
+        sessions: [...prev, newSession],
+      }, { merge: true });
+
+      // 2) mark the request approved
+      await patchRequest(row.emp_id, row.id, {
+        status: "approved",
+        reviewed_by: hrName || "HR",
+        reviewer_note: "Added to attendance as leave.",
+      });
+      onToast(`Leave approved · ${row.emp_name} · ${row.date} ✓`);
+      onResolved?.();
+    } catch (e) {
+      console.error(e);
+      onToast("Could not approve the leave request.", "error");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function handleReject(row: LeaveRow) {
+    setBusyId(row.id);
+    try {
+      await patchRequest(row.emp_id, row.id, {
+        status: "rejected",
+        reviewed_by: hrName || "HR",
+        reviewer_note: row.reviewer_note || "",
+      });
+      onToast(`Leave rejected · ${row.emp_name} · ${row.date}`);
+      onResolved?.();
+    } catch (e) {
+      console.error(e);
+      onToast("Could not reject the leave request.", "error");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  const TABS: ("pending" | "approved" | "rejected" | "cancelled" | "all")[] =
+    ["pending", "approved", "rejected", "cancelled", "all"];
+
+  return (
+    <div style={{ maxWidth: HR_MAX_W, margin: "0 auto", width: "100%" }}>
+      {/* image lightbox */}
+      {imgView && (
+        <div onClick={() => setImgView(null)} style={{
+          position: "fixed", inset: 0, zIndex: 99998, background: "rgba(2,6,23,0.85)",
+          backdropFilter: "blur(6px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24,
+        }}>
+          <img src={imgView} alt="attachment" style={{ maxWidth: "90vw", maxHeight: "90vh", borderRadius: 12, border: `1px solid ${BORDER}` }} />
+        </div>
+      )}
+
+      {/* heading */}
+      <div style={{
+        display: "flex", alignItems: "center", gap: 11,
+        paddingBottom: 14, marginBottom: 16, borderBottom: `1px solid ${BORDER}`,
+      }}>
+        <span style={{
+          width: 38, height: 38, borderRadius: 11, flexShrink: 0,
+          background: `${LV_GREEN}18`, border: `1px solid ${LV_GREEN}40`,
+          display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18,
+        }}>🌴</span>
+        <div style={{ flex: 1 }}>
+          <h2 style={{ color: TEXT, fontWeight: 800, fontSize: 16, margin: 0, lineHeight: 1.15 }}>
+            Leave Requests
+          </h2>
+          <p style={{ color: SUB, fontSize: 11, margin: "3px 0 0" }}>
+            Employee-submitted leave. Approving adds the leave to their attendance.
+          </p>
+        </div>
+        <button onClick={load} disabled={loading} title="Refresh" style={{
+          background: "rgba(30,54,194,0.07)", border: `1px solid ${LV_GREEN}44`, borderRadius: 9,
+          color: LV_GREEN, fontSize: 11, fontWeight: 700, padding: "7px 12px", cursor: "pointer", fontFamily: "inherit",
+        }}>{loading ? "Loading…" : "↻ Refresh"}</button>
+      </div>
+
+      {/* status tabs */}
+      <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginBottom: 16 }}>
+        {TABS.map(t => {
+          const active = tab === t;
+          const color = t === "all" ? LV_GREEN : REG_STATUS_META[t].color;
+          const label = t === "all" ? "All" : REG_STATUS_META[t].label;
+          return (
+            <button key={t} className="tab-btn" onClick={() => setTab(t)} style={{
+              display: "flex", alignItems: "center", gap: 6, padding: "6px 11px", borderRadius: 9,
+              border: `1px solid ${active ? color + "66" : BORDER}`,
+              background: active ? `${color}14` : "transparent",
+              color: active ? color : SUB, fontSize: 11.5, fontWeight: 700, cursor: "pointer", fontFamily: "inherit",
+            }}>
+              {label}
+              <span style={{
+                background: active ? `${color}22` : "rgba(30,54,194,0.15)",
+                color: active ? color : SUB, borderRadius: 8, padding: "0 6px", fontSize: 9.5, fontWeight: 700,
+              }}>{counts[t]}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* list */}
+      {loading ? (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} style={{ height: 120, borderRadius: 13, background: SURF2, opacity: 0.5 }} />
+          ))}
+        </div>
+      ) : visible.length === 0 ? (
+        <div style={{ textAlign: "center", padding: "48px 0", color: SUB, fontSize: 13 }}>
+          <div style={{ fontSize: 34, marginBottom: 10 }}>🌴</div>
+          No {tab === "all" ? "" : REG_STATUS_META[tab].label.toLowerCase() + " "}leave requests.
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+          {groupedByDate.map(([date, dayRows]) => {
+            const d = new Date(date + "T00:00:00");
+            const dateLabel = d.toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "short", year: "numeric" });
+            return (
+              <div key={date} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <span style={{
+                    display: "inline-flex", alignItems: "center", gap: 7,
+                    color: LV_GREEN, fontSize: 12, fontWeight: 800, letterSpacing: 0.3,
+                    background: `${LV_GREEN}12`, border: `1px solid ${LV_GREEN}33`,
+                    borderRadius: 8, padding: "5px 11px",
+                  }}>
+                    <span style={{ fontSize: 12 }}>📅</span>{dateLabel}
+                  </span>
+                  <span style={{ color: DIM, fontSize: 10.5, fontWeight: 600 }}>
+                    {dayRows.length} request{dayRows.length !== 1 ? "s" : ""}
+                  </span>
+                  <div style={{ flex: 1, height: 1, background: BORDER }} />
+                </div>
+
+                <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+                  {dayRows.map(row => (
+                    <LeaveRequestCard
+                      key={`${row.emp_id}_${row.id}`}
+                      row={row}
+                      empMeta={empById[row.emp_id]}
+                      busy={busyId === row.id}
+                      onApprove={handleApprove}
+                      onReject={handleReject}
+                      onViewImg={setImgView}
+                    />
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Send Mail (HR → employees, filtered by hours worked) ───────────────────────
 interface MailContact { name: string; email: string; }
 type MailFilter = "all" | "under8" | "under4";
@@ -2326,6 +2765,9 @@ function LeaveManager({
   const slot = leaveSlot(kind, half, quarter);
   const totalRecords = selEmps.length * dates.length;
   const canSave = selEmps.length > 0 && dates.length > 0 && !saving;
+  // NOTE: this Add-Leave form's submit button is not yet wired in the JSX below;
+  // keep `save`/`totalRecords` referenced so the WIP code still type-checks.
+  void totalRecords; void save;
 
   async function save() {
     if (!canSave) return;
@@ -2548,16 +2990,6 @@ function LeaveManager({
               <input type="text" value={reason} onChange={e => setReason(e.target.value)} maxLength={80}
                 placeholder="e.g. Sick leave, personal, casual leave…" style={inputStyle} />
             </div>
-
-            <button onClick={save} disabled={!canSave} style={{
-              width: "100%", padding: 12, borderRadius: 11, border: "none",
-              background: canSave ? ACCENT : "rgba(30,54,194,0.30)",
-              color: canSave ? "#FFFFFF" : "rgba(255,255,255,0.5)",
-              fontSize: 13, fontWeight: 800, cursor: canSave ? "pointer" : "not-allowed",
-              fontFamily: "'Sora',sans-serif", display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-            }}>
-              🌴 {saving ? "Saving…" : (totalRecords > 1 ? `Add Leave · ${totalRecords} records` : "Add Leave")}
-            </button>
           </div>
         </div>
       </div>
@@ -2892,7 +3324,7 @@ function HrAddedHistory({
 }
 
 // ── HR Main ───────────────────────────────────────────────────────────────────
-type NavId = "dashboard" | "requests" | "notices" | "mail" | "regularize" | "remote" | "leave";
+type NavId = "dashboard" | "requests" | "leaveRequests" | "notices" | "mail" | "regularize" | "remote" | "leave";
 
 function HrMain({ hrName, onLogout, onChangeName }: { hrName: string; onLogout: () => void; onChangeName: () => void }) {
   const [employees, setEmployees]     = useState<any[]>([]);
@@ -2903,6 +3335,7 @@ function HrMain({ hrName, onLogout, onChangeName }: { hrName: string; onLogout: 
   const [exporting, setExporting]     = useState(false);
   const [nav, setNav]                 = useState<NavId>("dashboard");
   const [pendingReq, setPendingReq]   = useState(0);   // pending regularization requests → blinking badge
+  const [pendingLeave, setPendingLeave] = useState(0); // pending leave requests → blinking badge
   const [weekOffset, setWeekOffset]   = useState(0);   // 0 = current week
 
   // today's data → KPI cards (always today, independent of week navigation)
@@ -2964,16 +3397,26 @@ function HrMain({ hrName, onLogout, onChangeName }: { hrName: string; onLogout: 
     })();
   }, []);
 
-  // count pending regularization requests → drives the blinking nav badge (poll every 30s)
+  // count pending regularization + leave requests → drives the blinking nav badges (poll every 30s)
   const refreshPending = useCallback(async () => {
     try {
-      const snap = await getDocs(collection(db, "regularizations"));
-      let n = 0;
-      snap.docs.forEach(d => {
+      const [regSnap, leaveSnap] = await Promise.all([
+        getDocs(collection(db, "regularizations")),
+        getDocs(collection(db, "leaveRequests")),
+      ]);
+      let nReg = 0;
+      regSnap.docs.forEach(d => {
         const reqs = (d.data().requests as any[]) || [];
-        n += reqs.filter(r => r?.status === "pending").length;
+        nReg += reqs.filter(r => r?.status === "pending").length;
       });
-      setPendingReq(n);
+      setPendingReq(nReg);
+
+      let nLeave = 0;
+      leaveSnap.docs.forEach(d => {
+        const reqs = (d.data().requests as any[]) || [];
+        nLeave += reqs.filter(r => r?.status === "pending").length;
+      });
+      setPendingLeave(nLeave);
     } catch (_) {}
   }, []);
   useEffect(() => {
@@ -3417,9 +3860,10 @@ const stats = useMemo(() => {
   const NAV: { id: NavId; label: string; icon: string; color: string }[] = [
     { id: "dashboard",  label: "Dashboard",             icon: "📊", color: GREEN   },
     { id: "requests",   label: "Regularization Requests", icon: "📥", color: YELLOW },
+    { id: "leaveRequests", label: "Leave Requests",      icon: "🌴", color: LV_GREEN },
     { id: "regularize", label: "Regularize Attendance", icon: "🏢", color: BLUE    },
-    { id: "remote",     label: "Log Remote Work",       icon: "🏠", color: MAGENTA },
     { id: "leave",      label: "Add Leave",             icon: "🌴", color: RED     },
+    { id: "remote",     label: "Add Remote",       icon: "🏠", color: MAGENTA },
     { id: "notices",    label: "Notices",               icon: "📢", color: YELLOW  },
     { id: "mail",       label: "Send Email",             icon: "✉️", color: TEAL    },
   ];
@@ -3620,6 +4064,14 @@ const stats = useMemo(() => {
                     display:"inline-flex",alignItems:"center",justifyContent:"center",
                     lineHeight:1,
                   }}>{pendingReq}</span>
+                )}
+                {n.id === "leaveRequests" && pendingLeave > 0 && (
+                  <span className="req-badge" style={{
+                    background:"#FFFFFF",color:LV_GREEN,fontSize:10,fontWeight:800,
+                    borderRadius:20,minWidth:18,height:18,padding:"0 5px",
+                    display:"inline-flex",alignItems:"center",justifyContent:"center",
+                    lineHeight:1,
+                  }}>{pendingLeave}</span>
                 )}
               </button>
             );
@@ -4070,6 +4522,11 @@ const stats = useMemo(() => {
         {/* ===== REGULARIZATION REQUESTS ===== */}
         {nav === "requests" && (
           <RegularizationRequests hrName={hrName} employees={employees} onToast={add} onResolved={refreshPending} />
+        )}
+
+        {/* ===== LEAVE REQUESTS ===== */}
+        {nav === "leaveRequests" && (
+          <LeaveRequests hrName={hrName} employees={employees} onToast={add} onResolved={refreshPending} />
         )}
 
         {/* ===== NOTICES ===== */}

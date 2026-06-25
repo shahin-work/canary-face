@@ -78,19 +78,24 @@ function fmtHMShort(h: number): string {
   return fmtHM(h);
 }
 
-function presentBarColor(h: number): string {
-  if (h === 0)  return "#041e05";
-  if (h < 1)    return "#0c4a0f";
-  if (h < 2)    return "#0c4a0f";
-  if (h < 3)    return "#0c4a0f";
-  if (h < 4)    return "#0c4a0f";
-  if (h < 5)    return "#0c4a0f";
-  if (h < 6)    return "#29862f";
-  if (h < 7)    return "#29862f";
-  if (h < 8)    return "#29862f";
-  if (h < 9)    return "#49f154";
-  if (h < 10)   return "#49f154";
-  return "#49f154";
+// Required (expected) work hours for a day, based on any leave taken:
+//   full day → 8h, half-day leave → 4h, quarter-day leave → 6h.
+// A normal office/remote day with no leave expects the full 8h.
+function requiredHours(day: DayStatus): number {
+  if (day.leaveKind === "half")    return 4;
+  if (day.leaveKind === "quarter") return 6;
+  return 8;
+}
+
+// Green shade by COMPLETION ratio (worked ÷ required), so a half-day leave that
+// covers its 4/4 looks as good as a full 8/8 day. Tiers mirror presentBarColor:
+//   0 → near-black, <60% → dim, <100% → mid, ≥100% → bright green.
+function completionGreen(worked: number, required: number): string {
+  if (worked <= 0) return "#041e05";
+  const pct = required > 0 ? worked / required : 0;
+  if (pct < 0.6)  return "#0c4a0f";   // dim
+  if (pct < 1)    return "#29862f";   // mid
+  return "#49f154";                   // bright (met or exceeded the requirement)
 }
 
 // Mon-first week grid padding: (getDay()+6)%7 → 0=Mon…6=Sun
@@ -107,7 +112,9 @@ function chunkIntoWeekRows(days: DayStatus[]): (DayStatus | null)[][] {
 
 function barBg(day: DayStatus): string {
   if (day.status === "present" && day.wfh) return "rgba(166, 38, 128, 0.74)";
-if (day.status === "present") return presentBarColor(Math.floor(day.totalHours ?? 0));  if (day.status === "absent")  return "rgba(239,68,68,0.5)";
+  // green graded by completion (worked ÷ required); normal full day → required 8h
+  if (day.status === "present") return completionGreen(day.totalHours ?? 0, requiredHours(day));
+  if (day.status === "absent")  return "rgba(239,68,68,0.5)";
   if (day.status === "leave")    return "rgba(239,68,68,0.5)";     // red → on leave (past no-show)
   if (day.status === "awaiting") return "#041e05";                 // today, not yet in (same as present 0h)
   if (day.status === "holiday") return "rgba(32, 21, 184, 0.5)";
@@ -155,10 +162,11 @@ function WeekBar({ day, isCheckedIn = false, today }: { day: DayStatus; isChecke
         boxShadow: underEight && !isToday ? "0 0 0 1.5px rgb(161, 0, 0)" : "none",
         display: "flex", alignItems: "center", justifyContent: "center",
       }}>
-      {/* partial-leave split: green base = office, red bands = leave slots (positioned by time of day) */}
+      {/* partial-leave split: green base = office (graded by worked ÷ required),
+          red bands = leave slots (positioned by time of day) */}
       {isPartialLeave && (
         <>
-          <div style={{ position: "absolute", inset: 0, background: "rgba(34,197,94,0.6)" }} />
+          <div style={{ position: "absolute", inset: 0, background: completionGreen(worked, requiredHours(day)) }} />
           {day.leaveSlots!.map((sl, i) => (
             <div key={i} style={{
               position: "absolute", top: 0, bottom: 0,
@@ -183,16 +191,29 @@ function WeekBar({ day, isCheckedIn = false, today }: { day: DayStatus; isChecke
       {isAbsent && (
         <span style={{ color: "#ff6b6b", fontSize: 8, fontWeight: 800 }}></span>
       )}
-      {isLeave && (
-        <span style={{
-          position: "relative", zIndex: 1,
-          color: isPartialLeave ? "#fff" : "#ff6b6b",
-          fontSize: 8.5, fontWeight: 800, letterSpacing: 0.3,
-          textShadow: isPartialLeave ? "0 1px 2px rgba(0,0,0,0.6)" : "none",
-        }}>
-          L{day.leaveKind === "half" ? "½" : day.leaveKind === "quarter" ? "¼" : ""}
-        </span>
-      )}
+      {isLeave && (() => {
+        // available work hours for this leave type (8h work day − leave portion):
+        //   half → 4h, quarter → 6h, full (or fully-leave) → 0 → shows 0/0
+        const available = day.leaveKind === "half" ? 4 : day.leaveKind === "quarter" ? 6 : 0;
+        return (
+          <span style={{
+            position: "relative", zIndex: 1,
+            display: "flex", flexDirection: "column", alignItems: "center", lineHeight: 1,
+            color: "#000",
+          }}>
+            <span style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: 0.3 }}>
+              L{day.leaveKind === "half" ? "½" : day.leaveKind === "quarter" ? "¼" : ""}
+            </span>
+            <span style={{
+              marginTop: 1, fontSize: 7.5, fontWeight: 800,
+              fontFamily: "'JetBrains Mono',monospace", letterSpacing: -0.2,
+              color: "#000",
+            }}>
+              {fmtHM(worked)}/{available}
+            </span>
+          </span>
+        );
+      })()}
       {isHoliday && (
         <span style={{ color: "rgba(251,191,36,0.7)", fontSize: 7.5, fontWeight: 700 }}>★</span>
       )}
