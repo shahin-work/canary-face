@@ -29,21 +29,7 @@ const QUIPS = [
   "The canary is fine. It's just on a smoke break it definitely earned. 🚬🐤",
   "We didn't crash. We 'gracefully entered a brief contemplative state'. Big difference.",
 ];
-
-// the fake 'agents working on it' terminal feed — funnier, longer
-// const TERMINAL = [
-//   // "$ canary scale --reason \"free tier said enough\" --vibes immaculate",
-//   // "→ booting 3 agents… 🤖🤖🤖  (one of them is very caffeinated ☕)",
-//   // "→ agent#1: today's check-ins are saving in the background ✓",
-//   // "→ agent#2: writes flowing smoothly (108 and counting) ✓",
-//   // "→ agent#3: gently arguing with the read counter… ⏳",
-//   // "→ agent#3: read counter said \"50K or nothing\" 😤",
-//   // "→ negotiating more quota with the billing gods 🙏💸",
-//   // "→ ETA: tomorrow, fresh quota, dashboard wide awake ☀️",
-//   // "→ note to team: maybe stop refreshing 64,000 times 😅",
-//   // "$ all systems: ✅ data safe   ⏳ display catching up   🐤 morale: high",
-// ];
-
+ 
 // little 'did you know' facts that rotate at the bottom
 const FACTS = [
   "Fun fact: refreshing harder does NOT summon more quota. We checked. Twice.",
@@ -136,17 +122,7 @@ export default function MaintenanceOverlay(_props: { onPlay?: () => void }) {
             planeBaseHeight={8}
           />
         </div>
-
-        {/* clickable logo → game */}
-        {/* <button
-          onClick={onPlay}
-          title="Bored? Click me to play Canary Runner 🐤"
-          style={{
-            border: "none", background: "transparent", cursor: onPlay ? "pointer" : "default",
-            padding: 0, lineHeight: 0, animation: "mo-bob 2.6s ease-in-out infinite",
-          }}>
-          <img src={logo} alt="Canary" style={{ width: S.logo, height: S.logo, filter: `drop-shadow(0 8px 22px ${Y}55)` }} />
-        </button> */}
+ 
 
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", justifyContent: "center" }}>
           <span style={{ fontSize: S.h1 * 0.85 }}>🛠️</span>
@@ -231,31 +207,12 @@ export default function MaintenanceOverlay(_props: { onPlay?: () => void }) {
           background: "#070B18", border: `1px solid rgba(110,140,255,0.18)`,
           padding: "14px 16px", fontFamily: "'JetBrains Mono','IBM Plex Mono',monospace",
           fontSize: S.term, lineHeight: 1.9, color: "#9FE8B6", overflowX: "auto",
-        }}>
-          {/* {terminal.map((l, i) => (
-            <div key={i} style={{
-              color: l.startsWith("$") ? Y : l.includes("⏳") || l.includes("😤") ? "#FFB300" : "#9FE8B6",
-              whiteSpace: "pre-wrap",
-            }}>
-              {l}
-            </div>
-          ))} */}
+        }}> 
           <div style={{ color: DIM }}>
             <span className="mo-blink">▌</span>
           </div>
         </div>
-
-        {/* {onPlay && (
-          <button onClick={onPlay} style={{
-            marginTop: 4, display: "inline-flex", alignItems: "center", gap: 9,
-            padding: "12px 24px", borderRadius: 26, cursor: "pointer", fontFamily: "inherit",
-            border: `1px solid ${Y}88`, background: `linear-gradient(135deg, ${Y}26, ${Y}10)`,
-            color: Y, fontSize: S.cta, fontWeight: 800, letterSpacing: 0.3,
-          }}>
-            🐤 Bored while we scale? Make the Canary lose its energy → Play Canary Runner
-          </button>
-        )} */}
-
+ 
         <div style={{ color: DIM, fontSize: 11.5, marginTop: 2, minHeight: 18, maxWidth: 640, transition: "opacity .3s" }}>
           {FACTS[fi]}
         </div>

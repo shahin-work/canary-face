@@ -13,7 +13,7 @@ import MaintenanceOverlay from "../components/MaintenanceOverlay";
 import BorderGlow from "../components/BorderGlow";
 import CardGravity from "../components/CardGravity";
 import { useNavigate, useLocation } from "react-router-dom";
-import { DATA_START, getAttendanceOverride } from "../App";
+import { DATA_START, getAttendanceOverride, isHiddenDate } from "../App";
 // ─── constants ───────────────────────────────────────────────────────────────
 
 
@@ -676,6 +676,8 @@ async function fetchTodayInOffice() {
 
           const weekDays: DayStatus[] = dates.map((date) => {
             if (date < DATA_START) return { date, status: "future" as const };
+            // Hidden dates → render blank (no data, not counted), regardless of DB.
+            if (isHiddenDate(date)) return { date, status: "future" as const };
             if (isHoliday(date))   return { date, status: "holiday" as const };
             if (isWeekend(date))   return { date, status: "weekend" as const };
             if (date > today)      return { date, status: "future"  as const };

@@ -13,6 +13,17 @@ import InstallPrompt from './InstallPrompt'
 const MOBILE_BLOCK_ENABLED = false; // toggle: set false to allow mobile
 export const DATA_START = "2026-06-01";
 
+// Dates whose attendance data must be HIDDEN everywhere in the app. The app loads
+// normally on every day; these specific days simply render as blank (no data) —
+// not present, not leave, not counted — like a non-working day. All OTHER dates
+// show their real data untouched. Dates are in the app's YYYY-MM-DD format.
+// TO REMOVE LATER: empty this array (and the isHiddenDate() use in Attendance.tsx).
+export const HIDDEN_DATES = new Set(["2026-06-23", "2026-06-24"]);
+
+export function isHiddenDate(date: string): boolean {
+  return HIDDEN_DATES.has(date);
+}
+
 // ###########################################################################
 // ###  HARDCODED ATTENDANCE OVERRIDES  (temporary)                        ###
 // ###########################################################################
@@ -147,15 +158,6 @@ function AppInner() {
   const isTouch  = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
   const online   = useOnline();
   const location = useLocation();
-
-  // While we're over the Firebase daily read limit, ALWAYS send every open of the
-  // app straight to the maintenance screen (?maint=1), regardless of the route.
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    if (params.has("maint")) return;                       // already there
-    params.set("maint", "1");
-    window.location.replace(`${location.pathname}?${params.toString()}`);
-  }, [location.pathname]);
 
   const isPhoneRoute =
     location.pathname === "/phone" ||

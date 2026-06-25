@@ -3,6 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { collection, getDocs } from "firebase/firestore";
 import { db } from "../firebase";
 import { query, where, documentId } from "firebase/firestore";
+import { isHiddenDate } from "../App";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface Session { session: number; check_in: string; check_out?: string; }
@@ -245,6 +246,7 @@ function TimelineRow({ day, attendanceMap, today, hoveredDay, onHover }: {
   const hasLeave  = leaveSess.length > 0;
 
   const state: "present"|"leave"|"weekend"|"holiday"|"absent"|"future" =
+    isHiddenDate(day) ? "future" : // hidden date → blank, not counted as absent
     hasLeave ? "leave" :       // any leave on the day → leave (red), not present
     hasSess ? "present" :
     holiday ? "holiday" :
@@ -718,7 +720,8 @@ export default function EmployeeDetails() {
 
   const attendanceMap = useMemo(() => {
     const m = new Map<string,AttendanceDay>();
-    attendance.forEach(a => m.set(a.date, a));
+    // Hidden dates: drop their data entirely so the day renders blank.
+    attendance.forEach(a => { if (!isHiddenDate(a.date)) m.set(a.date, a); });
     return m;
   }, [attendance]);
 
