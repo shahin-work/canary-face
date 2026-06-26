@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { collection, getDocs, doc, getDoc } from "firebase/firestore";
 import { db } from "../firebase";
+import { applyAttendanceBonus } from "../data/attendanceBonus";
 import logo from "../assets/react.png";
 import logo2 from "../assets/react1.png";
 import TextType from "./TextType";
@@ -86,9 +87,8 @@ function calcHours(sessions: any[], forDate?: string): number {
   const now = new Date();
   const todayStr = toDateStr(now);
   const nowMins = now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60;
-  // for TODAY only: never count beyond now+1h (hides approved future evening punches)
+  // for TODAY only: never count time ahead of the current clock
   const isToday = !forDate || forDate === todayStr;
-  const futureCap = nowMins + 60;
 
   for (const s of sessions || []) {
     if (!s.check_in) continue;
@@ -98,8 +98,8 @@ function calcHours(sessions: any[], forDate?: string): number {
     else if (isToday) end = nowMins;
     else continue;
     if (isToday) {
-      if (inMins >= futureCap) continue;     // starts beyond +1h → ignore
-      if (end > futureCap) end = futureCap;   // clip to +1h
+      if (inMins >= nowMins) continue;     // starts in the future → ignore
+      if (end > nowMins) end = nowMins;    // clip the end to now
     }
     mins += Math.max(0, end - inMins);
   }
@@ -141,6 +141,16 @@ function presentColor(h: number): string {
   return "#3ce748";
 }
 
+// Green shade by completion ratio (worked ÷ required) — so a half-day leave that
+// covers its 4/4 looks as good as a full day. Mirrors EmployeeCard's grading.
+function completionColor(worked: number, required: number): string {
+  if (worked <= 0) return "#19601D";
+  const pct = required > 0 ? worked / required : 0;
+  if (pct < 0.6) return "#19601D";
+  if (pct < 1)   return "#228529";
+  return "#3ce748";
+}
+
 function dayLetter(dateStr: string) {
   return new Date(dateStr).toLocaleDateString("en-US", { weekday: "short" }).slice(0, 2);
 }
@@ -167,11 +177,15 @@ interface EmployeeLite {
 }
 interface DayInfo {
   date: string;
-  status: "present" | "absent" | "weekend" | "holiday" | "future";
+  status: "present" | "absent" | "leave" | "weekend" | "holiday" | "future";
   hours: number;
   sessions?: any[];
   wfh?: boolean;
   reg?: boolean;
+  // leave support: which fraction, hours actually worked, and the required hours
+  leaveKind?: "full" | "half" | "quarter";
+  workedHours?: number;     // non-leave hours worked on a leave day
+  requiredHours?: number;   // available hours for the leave type (half→4, quarter→6, full→0)
 }
 
 // ─── Avatar ──────────────────────────────────────────────────────────────────
@@ -374,6 +388,22 @@ function WeekTile({ day, today, selected, onClick }: { day: DayInfo; today: stri
     bg = day.reg ? "rgba(21,128,61,0.92)" : day.wfh ? "rgba(166,38,128,0.74)" : presentColor(h);
     textColor = day.reg ? "#eafff0" : day.wfh ? "#fff" : (h < 5 ? "rgba(150,255,150,0.85)" : "#001a00");
     label = h > 0 ? fmtHoursShort(h) : <span style={{ fontSize: 8, fontWeight: 800 }}>IN</span>;
+  } else if (day.status === "leave") {
+    // leave day → green base graded by worked ÷ required (worked portion); red fallback if nothing worked
+    const worked = day.workedHours ?? 0;
+    const required = day.requiredHours ?? 0;
+    bg = worked > 0 && required > 0 ? completionColor(worked, required) : "rgba(239,68,68,0.5)";
+    textColor = "#000";
+    label = (
+      <span style={{ display: "flex", flexDirection: "column", alignItems: "center", lineHeight: 1, color: "#000" }}>
+        <span style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: 0.3 }}>
+          L{day.leaveKind === "half" ? "½" : day.leaveKind === "quarter" ? "¼" : ""}
+        </span>
+        <span style={{ marginTop: 1, fontSize: 9.5, fontWeight: 900, fontFamily: "'JetBrains Mono',monospace", letterSpacing: -0.2 }}>
+          {fmtHoursShort(worked)}/{required}
+        </span>
+      </span>
+    );
   } else if (day.status === "absent") {
     bg = "rgba(239,68,68,0.5)";
   } else if (day.status === "holiday") {
@@ -439,8 +469,8 @@ function TodaySessionTimeline({ sessions: rawSessions, clipFuture = true }: { se
   const nowStr = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
   const nowPct = timeToPct(nowStr);
 
-  // for today only: never show beyond now+1h — drop future-start sessions, clip check-outs to the cap
-  const cutoffMins = now.getHours() * 60 + now.getMinutes() + 60;
+  // for today only: never show ahead of the current clock — drop future-start sessions, clip check-outs to now
+  const cutoffMins = now.getHours() * 60 + now.getMinutes();
   const cutoffStr = `${String(Math.floor(cutoffMins / 60) % 24).padStart(2, "0")}:${String(cutoffMins % 60).padStart(2, "0")}`;
   const toM = (t: string) => { const [h, m] = t.split(":").map(Number); return h * 60 + m; };
   const sessions = !clipFuture ? (rawSessions || []) : (rawSessions || [])
@@ -495,7 +525,7 @@ function TodaySessionTimeline({ sessions: rawSessions, clipFuture = true }: { se
           const width  = Math.max(outPct - inPct, 0.8);
           const active = !s.check_out;
           const isHovered = hovered === i;
-          const color = s.meeting ? "#22D3EE" : s.regularized ? REG : s.wfh ? PINK : GREEN;
+          const color = s.leave ? RED : s.meeting ? "#22D3EE" : s.regularized ? REG : s.wfh ? PINK : GREEN;
 
           return (
             <div
@@ -579,7 +609,7 @@ function TodaySessionTimeline({ sessions: rawSessions, clipFuture = true }: { se
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(108px, 1fr))", gap: 6, marginTop: 10 }}>
         {sessions.map((s, i) => {
           const isHovered = hovered === i;
-          const color = s.meeting ? "#22D3EE" : s.regularized ? REG : s.wfh ? PINK : GREEN;
+          const color = s.leave ? RED : s.meeting ? "#22D3EE" : s.regularized ? REG : s.wfh ? PINK : GREEN;
           return (
             <div
               key={i}
@@ -599,6 +629,7 @@ function TodaySessionTimeline({ sessions: rawSessions, clipFuture = true }: { se
               {s.check_out
                 ? <span style={{ color: RED, fontFamily: "'JetBrains Mono',monospace", fontWeight: 700 }}>{fmtTimeShort(s.check_out)}</span>
                 : <span style={{ color: YELLOW, fontWeight: 700 }}>now</span>}
+              {s.leave && <span style={{ color: RED, fontSize: 8.5, fontWeight: 700 }}>LEAVE{s.leave_kind === "half" ? " ½" : s.leave_kind === "quarter" ? " ¼" : ""}</span>}
               {s.regularized && <span style={{ color: REG, fontSize: 8.5, fontWeight: 700 }}>REG</span>}
               {s.wfh && <span style={{ color: PINK, fontSize: 8.5, fontWeight: 700 }}>WFH</span>}
               {s.meeting && <span style={{ color: "#22D3EE", fontSize: 8.5, fontWeight: 700 }}>MTG</span>}
@@ -842,15 +873,31 @@ function SummaryModal({
                         {selectedDay.status}
                       </span>
                     )}
+                    {selectedDay?.status === "leave" && (
+                      <span style={{ color: RED, fontSize: 9.5, fontWeight: 700, background: "rgba(248,113,113,0.08)", border: `1px solid ${RED}33`, borderRadius: 20, padding: "3px 9px" }}>
+                        Leave{selectedDay.leaveKind === "half" ? " ½" : selectedDay.leaveKind === "quarter" ? " ¼" : ""}
+                      </span>
+                    )}
                   </div>
                 </div>
 
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 6, flexWrap: "wrap" }}>
                   <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-                    <span className="ma-today-hours" style={{ color: dayColor, fontSize: 28, fontWeight: 900, fontFamily: "'JetBrains Mono',monospace", lineHeight: 1, textShadow: hours > 0 ? `0 0 18px ${dayColor}33` : "none" }}>
-                      {fmtHours(hours)}
-                    </span>
-                    <span style={{ color: SUB, fontSize: 11.5 }}>{isToday ? "worked today" : "hours worked"}</span>
+                    {selectedDay?.status === "leave" ? (
+                      <>
+                        <span className="ma-today-hours" style={{ color: GREEN, fontSize: 28, fontWeight: 900, fontFamily: "'JetBrains Mono',monospace", lineHeight: 1 }}>
+                          {fmtHours(selectedDay.workedHours ?? 0)}<span style={{ color: SUB, fontSize: 18 }}>/{selectedDay.requiredHours ?? 0}</span>
+                        </span>
+                        <span style={{ color: SUB, fontSize: 11.5 }}>worked on leave day</span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="ma-today-hours" style={{ color: dayColor, fontSize: 28, fontWeight: 900, fontFamily: "'JetBrains Mono',monospace", lineHeight: 1, textShadow: hours > 0 ? `0 0 18px ${dayColor}33` : "none" }}>
+                          {fmtHours(hours)}
+                        </span>
+                        <span style={{ color: SUB, fontSize: 11.5 }}>{isToday ? "worked today" : "hours worked"}</span>
+                      </>
+                    )}
                   </div>
 
                   {/* 3D / neumorphic live status chip */}
@@ -1022,10 +1069,27 @@ export default function MyAttendance() {
         if (date > todayStr)  return { date, status: "future", hours: 0 };
 
         const d = byDate[date] as { sessions?: any[] } | undefined;
-        if (d?.sessions?.length) {
-          const isWfh = d.sessions.every((s: any) => s.wfh === true);
-          const isReg = d.sessions.every((s: any) => s.regularized === true);
-          return { date, status: "present", hours: calcHours(d.sessions, date), sessions: d.sessions, wfh: isWfh, reg: isReg };
+        // ATTENDANCE BONUS: inject the 10-min session for the special employee (see attendanceBonus.ts)
+        const daySessions = applyAttendanceBonus(id, date, d?.sessions);
+        if (daySessions.length) {
+          const leaveSessions = daySessions.filter((s: any) => s.leave);
+          // Any leave on the day → status "leave" (worked hours kept separate).
+          if (leaveSessions.length > 0) {
+            const workSessions = daySessions.filter((s: any) => !s.leave);
+            const leaveKind: "full" | "half" | "quarter" =
+              leaveSessions.some((s: any) => s.leave_kind === "full")    ? "full"
+              : leaveSessions.some((s: any) => s.leave_kind === "half")  ? "half"
+              : "quarter";
+            const required = leaveKind === "half" ? 4 : leaveKind === "quarter" ? 6 : 0;
+            return {
+              date, status: "leave", hours: 0, sessions: daySessions,
+              leaveKind, requiredHours: required,
+              workedHours: calcHours(workSessions, date),
+            };
+          }
+          const isWfh = daySessions.every((s: any) => s.wfh === true);
+          const isReg = daySessions.every((s: any) => s.regularized === true);
+          return { date, status: "present", hours: calcHours(daySessions, date), sessions: daySessions, wfh: isWfh, reg: isReg };
         }
         return { date, status: "absent", hours: 0 };
       });

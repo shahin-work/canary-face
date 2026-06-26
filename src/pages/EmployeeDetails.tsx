@@ -4,6 +4,7 @@ import { collection, getDocs } from "firebase/firestore";
 import { db } from "../firebase";
 import { query, where, documentId } from "firebase/firestore";
 import { isHiddenDate } from "../App";
+import { applyAttendanceBonus } from "../data/attendanceBonus";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface Session { session: number; check_in: string; check_out?: string; }
@@ -29,9 +30,8 @@ function calcHours(sessions: Session[], forDate?: string): number {
   if (!Array.isArray(sessions) || sessions.length === 0) return 0;
   const now = new Date(), todayStr = toDateStr(now);
   const nowMins = now.getHours() * 60 + now.getMinutes();
-  // for TODAY only: never count beyond now+1h (hides approved future evening punches)
+  // for TODAY only: never count time ahead of the current clock
   const isToday = !forDate || forDate === todayStr;
-  const futureCap = nowMins + 60;
 
   const intervals: [number, number][] = [];
   for (const s of sessions) {
@@ -43,8 +43,8 @@ function calcHours(sessions: Session[], forDate?: string): number {
     else if (isToday) end = nowMins;
     else continue;
     if (isToday) {
-      if (start >= futureCap) continue;
-      if (end > futureCap) end = futureCap;
+      if (start >= nowMins) continue;    // session starts in the future → ignore
+      if (end > nowMins) end = nowMins;  // clip the end to now
     }
     if (end > start) intervals.push([start, end]);
   }
@@ -67,12 +67,11 @@ function calcSessionHours(s: Session, forDate: string): number {
   const nowMins = now.getHours()*60 + now.getMinutes();
   if (!s.check_in) return 0;
   const isToday = forDate === todayStr;
-  const futureCap = nowMins + 60;
   const start = toMins(s.check_in);
-  if (isToday && start >= futureCap) return 0;          // entirely in the future window
+  if (isToday && start >= nowMins) return 0;            // starts in the future → nothing
   if (s.check_out) {
     let end = toMins(s.check_out);
-    if (isToday && end > futureCap) end = futureCap;     // clip to +1h
+    if (isToday && end > nowMins) end = nowMins;        // clip the end to now
     return Math.round((Math.max(0, end - start)/60)*100)/100;
   }
   if (isToday) return Math.round((Math.max(0, nowMins - start)/60)*100)/100;
@@ -173,16 +172,29 @@ const HEADER_H  = 60;
 const RULER_H   = 28;
 
 // ─── InsightCard ─────────────────────────────────────────────────────────────
-function InsightCard({ label, value, unit, sub, color, icon }: {
+function InsightCard({ label, value, unit, sub, color, icon, dates }: {
   label: string; value: string|number; unit?: string; sub?: string; color: string; icon: React.ReactNode;
+  dates?: string[];   // when present, hovering the card reveals this date list and grows the card
 }) {
+  const [hovered, setHovered] = useState(false);
+  const hasList = !!dates && dates.length > 0;
+  const showList = hasList && hovered;
+  const fmtDay = (d: string) =>
+    new Date(d + "T00:00:00").toLocaleDateString("en-IN", { weekday:"short", day:"2-digit", month:"short" });
+
   return (
-    <div style={{
-      background: C.surf3, borderRadius: 12, padding: "11px 13px",
-      border: `1px solid ${C.border}`, boxShadow: neu(),
-      display: "flex", flexDirection: "column", gap: 6,
-      position: "relative", overflow: "hidden", flexShrink: 0,
-    }}>
+    <div
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        background: C.surf3, borderRadius: 12, padding: "11px 13px",
+        border: `1px solid ${showList ? color+"55" : C.border}`,
+        boxShadow: showList ? `0 14px 32px rgba(0,0,0,0.55), 0 0 0 1px ${color}22` : neu(),
+        display: "flex", flexDirection: "column", gap: 6,
+        position: "relative", overflow: "hidden", flexShrink: 0,
+        cursor: hasList ? "default" : "default",
+        transition: "box-shadow 0.16s, border-color 0.16s",
+      }}>
       <div style={{
         position:"absolute", top:-14, right:-14, width:50, height:50, borderRadius:"50%",
         background:`radial-gradient(circle, ${color}20 0%, transparent 70%)`, pointerEvents:"none",
@@ -204,6 +216,23 @@ function InsightCard({ label, value, unit, sub, color, icon }: {
         {unit && <span style={{ fontSize:9.5, color:C.sub }}>{unit}</span>}
       </div>
       {sub && <div style={{ fontSize:8.5, color:C.dim, marginTop:-2 }}>{sub}</div>}
+
+      {/* hover-revealed date list — grows the card's height */}
+      {showList && (
+        <div style={{
+          marginTop:6, paddingTop:7, borderTop:`1px solid ${color}22`,
+          display:"flex", flexWrap:"wrap", gap:4, maxHeight:120, overflowY:"auto",
+          animation:"fadeSlide 0.16s ease",
+        }}>
+          {dates!.map(d => (
+            <span key={d} style={{
+              fontSize:8.5, fontWeight:700, color, background:`${color}14`,
+              border:`1px solid ${color}33`, borderRadius:6, padding:"2px 6px",
+              whiteSpace:"nowrap", fontFamily:"'JetBrains Mono',monospace",
+            }}>{fmtDay(d)}</span>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -228,8 +257,8 @@ function TimelineRow({ day, attendanceMap, today, hoveredDay, onHover }: {
   const hours    = hasSess ? calcHours(att!.sessions, day) : 0;
   const isHovered = hoveredDay === day;
 
-  // for TODAY only: hide attendance beyond now+1h (approved future evening punches)
-  const _cutoffMins = new Date().getHours() * 60 + new Date().getMinutes() + 60;
+  // for TODAY only: hide attendance ahead of the current clock
+  const _cutoffMins = new Date().getHours() * 60 + new Date().getMinutes();
   const _cutoffStr = `${String(Math.floor(_cutoffMins / 60) % 24).padStart(2, "0")}:${String(_cutoffMins % 60).padStart(2, "0")}`;
   const _toM = (t: string) => { const [h, m] = t.split(":").map(Number); return h * 60 + m; };
   const displaySessions = (att && isToday)
@@ -430,6 +459,21 @@ function TimelineRow({ day, attendanceMap, today, hoveredDay, onHover }: {
                 }}>LEAVE{(s as any).leave_kind === "half" ? " ½" : (s as any).leave_kind === "quarter" ? " ¼" : ""}</span>
               )}
 
+              {/* REGULARISED tag — sits above an HR-regularised session's time slot (always visible) */}
+              {isReg && !isLeaveSess && width > 1.5 && (
+                <span style={{
+                  position:"absolute",
+                  left:`${midPct}%`,
+                  top:"calc(50% - 19px)",
+                  transform:"translateX(-50%)",
+                  fontSize:8, fontWeight:800, color:C.regGreen,
+                  fontFamily:"'Sora',sans-serif", letterSpacing:1,
+                  whiteSpace:"nowrap", zIndex:9, pointerEvents:"none",
+                  background:`${C.bg}CC`, padding:"1px 5px", borderRadius:4,
+                  border:`1px solid ${C.regGreen}66`,
+                }}>REGULARISED</span>
+              )}
+
               {/* Checkout not recorded — only for the last session of a past day with no check_out */}
               {(s.check_out === undefined || s.check_out === null) && !isToday && i === displaySessions.length - 1 && (
                 <span style={{
@@ -600,7 +644,12 @@ function TimelineRow({ day, attendanceMap, today, hoveredDay, onHover }: {
             </div>
             <div style={{ fontSize:8, color: isHovered ? C.sub : C.dim, marginTop:2, letterSpacing:0.5 }}>
               {available > 0
-                ? <><span style={{ fontFamily:"'JetBrains Mono',monospace", fontWeight:700 }}>{fmtHM(workedHrs)}/{available}</span> worked</>
+                ? (() => {
+                    // grade the ratio by completion: met → green, partial → yellow, none → dim
+                    const pct = workedHrs / available;
+                    const ratioColor = pct >= 1 ? C.green : pct >= 0.6 ? C.yellow : workedHrs > 0 ? C.red : C.dim;
+                    return <><span style={{ fontFamily:"'JetBrains Mono',monospace", fontWeight:800, fontSize:9.5, color: ratioColor }}>{fmtHM(workedHrs)}/{available}</span> worked</>;
+                  })()
                 : "on leave"}
             </div>
           </>
@@ -731,9 +780,14 @@ export default function EmployeeDetails() {
   const attendanceMap = useMemo(() => {
     const m = new Map<string,AttendanceDay>();
     // Hidden dates: drop their data entirely so the day renders blank.
-    attendance.forEach(a => { if (!isHiddenDate(a.date)) m.set(a.date, a); });
+    attendance.forEach(a => {
+      if (isHiddenDate(a.date)) return;
+      // ATTENDANCE BONUS: inject the 10-min session for the special employee (see attendanceBonus.ts)
+      const sessions = applyAttendanceBonus(empId, a.date, a.sessions) as Session[];
+      m.set(a.date, { ...a, sessions });
+    });
     return m;
-  }, [attendance]);
+  }, [attendance, empId]);
 
   // ── Stats ──────────────────────────────────────────────────────────────────
  
@@ -765,6 +819,8 @@ export default function EmployeeDetails() {
     return s + (a ? calcHours(a.sessions ?? [], d) : 0);
   }, 0);
   const monthActualRounded = Math.round(monthActualHours * 10) / 10;
+  // kept for the (currently commented-out) "Hours This Month" InsightCard below
+  void expectedHours; void monthActualRounded;
 
 
   // ── This-month day stats ──
@@ -774,31 +830,35 @@ export default function EmployeeDetails() {
   const monthPresentDays = monthDaysWorked.length;
   const monthAvg = monthPresentDays > 0 ? Math.round((monthActualHours / monthPresentDays) * 100) / 100 : 0;
 
-  const daysUnder8 = monthDaysWorked.filter(d => {
+  const daysUnder8List = monthDaysWorked.filter(d => {
     const h = calcHours(attendanceMap.get(d)!.sessions ?? [], d);
     return h > 0 && h < 8;
-  }).length;
+  });
+  const daysUnder8 = daysUnder8List.length;
 
-  const daysNoCheckout = monthDates.filter(d => {
+  const daysNoCheckoutList = monthDates.filter(d => {
     if (d > today) return false;
     const ss = attendanceMap.get(d)?.sessions;
     if (!ss || ss.length === 0) return false;
     return !ss[ss.length - 1].check_out;   // last session has no check-out
-  }).length;
+  });
+  const daysNoCheckout = daysNoCheckoutList.length;
 
-  const regDays = monthDaysWorked.filter(d => (attendanceMap.get(d)!.sessions ?? []).some((s:any)=>s.source==="hr"||s.regularized===true)).length;
+  const regDaysList = monthDaysWorked.filter(d => (attendanceMap.get(d)!.sessions ?? []).some((s:any)=>s.source==="hr"||s.regularized===true));
+  const regDays = regDaysList.length;
 
   const INSIGHTS = [
-      { label:"Hours This Month", value: monthActualRounded, unit:`/ ${expectedHours}h`, sub:`${monthWorkingDays.length} working days`, color:C.yellow, icon:<svg width="12" height="12" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke={C.yellow} strokeWidth="1.8"/><path d="M12 7v5l3 3" stroke={C.yellow} strokeWidth="1.8" strokeLinecap="round"/></svg> },
+      // { label:"Hours This Month", value: monthActualRounded, unit:`/ ${expectedHours}h`, sub:`${monthWorkingDays.length} working days`, color:C.yellow, icon:<svg width="12" height="12" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke={C.yellow} strokeWidth="1.8"/><path d="M12 7v5l3 3" stroke={C.yellow} strokeWidth="1.8" strokeLinecap="round"/></svg> },
       { label:"Avg / Day", value: monthAvg, unit:"hrs", sub:`over ${monthPresentDays} present days`, color:C.blue, icon:<svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M3 12h18M3 6h18M3 18h18" stroke={C.blue} strokeWidth="1.8" strokeLinecap="round"/></svg> },
-      { label:"Days Under 8h", value: daysUnder8, unit:"days", sub:"short days this month", color:C.orange, icon:<svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M12 3v9l5 3" stroke={C.orange} strokeWidth="1.8" strokeLinecap="round"/><path d="M5 19h14" stroke={C.orange} strokeWidth="1.8" strokeLinecap="round"/></svg> },
-      { label:"No Check-out Days", value: daysNoCheckout, unit:"days", sub:"missing checkout", color:C.red, icon:<svg width="12" height="12" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke={C.red} strokeWidth="1.8"/><path d="M15 9l-6 6M9 9l6 6" stroke={C.red} strokeWidth="1.8" strokeLinecap="round"/></svg> },
+      { label:"Days Under 8h", value: daysUnder8, unit:"days", sub:"short days this month", color:C.orange, dates: daysUnder8List, icon:<svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M12 3v9l5 3" stroke={C.orange} strokeWidth="1.8" strokeLinecap="round"/><path d="M5 19h14" stroke={C.orange} strokeWidth="1.8" strokeLinecap="round"/></svg> },
+      { label:"No Check-out Days", value: daysNoCheckout, unit:"days", sub:"missing checkout", color:C.red, dates: daysNoCheckoutList, icon:<svg width="12" height="12" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke={C.red} strokeWidth="1.8"/><path d="M15 9l-6 6M9 9l6 6" stroke={C.red} strokeWidth="1.8" strokeLinecap="round"/></svg> },
       {
         label:"Regularized",
         value: regDays,
         unit:"days",
         sub: "HR-marked",
         color:C.regGreen,
+        dates: regDaysList,
         icon:<svg width="12" height="12" viewBox="0 0 24 24" fill="none">
           <path d="M20 6L9 17l-5-5"
             stroke={C.regGreen}

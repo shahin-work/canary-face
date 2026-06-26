@@ -114,8 +114,8 @@ function barBg(day: DayStatus): string {
   if (day.status === "present" && day.wfh) return "rgba(166, 38, 128, 0.74)";
   // green graded by completion (worked ÷ required); normal full day → required 8h
   if (day.status === "present") return completionGreen(day.totalHours ?? 0, requiredHours(day));
-  if (day.status === "absent")  return "rgba(239,68,68,0.5)";
-  if (day.status === "leave")    return "rgba(239,68,68,0.5)";     // red → on leave (past no-show)
+  if (day.status === "absent")  return "rgba(239, 68, 68, 0.90)";
+  if (day.status === "leave")    return "rgba(239, 68, 68, 0.90)";     // red → on leave (past no-show)
   if (day.status === "awaiting") return "#041e05";                 // today, not yet in (same as present 0h)
   if (day.status === "holiday") return "rgba(32, 21, 184, 0.5)";
   if (day.status === "weekend") return "rgba(65, 66, 134, 0.18)";
@@ -205,7 +205,7 @@ function WeekBar({ day, isCheckedIn = false, today }: { day: DayStatus; isChecke
               L{day.leaveKind === "half" ? "½" : day.leaveKind === "quarter" ? "¼" : ""}
             </span>
             <span style={{
-              marginTop: 1, fontSize: 7.5, fontWeight: 800,
+              marginTop: 1, fontSize: 9.5, fontWeight: 900,
               fontFamily: "'JetBrains Mono',monospace", letterSpacing: -0.2,
               color: "#000",
             }}>

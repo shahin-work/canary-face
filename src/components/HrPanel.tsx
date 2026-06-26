@@ -1,8 +1,10 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useNavigate } from "react-router-dom";
 import { initializeApp, getApps } from "firebase/app";
 import { getFirestore, collection, getDocs, doc, setDoc, getDoc } from "firebase/firestore";
 import * as XLSX from "xlsx-js-style";
 import emailjs from "@emailjs/browser";
+import { applyAttendanceBonus } from "../data/attendanceBonus";
 import logo from "../assets/react.png";
 
 const firebaseConfig = {
@@ -99,6 +101,15 @@ function calcHours(sessions: any[]): number {
     mins += Math.max(0, toM(s.check_out) - toM(s.check_in));
   }
   return Math.round((mins/60)*100)/100;
+}
+
+// Format DECIMAL hours → "H.MM" (hours.minutes, NOT decimal) to match the rest of
+// the app. e.g. 5h 16m = 5.27 decimal → "5.16",  7h 6m → "7.06".
+function fmtHM(h: number): string {
+  const totalMins = Math.round(h * 60);
+  const hh = Math.floor(totalMins / 60);
+  const mm = totalMins % 60;
+  return `${hh}.${String(mm).padStart(2, "0")}`;
 }
 
 // ── Toast ─────────────────────────────────────────────────────────────────────
@@ -279,7 +290,7 @@ function Panel({ icon, title, right, children, bodyStyle }: {
       background:SURF2, border:`1px solid ${BORDER}`, borderRadius:14, overflow:"hidden",
       display:"flex", flexDirection:"column",
     }}>
-      <div style={{display:"flex",alignItems:"center",gap:9,padding:"13px 16px",borderBottom:`1px solid ${BORDER}`}}>
+      <div style={{display:"flex",alignItems:"center",gap:9,padding:"5px 16px",borderBottom:`1px solid ${BORDER}`}}>
         {icon && <span style={{fontSize:15}}>{icon}</span>}
         <span style={{color:TEXT,fontWeight:700,fontSize:13}}>{title}</span>
         {right && <span style={{marginLeft:"auto"}}>{right}</span>}
@@ -305,23 +316,117 @@ const HEAT: Record<string,{bg:string;fg:string}> = {
   R:  { bg:"rgba(236,72,153,0.78)", fg:"#2A0716" },
   A:  { bg:"#4A1010",               fg:"#F3C2C2" },    // absent → dark brown-red, shows "L"
   L:  { bg:"#4A1010",               fg:"#F3C2C2" },    // HR-added leave → same dark brown-red
-  H:  { bg:"rgba(255,215,0,0.16)",  fg:"#FFD700" },
-  W:  { bg:"rgba(30,54,194,0.45)",  fg:"#DDE3FF" },    // weekend → blue
-  "": { bg:"rgba(30,54,194,0.04)",  fg:"#7A7A7A" },
+  H:  { bg:"rgba(30,54,194,0.04)",  fg:"#FFD700" },    // holiday → blank-grey bg (same as upcoming)
+  W:  { bg:"rgba(30,54,194,0.04)",  fg:"#9AA8DD" },    // weekend → blank-grey bg (same as upcoming)
+  "": { bg:"rgba(30,54,194,0.04)",  fg:"#7A7A7A" },    // blank / upcoming day
 };
 
-function WeeklyHeatmap({ days, rows, loading }: {
+// Full-width horizontal day timeline (09:00–21:00) for the heatmap hover popup —
+// mirrors the EmployeeDetails attendance line: green office, pink remote,
+// reg-green regularised, red leave; check-in/out dots with time labels.
+// Laid out wide & short: name+date on the left header, the line spans full width,
+// session chips flow horizontally below it.
+function HoverTimeline({ emp, sessions, date }: { emp: any; sessions: any[]; date: string }) {
+  const START = 540, END = 1260, SPAN = END - START;   // 09:00–21:00
+  const toMin = (t: string) => { const [h,m] = (t||"").split(":").map(Number); return (h||0)*60+(m||0); };
+  const pct = (t: string) => Math.max(0, Math.min(100, ((toMin(t) - START) / SPAN) * 100));
+  const work = sessions.filter(s => s.check_in);
+  return (
+    <div style={{ width:"100%" }}>
+      {/* header row: who + which day */}
+      <div style={{ display:"flex", alignItems:"center", gap:9, marginBottom:10 }}>
+        <span style={{
+          width:24,height:24,borderRadius:"50%",flexShrink:0,background:BG,border:`1px solid ${BORDER}`,
+          display:"flex",alignItems:"center",justifyContent:"center",color:SUB,fontSize:10,fontWeight:700,
+        }}>{initials(emp.name)}</span>
+        <span style={{ color:TEXT, fontSize:12.5, fontWeight:700 }}>{emp.name}</span>
+        <span style={{ color:DIM, fontSize:9.5, fontFamily:"'JetBrains Mono',monospace" }}>{emp.emp_id}</span>
+        <span style={{ marginLeft:"auto", color:BLUE, fontSize:11, fontWeight:700 }}>
+          {new Date(date+"T00:00:00").toLocaleDateString("en-IN",{ weekday:"long", day:"numeric", month:"short" })}
+        </span>
+      </div>
+
+      {work.length === 0 ? (
+        <div style={{ fontSize:11, color:SUB, padding:"8px 0" }}>No check-in recorded for this day.</div>
+      ) : (
+        <>
+          {/* full-width line with hour ruler */}
+          <div style={{ position:"relative", height:30, marginBottom:18 }}>
+            <div style={{ position:"absolute", left:0, right:0, top:"50%", transform:"translateY(-50%)", height:3, borderRadius:2, background:"rgba(99,102,241,0.12)" }}/>
+            {[9,10,11,12,13,14,15,16,17,18,19,20,21].map(hh => {
+              const p = ((hh*60 - START)/SPAN)*100;
+              const major = hh % 3 === 0;
+              return (
+                <div key={hh} style={{ position:"absolute", left:`${p}%`, top:"50%", transform:"translate(-50%,-50%)" }}>
+                  <div style={{ width:1, height: major?12:7, background: major?"rgba(99,102,241,0.25)":"rgba(99,102,241,0.12)" }}/>
+                  {major && <span style={{ position:"absolute", top:13, left:"50%", transform:"translateX(-50%)", fontSize:8, color:DIM, fontFamily:"'JetBrains Mono',monospace", whiteSpace:"nowrap" }}>{hh}:00</span>}
+                </div>
+              );
+            })}
+            {/* sessions */}
+            {work.map((s, i) => {
+              const inP = pct(s.check_in);
+              const outP = s.check_out ? pct(s.check_out) : inP + 1.5;
+              const w = Math.max(outP - inP, 0.6);
+              const color = s.leave ? RED : s.meeting ? "#22D3EE" : s.regularized ? "#15803D" : s.wfh ? "#EC4899" : GREEN;
+              return (
+                <div key={i}>
+                  <div style={{ position:"absolute", left:`${inP}%`, width:`${w}%`, top:"50%", transform:"translateY(-50%)", height:5, borderRadius:3, background:color, boxShadow:`0 0 6px ${color}66` }}/>
+                  <div style={{ position:"absolute", left:`calc(${inP}% - 4px)`, top:"50%", transform:"translateY(-50%)", width:8, height:8, borderRadius:"50%", background:color, border:`1.5px solid ${SURF2}` }}/>
+                  {/* check-in time label (above) */}
+                  <span style={{ position:"absolute", left:`${inP}%`, top:"calc(50% - 16px)", transform:"translateX(-50%)", fontSize:8, fontWeight:800, color, fontFamily:"'JetBrains Mono',monospace", whiteSpace:"nowrap" }}>{(s.check_in||"").slice(0,5)}</span>
+                  {s.check_out
+                    ? <>
+                        <div style={{ position:"absolute", left:`calc(${outP}% - 4px)`, top:"50%", transform:"translateY(-50%)", width:8, height:8, borderRadius:"50%", background:RED, border:`1.5px solid ${SURF2}` }}/>
+                        <span style={{ position:"absolute", left:`${outP}%`, top:"calc(50% + 9px)", transform:"translateX(-50%)", fontSize:8, fontWeight:800, color:RED, fontFamily:"'JetBrains Mono',monospace", whiteSpace:"nowrap" }}>{s.check_out.slice(0,5)}</span>
+                      </>
+                    : <span style={{ position:"absolute", left:`${outP}%`, top:"calc(50% + 9px)", transform:"translateX(-50%)", fontSize:8, fontWeight:800, color:YELLOW, fontFamily:"'JetBrains Mono',monospace", whiteSpace:"nowrap" }}>now</span>}
+                </div>
+              );
+            })}
+          </div>
+          {/* session chips — flow horizontally */}
+          <div style={{ display:"flex", flexWrap:"wrap", gap:7 }}>
+            {work.map((s, i) => {
+              const tag = s.leave ? "LEAVE" : s.meeting ? "MTG" : s.regularized ? "REG" : s.wfh ? "WFH" : "";
+              const tagColor = tag==="LEAVE"?RED:tag==="WFH"?"#EC4899":tag==="REG"?"#34D399":"#22D3EE";
+              return (
+                <div key={i} style={{ display:"flex", alignItems:"center", gap:5, fontSize:10, fontFamily:"'JetBrains Mono',monospace", background:"rgba(99,102,241,0.06)", border:`1px solid ${BORDER}`, borderRadius:7, padding:"3px 8px" }}>
+                  <span style={{ color:DIM, fontWeight:700, fontSize:8.5 }}>#{i+1}</span>
+                  <span style={{ color:GREEN, fontWeight:700 }}>{(s.check_in||"").slice(0,5)}</span>
+                  <span style={{ color:DIM }}>→</span>
+                  {s.check_out
+                    ? <span style={{ color:RED, fontWeight:700 }}>{s.check_out.slice(0,5)}</span>
+                    : <span style={{ color:YELLOW, fontWeight:700 }}>now</span>}
+                  {tag && <span style={{ color:tagColor, fontSize:8, fontWeight:800, marginLeft:2 }}>{tag}</span>}
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function WeeklyHeatmap({ days, rows, loading, onSelectEmp }: {
   days: { date:string; dow:string; label:string; isToday:boolean }[];
-  rows: { emp:any; cells:string[] }[];
+  rows: { emp:any; cells:string[]; sessionsByDay:any[][] }[];
   loading: boolean;
+  onSelectEmp?: (empId: string) => void;
 }) {
+  const [hover, setHover] = useState<{ ci:number; di:number } | null>(null);
   if (loading) return <div style={{padding:"34px 0",textAlign:"center",color:SUB,fontSize:12}}>Loading the week…</div>;
   if (!rows.length) return <div style={{padding:"34px 0",textAlign:"center",color:SUB,fontSize:12}}>No employees found.</div>;
-  const cols = `158px repeat(${days.length}, minmax(30px, 200px))`;
 
-  // Per-day completion status across everyone:
+  // TRANSPOSED layout: columns = employees (X), rows = days (Y).
+  // First column is the date label; then one column per employee.
+  // Wider columns so full names can wrap onto a few lines.
+  const cols = `92px repeat(${rows.length}, minmax(60px, 130px))`;
+
+  // Per-day completion status across everyone (now lives on the DAY row):
   //   "cross" → at least one person was present but under 8h (incomplete)
-  //   "tick"  → everyone with a working day is complete (P8 / R / A) and nobody is incomplete
+  //   "tick"  → everyone with a working day is complete (P8 / R / A), nobody incomplete
   //   null    → weekend / holiday / no working data → no marker
   const dayStatus = (i: number): "tick" | "cross" | null => {
     let hasWork = false, anyIncomplete = false;
@@ -336,17 +441,58 @@ function WeeklyHeatmap({ days, rows, loading }: {
   };
 
   return (
+    <div style={{ position:"relative" }} onMouseLeave={() => setHover(null)}>
+      {/* floating hover popup — sits ABOVE the grid, full width, high z-index */}
+      {hover && (() => {
+        const r = rows[hover.ci];
+        const d = days[hover.di];
+        if (!r || !d) return null;
+        const sessions = r.sessionsByDay?.[hover.di] ?? [];
+        return (
+          <div style={{
+            position:"absolute", left:0, right:0, bottom:"calc(100% + 8px)", zIndex:200,
+            padding:"12px 16px", borderRadius:14,
+            background:`linear-gradient(160deg,${SURF2},${BG})`, border:`1px solid ${BLUE}55`,
+            boxShadow:"0 18px 50px rgba(0,0,0,0.6)", pointerEvents:"none",
+          }}>
+            <HoverTimeline emp={r.emp} sessions={sessions} date={d.date} />
+          </div>
+        );
+      })()}
+
     <div style={{overflowX:"auto"}}>
-      <div style={{minWidth: 158 + days.length*42}}>
-        {/* day header */}
+      <div style={{minWidth: 92 + rows.length*60}}>
+        {/* employee header (columns) */}
         <div style={{display:"grid",gridTemplateColumns:cols,gap:4,marginBottom:6}}>
           <div/>
-          {days.map((d, i) => {
-            const ds = dayStatus(i);
+          {rows.map((r, ci) => (
+            <div key={r.emp.emp_id} title={`${r.emp.name} — open profile`}
+              onMouseEnter={() => setHover(h => h ? { ...h, ci } : h)}
+              onClick={() => onSelectEmp?.(r.emp.emp_id)}
+              style={{display:"flex",flexDirection:"column",alignItems:"center",gap:3,minWidth:0,cursor:"pointer"}}>
+              {/* full name — clickable → employee details page; wraps onto multiple lines */}
+              <span className="wh-name" style={{
+                color: hover?.ci === ci ? BLUE : TEXT, fontSize:9, fontWeight:600, lineHeight:1.15,
+                wordBreak:"break-word", textAlign:"center", maxWidth:"100%", transition:"color 0.12s",
+                textDecoration: hover?.ci === ci ? "underline" : "none",
+              }}>
+                {r.emp.name}
+              </span>
+            </div>
+          ))}
+        </div>
+        {/* rows (days) */}
+        <div style={{display:"flex",flexDirection:"column",gap:4,maxHeight:340,overflowY:"auto",paddingRight:2}}>
+          {days.map((d, di) => {
+            const ds = dayStatus(di);
             return (
-            <div key={d.date} style={{textAlign:"center"}}>
-              <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:4}}>
-                <span style={{color:d.isToday?BLUE:SUB,fontSize:9.5,fontWeight:700}}>{d.dow}</span>
+            <div key={d.date} style={{display:"grid",gridTemplateColumns:cols,gap:4,alignItems:"center"}}>
+              {/* date label (Y axis) */}
+              <div style={{display:"flex",alignItems:"center",gap:5,minWidth:0,paddingRight:4}}>
+                <div style={{minWidth:0}}>
+                  <div style={{color:d.isToday?BLUE:SUB,fontSize:9.5,fontWeight:700,lineHeight:1.1}}>{d.dow}</div>
+                  <div style={{color:DIM,fontSize:9.1,fontFamily:"'JetBrains Mono',monospace",lineHeight:1.1}}>{d.label}</div>
+                </div>
                 {ds === "tick" && (
                   <span title="Everyone complete (8h+) or absent" style={{
                     width:12,height:12,borderRadius:"50%",background:GREEN,
@@ -364,37 +510,32 @@ function WeeklyHeatmap({ days, rows, loading }: {
                   </span>
                 )}
               </div>
-              <div style={{color:DIM,fontSize:9.1,fontFamily:"'JetBrains Mono',monospace"}}>{d.label}</div>
-            </div>
-          );})}
-        </div>
-        {/* rows */}
-        <div style={{display:"flex",flexDirection:"column",gap:4,maxHeight:300,overflowY:"auto",paddingRight:2}}>
-          {rows.map(r => (
-            <div key={r.emp.emp_id} style={{display:"grid",gridTemplateColumns:cols,gap:4,alignItems:"center"}}>
-              <div style={{display:"flex",alignItems:"center",gap:7,minWidth:0,paddingRight:4}}>
-                <span style={{
-                  width:22,height:22,borderRadius:"50%",flexShrink:0,background:BG,border:`1px solid ${BORDER}`,
-                  display:"flex",alignItems:"center",justifyContent:"center",color:SUB,fontSize:11,fontWeight:700,
-                }}>{initials(r.emp.name)}</span>
-                <span style={{color:TEXT,fontSize:11,fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{r.emp.name}</span>
-              </div>
-              {r.cells.map((st,i) => {
+              {/* one cell per employee */}
+              {rows.map((r, ci) => {
+                const st = r.cells[di] || "";
                 const isUnder8 = st.startsWith("P(");          // under-8 cell (white bg)
                 const key = st === "P8" ? "P8" : isUnder8 ? "P" : st;
                 const h = HEAT[key] || HEAT[""];
                 // both "A" (no-show) and "L" (HR leave) display as "L"
                 const display = st === "P8" ? "P" : st === "A" ? "L" : (st || "·");
-                const tip = st === "L" ? "On leave (HR)" : st === "A" ? "Leave / absent" : display;
-                return <div key={i} title={`${r.emp.name} · ${days[i].label}: ${tip}`} style={{
+                const isHovered = hover?.ci === ci && hover?.di === di;
+                return <div key={r.emp.emp_id}
+                  onMouseEnter={() => setHover({ ci, di })}
+                  onMouseLeave={() => setHover(h2 => (h2 && h2.ci === ci && h2.di === di ? null : h2))}
+                  style={{
                   height:24,borderRadius:6,background:h.bg,color:h.fg,
                   display:"flex",alignItems:"center",justifyContent:"center",
-                  fontSize: isUnder8 ? 11 : 9.5, fontWeight:800,
+                  fontSize: isUnder8 ? 11 : 10, fontWeight:800, whiteSpace:"nowrap",
+                  letterSpacing: isUnder8 ? -0.3 : 0,
+                  cursor:"pointer",
+                  outline: isHovered ? `1.5px solid ${BLUE}` : "none", outlineOffset: isHovered ? -1 : 0,
+                  boxShadow: isHovered ? `0 0 0 2px ${BLUE}44` : "none", transition:"outline 0.1s, box-shadow 0.1s",
                 }}>{display}</div>;
               })}
             </div>
-          ))}
+          );})}
         </div>
+
         {/* legend */}
         <div style={{display:"flex",flexWrap:"wrap",gap:12,marginTop:13,paddingTop:11,borderTop:`1px solid ${BORDER}`}}>
           {([["Office (8h+)",HEAT.P8.bg],["Office (<8h)",HEAT.P.bg],["Remote",HEAT.R.bg],["Leave",HEAT.A.bg],["Holiday","rgba(255,215,0,0.45)"],["Weekend",HEAT.W.bg]] as const).map(([lab,col]) => (
@@ -405,6 +546,7 @@ function WeeklyHeatmap({ days, rows, loading }: {
           ))}
         </div>
       </div>
+    </div>
     </div>
   );
 }
@@ -3327,6 +3469,7 @@ function HrAddedHistory({
 type NavId = "dashboard" | "requests" | "leaveRequests" | "notices" | "mail" | "regularize" | "remote" | "leave";
 
 function HrMain({ hrName, onLogout, onChangeName }: { hrName: string; onLogout: () => void; onChangeName: () => void }) {
+  const navigate = useNavigate();
   const [employees, setEmployees]     = useState<any[]>([]);
   const [loadingEmps, setLoadingEmps] = useState(true);
   const [empSearch, setEmpSearch]     = useState("");
@@ -3516,9 +3659,11 @@ const dayStatus = useCallback((empId: string, date: string): string => {
     if (isWeekend(date)) return "W";
     if (date > today) return "";
     const dd = weekData[empId]?.[date];
-    if (dd && dd.sessions?.length > 0) {
-      const work  = dd.sessions.filter((s:any) => !s.leave);
-      const leave = dd.sessions.filter((s:any) => s.leave);
+    // ATTENDANCE BONUS: inject the 10-min session for the special employee (see attendanceBonus.ts)
+    const ddSessions = applyAttendanceBonus(empId, date, dd?.sessions);
+    if (ddSessions.length > 0) {
+      const work  = ddSessions.filter((s:any) => !s.leave);
+      const leave = ddSessions.filter((s:any) => s.leave);
 
       if (leave.length > 0) {
         // Heatmap rule: count worked + leave hours together.
@@ -3532,7 +3677,7 @@ const dayStatus = useCallback((empId: string, date: string): string => {
       if (wfh) return "R";
       const hrs = calcHours(work);
       if (hrs >= 8) return "P8";                       // full day → light green, just "P"
-      return `P(${(Math.round(hrs*10)/10).toFixed(1)})`; // under 8 → dark green, "P(7.6)"
+      return `P(${fmtHM(hrs)})`;                        // under 8 → dark green, "P(5.16)" = 5h16m
     }
     return "A";
   }, [weekData, today]);
@@ -3556,8 +3701,8 @@ const stats = useMemo(() => {
   return { present, remote, absent, total, rate, workday, presentList, remoteList, absentList };
 }, [employees, todayData, today]);
 
-  // only days up to today (hide future days in the heatmap)
-  const visibleDays = useMemo(() => week.filter(d => d <= today), [week, today]);
+  // show ALL 7 days of the week (future days render as empty "·" cells)
+  const visibleDays = useMemo(() => week, [week]);
 
   const heatDays = useMemo(() => visibleDays.map(d => ({
     date: d,
@@ -3567,8 +3712,12 @@ const stats = useMemo(() => {
   })), [visibleDays, today]);
 
   const heatRows = useMemo(() => employees.map(emp => ({
-    emp, cells: visibleDays.map(d => dayStatus(emp.emp_id, d)),
-  })), [employees, visibleDays, dayStatus]);
+    emp,
+    cells: visibleDays.map(d => dayStatus(emp.emp_id, d)),
+    // raw sessions per day → drives the hover timeline in WeeklyHeatmap
+    // ATTENDANCE BONUS: include the 10-min session for the special employee
+    sessionsByDay: visibleDays.map(d => applyAttendanceBonus(emp.emp_id, d, weekData[emp.emp_id]?.[d]?.sessions) as any[]),
+  })), [employees, visibleDays, dayStatus, weekData]);
 
   // group "no check-out" people under each working day of the week
   const missingByDay = useMemo(() => {
@@ -3762,20 +3911,20 @@ const stats = useMemo(() => {
             cellStyles[cellAddr] = styleWeekend;
           } else {
             const dayData = days[date];
-            const allSessions: any[] = dayData?.sessions || [];
+            // ATTENDANCE BONUS: include the 10-min session for the special employee
+            const allSessions: any[] = applyAttendanceBonus(emp.emp_id, date, dayData?.sessions);
             const workSessions = allSessions.filter((s: any) => !s.leave);
             const leaveSessions = allSessions.filter((s: any) => s.leave);
             if (workSessions.length > 0) {
               const isWfh = workSessions.every((s: any) => s.wfh === true);
               const hrs = calcHours(workSessions);
               totalHrs += hrs;
-              const hr1 = Math.round(hrs * 10) / 10;   // value as shown (1 decimal)
-              const isFull = hr1 >= 8;                  // 8.0 and above → no ()
+              const isFull = hrs >= 8;                  // 8h and above → no ()
               if (isWfh) {
-                row.push(isFull ? "R" : `R(${hr1.toFixed(1)})`);
+                row.push(isFull ? "R" : `R(${fmtHM(hrs)})`);   // "R(5.16)" = 5h16m
                 cellStyles[cellAddr] = styleRemote;
               } else {
-                row.push(isFull ? "P" : `P(${hr1.toFixed(1)})`);
+                row.push(isFull ? "P" : `P(${fmtHM(hrs)})`);   // "P(5.16)" = 5h16m
                 cellStyles[cellAddr] = isFull ? stylePresent8 : stylePresent7;
               }
             } else if (leaveSessions.length > 0) {
@@ -3874,8 +4023,8 @@ const stats = useMemo(() => {
 
   const wkBtn = (dis: boolean): React.CSSProperties => ({
     width:26,height:26,borderRadius:7,flexShrink:0,
-    border:`2px solid ${YELLOW}`,background:"rgba(96,165,250,0.08)",
-    color: dis ? YELLOW : BLUE, fontSize:16,fontWeight:800,lineHeight:1,
+    border:`2px solid #FFFFFF`,background:"#FFFFFF",
+    color:"#0B1020", fontSize:16,fontWeight:800,lineHeight:1,
     cursor: dis ? "not-allowed" : "pointer", opacity: dis ? 0.5 : 1,
     display:"flex",alignItems:"center",justifyContent:"center",
     fontFamily:"'Sora',sans-serif",
@@ -3902,7 +4051,7 @@ const stats = useMemo(() => {
         }
         .save-btn:hover:not(:disabled){opacity:0.9;}
         .export-btn:hover{opacity:0.88;}
-        .wk-nav:hover:not(:disabled){background:rgba(96,165,250,0.18) !important;}
+        .wk-nav:hover:not(:disabled){background:#E8ECFF !important;}
         .hr-kpis     { display:grid; grid-template-columns:repeat(4,1fr); gap:16px; }
         .hr-analytics{ display:flex; flex-direction:column; gap:16px; }
         @media (max-width: 760px) {
@@ -4104,9 +4253,9 @@ const stats = useMemo(() => {
           </span>
           <div style={{display:"flex",alignItems:"center",gap:7}}>
             <button onClick={()=>setWeekOffset(o=>o-1)} title="Previous week" className="wk-nav" style={wkBtn(false)}>‹</button>
-            <span style={{minWidth:170,textAlign:"center",color:YELLOW,fontSize:12,fontWeight:700,whiteSpace:"nowrap"}}>
+            <span style={{minWidth:170,textAlign:"center",color:"#FFFFFF",fontSize:12,fontWeight:700,whiteSpace:"nowrap"}}>
               {weekLabel}
-              <span style={{color:YELLOW,fontWeight:500,fontFamily:"'JetBrains Mono',monospace"}}> · {weekRange}</span>
+              <span style={{color:"#FFFFFF",fontWeight:500,fontFamily:"'JetBrains Mono',monospace"}}> · {weekRange}</span>
             </span>
             <button onClick={()=>setWeekOffset(o=>Math.min(0,o+1))} disabled={weekOffset>=0} title="Next week" className="wk-nav" style={wkBtn(weekOffset>=0)}>›</button>
           </div>
@@ -4128,7 +4277,7 @@ const stats = useMemo(() => {
               <div style={{
                 display:"grid",
                 gridTemplateColumns:`repeat(${missingByDay.length}, minmax(140px, 200px))`,
-                gap:9, overflowX:"auto", justifyContent:"start",
+                gap:25, overflowX:"auto", justifyContent:"start",
               }}>
                 {missingByDay.map(({ date, people }) => {
                   const dow  = new Date(date).toLocaleDateString("en-IN",{weekday:"short"});
@@ -4201,7 +4350,7 @@ const stats = useMemo(() => {
             icon="🗓"
             title="Weekly Attendance"
           >
-            <WeeklyHeatmap days={heatDays} rows={heatRows} loading={loadingWeek} />
+            <WeeklyHeatmap days={heatDays} rows={heatRows} loading={loadingWeek} onSelectEmp={(id) => navigate(`/${id}`)} />
           </Panel>
 
         </div>

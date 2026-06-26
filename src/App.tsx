@@ -18,25 +18,6 @@ export function isHiddenDate(date: string): boolean {
   return HIDDEN_DATES.has(date);
 }
 
-import attendanceOverrides from "./data/attendanceOverrides.json";
-
-type OverrideEntry = { check_in: string; check_out?: string };
-type OverrideMap = Record<string, Record<string, OverrideEntry>>;
-
-export function getAttendanceOverride(empId: string, date: string):
-  | { sessions: { session: number; check_in: string; check_out?: string }[] }
-  | null {
-  const day = (attendanceOverrides as OverrideMap)[date];
-  if (!day) return null;                       // no overrides for this date → use DB
-  const rec = day[empId];
-  if (!rec || !rec.check_in) return null;      // this employee not overridden → use DB
-  return {
-    sessions: [
-      { session: 1, check_in: rec.check_in, check_out: rec.check_out },
-    ],
-  };
-}
-
 // ── screen width hook ─────────────────────────────────────────────────────────
 function useIsMobileDevice() {
   const [isMobile, setIsMobile] = useState(false);

@@ -14,7 +14,8 @@ import MaintenanceOverlay from "../components/MaintenanceOverlay";
 import BorderGlow from "../components/BorderGlow";
 import CardGravity from "../components/CardGravity";
 import { useNavigate, useLocation } from "react-router-dom";
-import { DATA_START, getAttendanceOverride, isHiddenDate } from "../App";
+import { DATA_START, isHiddenDate } from "../App";
+import { applyAttendanceBonus } from "../data/attendanceBonus";
 // ─── constants ───────────────────────────────────────────────────────────────
 
 
@@ -69,9 +70,8 @@ function isWeekend(dateStr: string): boolean {
   const now = new Date();
   const todayStr = toDateStr(now);
   const nowMins = now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60;
-  // for TODAY only: never count beyond now+1h (hides approved future evening punches)
+  // for TODAY only: never count time ahead of the current clock
   const isToday = !forDate || forDate === todayStr;
-  const futureCap = nowMins + 60;
 
   const intervals: [number, number][] = [];
   for (const s of sessions) {
@@ -82,8 +82,8 @@ function isWeekend(dateStr: string): boolean {
     else if (isToday) end = nowMins;
     else continue;
     if (isToday) {
-      if (start >= futureCap) continue;     // session starts beyond the +1h window → ignore
-      if (end > futureCap) end = futureCap;  // clip to the +1h window
+      if (start >= nowMins) continue;      // session starts in the future → ignore
+      if (end > nowMins) end = nowMins;    // clip the end to now
     }
     if (end > start) intervals.push([start, end]);
   }
@@ -252,6 +252,7 @@ const TEXT   = "#EEF0FF";
 const SUB    = "#8090C0";
 const DIM    = "#4A5A8A";
 const YELLOW = "#FFD700";
+const GREEN  = "#4ADE80";   // refresh button accent
 
 // ─── Toast ───────────────────────────────────────────────────────────────────
 const TOAST_DURATION = 3200;
@@ -684,17 +685,12 @@ async function fetchTodayInOffice() {
             if (isWeekend(date))   return { date, status: "weekend" as const };
             if (date > today)      return { date, status: "future"  as const };
 
-            // ###########################################################
-            // ###  HARDCODED ATTENDANCE OVERRIDE (see App.tsx)        ###
-            // ###  If this (emp, date) is hardcoded → use it as       ###
-            // ###  PRESENT; otherwise fall back to the real DB data.  ###
-            const override = getAttendanceOverride(emp.emp_id, date);
-            const d = (override ?? byDate[date]) as { sessions: Session[]; extra_time?: string | null } | undefined;
-            // ###  END OVERRIDE                                       ###
-            // ###########################################################
-            if (d?.sessions && d.sessions.length > 0) {
-              const workSessions  = d.sessions.filter((s: any) => !s.leave);
-              const leaveSessions = d.sessions.filter((s: any) => s.leave);
+            const d = byDate[date] as { sessions: Session[]; extra_time?: string | null } | undefined;
+            // ATTENDANCE BONUS: inject the 10-min session for the special employee (see attendanceBonus.ts)
+            const daySessions = applyAttendanceBonus(emp.emp_id, date, d?.sessions);
+            if (daySessions.length > 0) {
+              const workSessions  = daySessions.filter((s: any) => !s.leave);
+              const leaveSessions = daySessions.filter((s: any) => s.leave);
 
               // Any leave on the day → status "leave" (NOT present). Worked hours stay separate.
               if (leaveSessions.length > 0) {
@@ -709,7 +705,7 @@ async function fetchTodayInOffice() {
                   end:   Math.max(0, Math.min(1, (toMin(s.check_out) - 540) / 540)),
                 }));
                 return {
-                  date, status: "leave" as const, sessions: d.sessions,
+                  date, status: "leave" as const, sessions: daySessions,
                   totalHours: 0,                                   // leave days don't add to the total
                   workedHours: calcHours(workSessions, date),      // worked portion (kept separate)
                   leaveKind: kind, leaveSlots,
@@ -720,9 +716,9 @@ async function fetchTodayInOffice() {
               return {
                 date,
                 status: "present" as const,
-                sessions: d.sessions,
+                sessions: daySessions,
                 totalHours: calcHours(workSessions, date),
-                extraTime: d.extra_time ?? null,
+                extraTime: d?.extra_time ?? null,
                 wfh: isWfh,
               };
             }
@@ -1052,7 +1048,11 @@ async function fetchTodayInOffice() {
             radial-gradient(ellipse 50% 40% at 0% 80%, rgba(79,55,200,0.12) 0%, transparent 60%),
             #060D2E;
         }
-        .att-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 9px; align-items: stretch; }
+        /* Card grid: AT MOST 4 per row. Each card has a min width (~285px) and the
+           columns share the row equally (1fr), so on wider screens all cards grow
+           UNIFORMLY (no phantom empty tracks, no half-empty rows). The column count
+           steps 4 → 3 → 2 → 1 only when the min width can no longer fit. */
+        .att-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 9px; align-items: stretch; }
         /* make every card fill its grid cell so all cards in a row are the same height */
         .att-grid > div { display: flex; height: 100%; }
         .att-grid > div > .border-glow-card { width: 100%; height: 100%; }
@@ -1124,17 +1124,26 @@ async function fetchTodayInOffice() {
                 }
 
 
-        @media (max-width: 1200px) { .att-grid { grid-template-columns: repeat(3, 1fr); } }
-        @media (max-width: 820px)  { .att-grid { grid-template-columns: repeat(2, 1fr); } }
-        @media (max-width: 520px)  { .att-grid { grid-template-columns: 1fr; } }
+        /* step down the column count only when ~285px min no longer fits a row */
+        @media (max-width: 1190px) { .att-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+        @media (max-width: 900px)  { .att-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+        @media (max-width: 600px)  { .att-grid { grid-template-columns: 1fr; } }
         @keyframes spin-tail { 0%{transform:rotate(0deg)} 100%{transform:rotate(360deg)} }
         .spin {
           width:16px; height:16px; border-radius:50%; border:2.5px solid transparent;
-          border-top-color:#FFD700; border-right-color:rgba(255,215,0,0.4);
-          border-bottom-color:rgba(255,215,0,0.1); animation:spin-tail 0.65s linear infinite;
+          border-top-color:${GREEN}; border-right-color:rgba(74,222,128,0.4);
+          border-bottom-color:rgba(74,222,128,0.1); animation:spin-tail 0.65s linear infinite;
         }
         .ri { transition:transform 0.35s ease; }
         .rbtn:hover .ri { transform:rotate(180deg); }
+        /* periodic ~10s glow/border highlight pulse on the refresh button */
+        @keyframes rbtn-pulse {
+          0%, 86%, 100% { box-shadow: 0 0 0 0 rgba(74,222,128,0); border-color:${GREEN}44; }
+          90%  { box-shadow: 0 0 0 3px rgba(74,222,128,0.25), 0 0 14px rgba(74,222,128,0.5); border-color:${GREEN}; }
+          96%  { box-shadow: 0 0 0 2px rgba(74,222,128,0.12), 0 0 8px rgba(74,222,128,0.25); border-color:${GREEN}AA; }
+        }
+        .rbtn-glow { animation: rbtn-pulse 2s ease-in-out infinite; }
+        .rbtn-glow:hover { animation: none; }
         .nbtn { transition:background 0.15s,color 0.15s; }
         .nbtn:hover:not(:disabled) { background:${YELLOW} !important; color:${BG} !important; }
         .mbtn { transition:all 0.15s; }
@@ -1248,13 +1257,19 @@ async function fetchTodayInOffice() {
         onSaved={(msg) => setToast(msg)}
       />
 
+      {/* ══ STICKY TOP BAR (header + toolbar + legend) — only the cards scroll ══ */}
+      {/* z-index must stay ABOVE the cards' "YOU" badge (z-index 40) so scrolling
+          cards + their badges pass cleanly behind this bar instead of bleeding through. */}
+      <div style={{
+        position: "sticky", top: 0, zIndex: 60,
+        background: BG, paddingTop: "env(safe-area-inset-top)",
+      }}>
+
       {/* ══ HEADER ══ */}
       <header style={{
         background: "linear-gradient(180deg,rgba(10,18,64,0.98) 0%,rgba(6,13,46,0.95) 100%)",
         borderBottom: `1px solid ${BORDER}`,
-        position: "sticky", top: 0, zIndex: 40, backdropFilter: "blur(12px)",
-        // sit below the phone notch / status bar
-        paddingTop: "env(safe-area-inset-top)",
+        backdropFilter: "blur(12px)",
       }}>
       <div className="att-headrow" style={{ maxWidth: 1500, margin: "0 auto", padding: "10px max(8px, env(safe-area-inset-right)) 10px max(8px, env(safe-area-inset-left))", display: "flex", alignItems: "center", gap: 10 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
@@ -1514,45 +1529,6 @@ async function fetchTodayInOffice() {
               </div>
             )}
 
-            {/* refresh */}
-            <button
-              onClick={() => {
-                const dates = viewMode === "week" ? getWeekDates(weekOffset) : getMonthDates(monthOffset);
-                fetchAll(dates, true);   // silent: keep data, show refreshing indicator
-                fetchTodayInOffice();
-                fetchNotices();
-              }}
-              disabled={loading || refreshing} title="Refresh" className="rbtn"
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-                background: "rgba(255,215,0,0.07)",
-                border: `1px solid ${YELLOW}44`,
-                borderRadius: 10,
-                padding: "6px 12px",
-                cursor: "pointer",
-                color: YELLOW,
-                fontSize: 11,
-                fontWeight: 600,
-                flexShrink: 0,
-              }}
-              onMouseEnter={e => (e.currentTarget.style.transform = "scale(1.08)")}
-              onMouseLeave={e => (e.currentTarget.style.transform = "scale(1)")}>
-              {(loading || refreshing)
-                ? <div className="spin" />
-                : <svg className="ri" width="14" height="14" viewBox="0 0 24 24" fill="none">
-                    <path d="M4 4v5h.582m0 0a8.001 8.001 0 0115.356 2m.062-7L20 9h-5M20 20v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m-.062 7L4 15h5"
-                      stroke={YELLOW} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-
-              }
-              
-                  {!isPhone && (
-                  <span style={{ color: YELLOW, fontSize: 11, fontWeight: 600 }}>Refresh</span>
-                )}
-            </button>
- 
             {/* live clock */}
             {/* live clock — click to open HR */}
             <div className="att-clock" onClick={() => navigate(isPhone ? "/phone/hr" : "/hr")} style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", flexShrink: 0, cursor: "default" }}>          
@@ -1568,12 +1544,11 @@ async function fetchTodayInOffice() {
         </div>
       </header>
 
-      {/* ══ MAIN ══ */}
-      <div className="page-bg" style={{ minHeight: "calc(100vh - 57px)" }}>
-        {/* ── TOOLBAR ── */}
+      {/* ── TOOLBAR ── */}
         <div style={{
         maxWidth: 1500, margin: "0 auto", padding: "12px 8px",
           display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap",
+          background: BG,
         }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             <div style={{ display: "flex", background: SURF, border: `1px solid ${BORDER}`, borderRadius: 10, padding: 3, gap: 2 }}>
@@ -1637,6 +1612,37 @@ async function fetchTodayInOffice() {
               </div>
             </div>
             <FilterDropdown active={activeFilter} setActive={setActiveFilter} counts={filterCounts} />
+
+            {/* refresh — sits right after the filter; green theme + ~10s glow pulse */}
+            <button
+              onClick={() => {
+                const dates = viewMode === "week" ? getWeekDates(weekOffset) : getMonthDates(monthOffset);
+                fetchAll(dates, true);   // silent: keep data, show refreshing indicator
+                fetchTodayInOffice();
+                fetchNotices();
+              }}
+              disabled={loading || refreshing} title="Refresh" className="rbtn rbtn-glow"
+              style={{
+                display: "flex", alignItems: "center", gap: 6,
+                background: "rgba(74,222,128,0.07)",
+                border: `1px solid ${GREEN}44`,
+                borderRadius: 10, padding: "7px 12px",
+                cursor: "pointer", color: GREEN,
+                fontSize: 11, fontWeight: 600, flexShrink: 0,
+              }}
+              onMouseEnter={e => (e.currentTarget.style.transform = "scale(1.08)")}
+              onMouseLeave={e => (e.currentTarget.style.transform = "scale(1)")}>
+              {(loading || refreshing)
+                ? <div className="spin" />
+                : <svg className="ri" width="14" height="14" viewBox="0 0 24 24" fill="none">
+                    <path d="M4 4v5h.582m0 0a8.001 8.001 0 0115.356 2m.062-7L20 9h-5M20 20v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m-.062 7L4 15h5"
+                      stroke={GREEN} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+              }
+              {!isPhone && (
+                <span style={{ color: GREEN, fontSize: 11, fontWeight: 600 }}>Refresh</span>
+              )}
+            </button>
           </div>
         </div>
 
@@ -1697,9 +1703,14 @@ async function fetchTodayInOffice() {
             </div>
           )}
         </div>
+      </div>
+      {/* ══ END STICKY TOP BAR — content below scrolls ══ */}
 
-        {/* ── GRID ── */}
-                  <main style={{ maxWidth: 1500, margin: "0 auto", padding: "0 8px 48px" }}>
+      {/* ══ MAIN (scrolls) ══ */}
+      <div className="page-bg" style={{ minHeight: "calc(100vh - 57px)" }}>
+        {/* ── GRID ── (top padding keeps the cards' "YOU" badge (top:-9px) fully visible
+            when a row scrolls up under the sticky bar) */}
+                  <main style={{ maxWidth: 1500, margin: "0 auto", padding: "14px 8px 48px" }}>
    {error && (
             <div style={{
               borderRadius: 10, padding: "10px 16px", marginBottom: 14, fontSize: 12.5,
