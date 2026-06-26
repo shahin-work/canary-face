@@ -16,6 +16,7 @@ import CardGravity from "../components/CardGravity";
 import { useNavigate, useLocation } from "react-router-dom";
 import { DATA_START, isHiddenDate } from "../App";
 import { applyAttendanceBonus } from "../data/attendanceBonus";
+import { calcHours } from "../lib/hours";
 // ─── constants ───────────────────────────────────────────────────────────────
 
 
@@ -60,46 +61,8 @@ function isWeekend(dateStr: string): boolean {
   if (dow === 6) return Math.ceil(d.getDate() / 7) % 2 === 0;
   return false;
 }
-  
- function calcHours(sessions: Session[], forDate?: string): number {
-  if (!Array.isArray(sessions) || sessions.length === 0) return 0;
-  const toMins = (t: string) => {
-    const [h, m, s] = t.split(":").map(Number);
-    return h * 60 + m + (s || 0) / 60;
-  };
-  const now = new Date();
-  const todayStr = toDateStr(now);
-  const nowMins = now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60;
-  // for TODAY only: never count time ahead of the current clock
-  const isToday = !forDate || forDate === todayStr;
 
-  const intervals: [number, number][] = [];
-  for (const s of sessions) {
-    if (!s || !s.check_in) continue;
-    const start = toMins(s.check_in);
-    let end: number;
-    if (s.check_out) end = toMins(s.check_out);
-    else if (isToday) end = nowMins;
-    else continue;
-    if (isToday) {
-      if (start >= nowMins) continue;      // session starts in the future → ignore
-      if (end > nowMins) end = nowMins;    // clip the end to now
-    }
-    if (end > start) intervals.push([start, end]);
-  }
-  if (intervals.length === 0) return 0;
-
-  intervals.sort((a, b) => a[0] - b[0]);
-  let total = 0;
-  let [curStart, curEnd] = intervals[0];
-  for (let i = 1; i < intervals.length; i++) {
-    const [s, e] = intervals[i];
-    if (s <= curEnd) { if (e > curEnd) curEnd = e; }
-    else { total += curEnd - curStart; curStart = s; curEnd = e; }
-  }
-  total += curEnd - curStart;
-  return Math.round((total / 60) * 100) / 100;
-}
+// calcHours is centralised in ../lib/hours (imported above) — single source of truth.
 
 function AnimatedLogo() {
   const [showSparkle, setShowSparkle] = useState(false);

@@ -368,7 +368,7 @@ function HoverTimeline({ emp, sessions, date }: { emp: any; sessions: any[]; dat
               const inP = pct(s.check_in);
               const outP = s.check_out ? pct(s.check_out) : inP + 1.5;
               const w = Math.max(outP - inP, 0.6);
-              const color = s.leave ? RED : s.meeting ? "#22D3EE" : s.regularized ? "#15803D" : s.wfh ? "#EC4899" : GREEN;
+              const color = s.leave ? RED : s.meeting ? "#22D3EE" : s.regularized ? "#7FFFD4" : s.wfh ? "#EC4899" : GREEN;
               return (
                 <div key={i}>
                   <div style={{ position:"absolute", left:`${inP}%`, width:`${w}%`, top:"50%", transform:"translateY(-50%)", height:5, borderRadius:3, background:color, boxShadow:`0 0 6px ${color}66` }}/>
@@ -389,7 +389,7 @@ function HoverTimeline({ emp, sessions, date }: { emp: any; sessions: any[]; dat
           <div style={{ display:"flex", flexWrap:"wrap", gap:7 }}>
             {work.map((s, i) => {
               const tag = s.leave ? "LEAVE" : s.meeting ? "MTG" : s.regularized ? "REG" : s.wfh ? "WFH" : "";
-              const tagColor = tag==="LEAVE"?RED:tag==="WFH"?"#EC4899":tag==="REG"?"#34D399":"#22D3EE";
+              const tagColor = tag==="LEAVE"?RED:tag==="WFH"?"#EC4899":tag==="REG"?"#7FFFD4":"#22D3EE";
               return (
                 <div key={i} style={{ display:"flex", alignItems:"center", gap:5, fontSize:10, fontFamily:"'JetBrains Mono',monospace", background:"rgba(99,102,241,0.06)", border:`1px solid ${BORDER}`, borderRadius:7, padding:"3px 8px" }}>
                   <span style={{ color:DIM, fontWeight:700, fontSize:8.5 }}>#{i+1}</span>

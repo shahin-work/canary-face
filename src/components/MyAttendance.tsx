@@ -26,7 +26,7 @@ const PINK   = "#EC4899";
 const BLUE   = "#60A5FA";
 const PURPLE = "#C084FC";
 const TEAL   = "#84fcfa";
-const REG    = "#15803D"; // regularized (HR-marked office) — dark green
+const REG    = "#7FFFD4"; // regularized (HR-approved office) — aquamarine
 
 const TYPE_COLORS: Record<string, string> = {
   permanent: YELLOW, consultant: BLUE, intern: PURPLE, guest: TEAL,
@@ -385,8 +385,8 @@ function WeekTile({ day, today, selected, onClick }: { day: DayInfo; today: stri
   let textColor = "#001a00";
 
   if (day.status === "present") {
-    bg = day.reg ? "rgba(21,128,61,0.92)" : day.wfh ? "rgba(166,38,128,0.74)" : presentColor(h);
-    textColor = day.reg ? "#eafff0" : day.wfh ? "#fff" : (h < 5 ? "rgba(150,255,150,0.85)" : "#001a00");
+    bg = day.reg ? "#7FFFD4" : day.wfh ? "rgba(166,38,128,0.74)" : presentColor(h);
+    textColor = day.reg ? "#06231C" : day.wfh ? "#fff" : (h < 5 ? "rgba(150,255,150,0.85)" : "#001a00");
     label = h > 0 ? fmtHoursShort(h) : <span style={{ fontSize: 8, fontWeight: 800 }}>IN</span>;
   } else if (day.status === "leave") {
     // leave day → green base graded by worked ÷ required (worked portion); red fallback if nothing worked

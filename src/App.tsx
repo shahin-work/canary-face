@@ -12,7 +12,7 @@ import InstallPrompt from './InstallPrompt'
 const MOBILE_BLOCK_ENABLED = false; // toggle: set false to allow mobile
 export const DATA_START = "2026-06-01";
 
-export const HIDDEN_DATES = new Set(["2026-06-24"]);
+export const HIDDEN_DATES = new Set([""]);
 
 export function isHiddenDate(date: string): boolean {
   return HIDDEN_DATES.has(date);

@@ -1,0 +1,672 @@
+{
+  "CDAI030": {
+    "employee_name": "Arun",
+    "sessions": [
+      {
+        "session": 1,
+        "check_in": "08:11:03",
+        "check_out": "16:09:00"
+      },
+      {
+        "session": 2,
+        "check_in": "16:23:13",
+        "check_out": "16:51:04"
+      },
+      {
+        "session": 3,
+        "check_in": "16:52:38",
+        "check_out": "17:17:24"
+      },
+      {
+        "session": 4,
+        "check_in": "17:20:54",
+        "check_out": "18:07:08"
+      }
+    ],
+    "breaks": {
+      "first_half": {
+        "used_seconds": 0
+      },
+      "second_half": {
+        "used_seconds": 300
+      }
+    }
+  },
+  "CDIN006": {
+    "employee_name": "Nandana",
+    "sessions": [
+      {
+        "session": 1,
+        "check_in": "08:27:15",
+        "check_out": "13:09:45"
+      },
+      {
+        "session": 2,
+        "check_in": "13:48:45",
+        "check_out": "16:41:48"
+      },
+      {
+        "session": 3,
+        "check_in": "16:48:17",
+        "check_out": "17:39:47"
+      },
+      {
+        "session": 4,
+        "check_in": "17:43:51",
+        "check_out": "18:04:07"
+      }
+    ],
+    "breaks": {
+      "first_half": {
+        "used_seconds": 0
+      },
+      "second_half": {
+        "used_seconds": 300
+      }
+    }
+  },
+  "CDIN007": {
+    "employee_name": "Anusha",
+    "sessions": [
+      {
+        "session": 1,
+        "check_in": "08:27:19",
+        "check_out": "13:09:59"
+      },
+      {
+        "session": 2,
+        "check_in": "13:48:40",
+        "check_out": "16:41:40"
+      },
+      {
+        "session": 3,
+        "check_in": "16:48:13",
+        "check_out": "18:04:12"
+      }
+    ],
+    "breaks": {
+      "first_half": {
+        "used_seconds": 0
+      },
+      "second_half": {
+        "used_seconds": 300
+      }
+    }
+  },
+  "CDAI024": {
+    "employee_name": "Ahil",
+    "sessions": [
+      {
+        "session": 1,
+        "check_in": "08:31:32",
+        "check_out": "13:01:29"
+      },
+      {
+        "session": 2,
+        "check_in": "13:29:19",
+        "check_out": "16:21:05"
+      },
+      {
+        "session": 3,
+        "check_in": "16:40:53",
+        "check_out": "18:05:15"
+      }
+    ],
+    "breaks": {
+      "first_half": {
+        "used_seconds": 245
+      },
+      "second_half": {
+        "used_seconds": 300
+      }
+    }
+  },
+  "CDAI008": {
+    "employee_name": "Abhijith",
+    "sessions": [
+      {
+        "session": 1,
+        "check_in": "08:48:57",
+        "check_out": "09:05:21"
+      },
+      {
+        "session": 2,
+        "check_in": "09:44:08",
+        "check_out": "09:44:55"
+      }
+    ],
+    "breaks": {
+      "first_half": {
+        "used_seconds": 300
+      },
+      "second_half": {
+        "used_seconds": 0
+      }
+    }
+  },
+  "CDAI014": {
+    "employee_name": "Lin",
+    "sessions": [
+      {
+        "session": 1,
+        "check_in": "08:51:18",
+        "check_out": "12:37:41"
+      },
+      {
+        "session": 2,
+        "check_in": "12:40:01",
+        "check_out": "13:19:05"
+      },
+      {
+        "session": 3,
+        "check_in": "13:42:17",
+        "check_out": "16:22:04"
+      },
+      {
+        "session": 4,
+        "check_in": "16:44:39",
+        "check_out": "16:47:16"
+      },
+      {
+        "session": 5,
+        "check_in": "16:47:46",
+        "check_out": "17:36:54"
+      },
+      {
+        "session": 6,
+        "check_in": "17:41:54",
+        "check_out": "17:48:00"
+      }
+    ],
+    "breaks": {
+      "first_half": {
+        "used_seconds": 300
+      },
+      "second_half": {
+        "used_seconds": 300
+      }
+    }
+  },
+  "CDAI029": {
+    "employee_name": "Chithira",
+    "sessions": [
+      {
+        "session": 1,
+        "check_in": "08:51:22",
+        "check_out": "11:04:53"
+      },
+      {
+        "session": 2,
+        "check_in": "11:08:10",
+        "check_out": "13:17:49"
+      },
+      {
+        "session": 3,
+        "check_in": "13:42:13",
+        "check_out": "16:20:55"
+      },
+      {
+        "session": 4,
+        "check_in": "16:40:57",
+        "check_out": "18:05:23"
+      }
+    ],
+    "breaks": {
+      "first_half": {
+        "used_seconds": 300
+      },
+      "second_half": {
+        "used_seconds": 300
+      }
+    }
+  },
+  "CDIN010": {
+    "employee_name": "Rasha",
+    "sessions": [
+      {
+        "session": 1,
+        "check_in": "08:59:22",
+        "check_out": "12:58:32"
+      },
+      {
+        "session": 2,
+        "check_in": "12:59:39",
+        "check_out": "13:10:08"
+      },
+      {
+        "session": 3,
+        "check_in": "14:02:57",
+        "check_out": "16:06:30"
+      },
+      {
+        "session": 4,
+        "check_in": "16:16:17",
+        "check_out": "16:23:21"
+      },
+      {
+        "session": 5,
+        "check_in": "16:51:00",
+        "check_out": "17:21:14"
+      },
+      {
+        "session": 6,
+        "check_in": "17:24:14",
+        "check_out": "18:30:08"
+      }
+    ],
+    "breaks": {
+      "first_half": {
+        "used_seconds": 300
+      },
+      "second_half": {
+        "used_seconds": 300
+      }
+    }
+  },
+  "CDAI031": {
+    "employee_name": "Rizwan",
+    "sessions": [
+      {
+        "session": 1,
+        "check_in": "09:07:56",
+        "check_out": "12:09:09"
+      },
+      {
+        "session": 2,
+        "check_in": "12:09:51",
+        "check_out": "12:12:40"
+      },
+      {
+        "session": 3,
+        "check_in": "12:13:11",
+        "check_out": "16:24:07"
+      },
+      {
+        "session": 4,
+        "check_in": "16:51:02",
+        "check_out": "18:17:38"
+      }
+    ],
+    "breaks": {
+      "first_half": {
+        "used_seconds": 300
+      },
+      "second_half": {
+        "used_seconds": 300
+      }
+    }
+  },
+  "CDAI013": {
+    "employee_name": "Sruthy",
+    "sessions": [
+      {
+        "session": 1,
+        "check_in": "09:09:06",
+        "check_out": "10:21:23"
+      },
+      {
+        "session": 2,
+        "check_in": "10:23:00",
+        "check_out": "12:05:27"
+      },
+      {
+        "session": 3,
+        "check_in": "12:12:55",
+        "check_out": "13:19:05"
+      },
+      {
+        "session": 4,
+        "check_in": "13:42:07",
+        "check_out": "13:56:05"
+      }
+    ],
+    "breaks": {
+      "first_half": {
+        "used_seconds": 300
+      },
+      "second_half": {
+        "used_seconds": 0
+      }
+    }
+  },
+  "CDAI011": {
+    "employee_name": "Ameen",
+    "sessions": [
+      {
+        "session": 1,
+        "check_in": "09:14:46",
+        "check_out": "09:22:04"
+      },
+      {
+        "session": 2,
+        "check_in": "09:44:24",
+        "check_out": "10:08:38"
+      },
+      {
+        "session": 3,
+        "check_in": "10:11:24",
+        "check_out": "11:35:23"
+      },
+      {
+        "session": 4,
+        "check_in": "11:44:05",
+        "check_out": "13:09:18"
+      },
+      {
+        "session": 5,
+        "check_in": "13:37:39",
+        "check_out": "15:46:45"
+      },
+      {
+        "session": 6,
+        "check_in": "15:51:30",
+        "check_out": "18:20:10"
+      }
+    ],
+    "breaks": {
+      "first_half": {
+        "used_seconds": 300
+      },
+      "second_half": {
+        "used_seconds": 300
+      }
+    }
+  },
+  "CDAI012": {
+    "employee_name": "Fayiz",
+    "sessions": [
+      {
+        "session": 1,
+        "check_in": "09:20:24",
+        "check_out": "13:18:44"
+      },
+      {
+        "session": 2,
+        "check_in": "13:42:08",
+        "check_out": "16:21:57"
+      },
+      {
+        "session": 3,
+        "check_in": "16:44:42",
+        "check_out": "21:32:50"
+      }
+    ],
+    "breaks": {
+      "first_half": {
+        "used_seconds": 286
+      },
+      "second_half": {
+        "used_seconds": 300
+      }
+    }
+  },
+  "CDIN009": {
+    "employee_name": "Gramika",
+    "sessions": [
+      {
+        "session": 1,
+        "check_in": "09:21:06",
+        "check_out": "09:34:46"
+      },
+      {
+        "session": 2,
+        "check_in": "09:40:04",
+        "check_out": "13:11:29"
+      },
+      {
+        "session": 3,
+        "check_in": "14:03:07",
+        "check_out": "16:19:17"
+      },
+      {
+        "session": 4,
+        "check_in": "16:21:33",
+        "check_out": "18:35:03"
+      }
+    ],
+    "breaks": {
+      "first_half": {
+        "used_seconds": 300
+      },
+      "second_half": {
+        "used_seconds": 300
+      }
+    }
+  },
+  "CDIN005": {
+    "employee_name": "Fida",
+    "sessions": [
+      {
+        "session": 1,
+        "check_in": "09:31:52",
+        "check_out": "11:39:51"
+      },
+      {
+        "session": 2,
+        "check_in": "11:46:29",
+        "check_out": "13:10:43"
+      },
+      {
+        "session": 3,
+        "check_in": "14:03:02",
+        "check_out": "16:19:22"
+      },
+      {
+        "session": 4,
+        "check_in": "16:21:33",
+        "check_out": "18:33:42"
+      }
+    ],
+    "breaks": {
+      "first_half": {
+        "used_seconds": 300
+      },
+      "second_half": {
+        "used_seconds": 300
+      }
+    }
+  },
+  "CDIN008": {
+    "employee_name": "Aiswarya",
+    "sessions": [
+      {
+        "session": 1,
+        "check_in": "09:31:57",
+        "check_out": "13:10:07"
+      },
+      {
+        "session": 2,
+        "check_in": "14:03:00",
+        "check_out": "18:33:45"
+      }
+    ],
+    "breaks": {
+      "first_half": {
+        "used_seconds": 0
+      },
+      "second_half": {
+        "used_seconds": 43
+      }
+    }
+  },
+  "CDIN004": {
+    "employee_name": "Amalesh",
+    "sessions": [
+      {
+        "session": 1,
+        "check_in": "09:42:51",
+        "check_out": "12:00:48"
+      },
+      {
+        "session": 2,
+        "check_in": "12:04:29",
+        "check_out": "12:47:46"
+      },
+      {
+        "session": 3,
+        "check_in": "12:52:42",
+        "check_out": "12:57:06"
+      },
+      {
+        "session": 4,
+        "check_in": "13:34:13",
+        "check_out": "14:33:12"
+      },
+      {
+        "session": 5,
+        "check_in": "14:34:30",
+        "check_out": "15:31:48"
+      },
+      {
+        "session": 6,
+        "check_in": "15:39:00",
+        "check_out": "16:23:09"
+      },
+      {
+        "session": 7,
+        "check_in": "16:54:41",
+        "check_out": "18:29:58"
+      },
+      {
+        "session": 8,
+        "check_in": "18:44:25",
+        "check_out": "19:04:49"
+      }
+    ],
+    "breaks": {
+      "first_half": {
+        "used_seconds": 300
+      },
+      "second_half": {
+        "used_seconds": 300
+      }
+    }
+  },
+  "CDAI009": {
+    "employee_name": "Shahin",
+    "sessions": [
+      {
+        "session": 1,
+        "check_in": "09:42:52",
+        "check_out": "12:17:11"
+      },
+      {
+        "session": 2,
+        "check_in": "12:18:59",
+        "check_out": "13:18:35"
+      },
+      {
+        "session": 3,
+        "check_in": "13:38:48",
+        "check_out": "14:59:13"
+      },
+      {
+        "session": 4,
+        "check_in": "15:00:06",
+        "check_out": "16:21:00"
+      },
+      {
+        "session": 5,
+        "check_in": "16:44:41",
+        "check_out": "18:39:04"
+      },
+      {
+        "session": 6,
+        "check_in": "18:49:27",
+        "check_out": "18:55:51"
+      },
+      {
+        "session": 7,
+        "check_in": "19:09:38",
+        "check_out": "19:16:19"
+      },
+      {
+        "session": 8,
+        "check_in": "19:17:26",
+        "check_out": "19:20:09"
+      }
+    ],
+    "breaks": {
+      "first_half": {
+        "used_seconds": 300
+      },
+      "second_half": {
+        "used_seconds": 300
+      }
+    }
+  },
+  "CDAI039": {
+    "employee_name": "Basim",
+    "sessions": [
+      {
+        "session": 1,
+        "check_in": "10:22:08",
+        "check_out": "11:58:59"
+      },
+      {
+        "session": 2,
+        "check_in": "11:59:18",
+        "check_out": "13:00:02"
+      },
+      {
+        "session": 3,
+        "check_in": "13:30:47",
+        "check_out": "15:42:42"
+      },
+      {
+        "session": 4,
+        "check_in": "16:14:30",
+        "check_out": "16:23:26"
+      },
+      {
+        "session": 5,
+        "check_in": "16:52:53",
+        "check_out": "18:22:35"
+      }
+    ],
+    "breaks": {
+      "first_half": {
+        "used_seconds": 300
+      },
+      "second_half": {
+        "used_seconds": 300
+      }
+    }
+  },
+  "CDAI022": {
+    "employee_name": "Shravan",
+    "sessions": [
+      {
+        "session": 1,
+        "check_in": "13:43:09",
+        "check_out": "18:05:25"
+      }
+    ],
+    "breaks": {
+      "first_half": {
+        "used_seconds": 0
+      },
+      "second_half": {
+        "used_seconds": 223
+      }
+    }
+  },
+  "CDCN001": {
+    "employee_name": "Tamil",
+    "sessions": [
+      {
+        "session": 1,
+        "check_in": "14:41:54",
+        "check_out": null
+      }
+    ],
+    "breaks": {
+      "first_half": {
+        "used_seconds": 0
+      },
+      "second_half": {
+        "used_seconds": 0
+      }
+    }
+  }
+}

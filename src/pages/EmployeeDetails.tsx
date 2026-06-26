@@ -5,6 +5,7 @@ import { db } from "../firebase";
 import { query, where, documentId } from "firebase/firestore";
 import { isHiddenDate } from "../App";
 import { applyAttendanceBonus } from "../data/attendanceBonus";
+import { calcHours, calcSessionHours, fmtHoursLong as fmtHM } from "../lib/hours";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface Session { session: number; check_in: string; check_out?: string; }
@@ -12,12 +13,7 @@ interface AttendanceDay { date: string; sessions: Session[]; extra_time?: string
 interface Employee { emp_id: string; name: string; department: string; type: string; created_at: string; profile_image?: string; }
 
 
-const fmtHM = (h: number) => {
-  const total = Math.round(h * 60);
-  const hh = Math.floor(total / 60);
-  const mm = total % 60;
-  return mm === 0 ? `${hh}h` : `${hh}h ${mm}m`;
-};
+// fmtHM (long "8h 30m" form), calcHours, calcSessionHours are centralised in ../lib/hours (imported above).
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const toDateStr = (d: Date) =>
@@ -25,58 +21,6 @@ const toDateStr = (d: Date) =>
 const toMins = (t: string) => { const [h,m] = t.split(":").map(Number); return h*60+m; };
 const fmtTime = (t: string) => t.slice(0,5);
 const getInitials = (name: string) => name.split(" ").map(n=>n[0]).join("").slice(0,2).toUpperCase();
-
-function calcHours(sessions: Session[], forDate?: string): number {
-  if (!Array.isArray(sessions) || sessions.length === 0) return 0;
-  const now = new Date(), todayStr = toDateStr(now);
-  const nowMins = now.getHours() * 60 + now.getMinutes();
-  // for TODAY only: never count time ahead of the current clock
-  const isToday = !forDate || forDate === todayStr;
-
-  const intervals: [number, number][] = [];
-  for (const s of sessions) {
-    if (!s || !s.check_in) continue;
-    if ((s as any).leave) continue;   // leave sessions never count toward worked hours
-    const start = toMins(s.check_in);
-    let end: number;
-    if (s.check_out) end = toMins(s.check_out);
-    else if (isToday) end = nowMins;
-    else continue;
-    if (isToday) {
-      if (start >= nowMins) continue;    // session starts in the future → ignore
-      if (end > nowMins) end = nowMins;  // clip the end to now
-    }
-    if (end > start) intervals.push([start, end]);
-  }
-  if (intervals.length === 0) return 0;
-
-  intervals.sort((a, b) => a[0] - b[0]);
-  let total = 0;
-  let [curStart, curEnd] = intervals[0];
-  for (let i = 1; i < intervals.length; i++) {
-    const [s, e] = intervals[i];
-    if (s <= curEnd) { if (e > curEnd) curEnd = e; }
-    else { total += curEnd - curStart; curStart = s; curEnd = e; }
-  }
-  total += curEnd - curStart;
-  return Math.round((total / 60) * 100) / 100;
-} 
-
-function calcSessionHours(s: Session, forDate: string): number {
-  const now = new Date(), todayStr = toDateStr(now);
-  const nowMins = now.getHours()*60 + now.getMinutes();
-  if (!s.check_in) return 0;
-  const isToday = forDate === todayStr;
-  const start = toMins(s.check_in);
-  if (isToday && start >= nowMins) return 0;            // starts in the future → nothing
-  if (s.check_out) {
-    let end = toMins(s.check_out);
-    if (isToday && end > nowMins) end = nowMins;        // clip the end to now
-    return Math.round((Math.max(0, end - start)/60)*100)/100;
-  }
-  if (isToday) return Math.round((Math.max(0, nowMins - start)/60)*100)/100;
-  return 0;
-}
 
 // ─── Holidays ────────────────────────────────────────────────────────────────
 const HOLIDAYS = new Set([
@@ -146,8 +90,8 @@ const C = {
   yellow: "#FFD700",
   green:  "#22C55E",
   green2: "#16A34A",
-  regGreen:  "#15803D",
-  regGreen2: "#0B5D2E",
+  regGreen:  "#7FFFD4",   // regularized (HR-approved) → aquamarine
+  regGreen2: "#4FD9B5",   // darker aquamarine for the bar gradient
   red:    "#ff3434",
   indigo: "#6366F1",
   blue:   "#60A5FA",
@@ -437,7 +381,7 @@ function TimelineRow({ day, attendanceMap, today, hoveredDay, onHover }: {
                 top:"50%", transform:"translateY(-50%)",
                 height: isHovered ? 5 : 3, borderRadius:4,
                 background: active
-                  ? `linear-gradient(90deg,${sessColor2},${sessColor},${isMeeting ? "#a5f3fc" : isReg ? "#4ADE80" : isWfhSession ? "#f9a8d4" : "#86EFAC"})`
+                  ? `linear-gradient(90deg,${sessColor2},${sessColor},${isMeeting ? "#a5f3fc" : isReg ? "#B2FFE8" : isWfhSession ? "#f9a8d4" : "#86EFAC"})`
                   : `linear-gradient(90deg,${sessColor2},${sessColor})`,
                 boxShadow: active ? `0 0 10px ${sessColor}66` : isHovered ? `0 0 8px ${sessColor}55` : `0 0 4px ${sessColor2}44`,
                   zIndex:1,
