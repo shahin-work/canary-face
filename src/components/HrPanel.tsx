@@ -5,6 +5,7 @@ import { getFirestore, collection, getDocs, doc, setDoc, getDoc } from "firebase
 import * as XLSX from "xlsx-js-style";
 import emailjs from "@emailjs/browser";
 import { applyAttendanceBonus } from "../data/attendanceBonus";
+import { calcHours, fmtHM } from "../lib/hours";
 import logo from "../assets/react.png";
 
 const firebaseConfig = {
@@ -93,24 +94,7 @@ const HOLIDAYS = new Set([
 ]);
 function isHoliday(d: string) { return HOLIDAYS.has(d); }
 
-function calcHours(sessions: any[]): number {
-  let mins = 0;
-  const toM = (t: string) => { const [h,m,s] = t.split(":").map(Number); return h*60+m+(s||0)/60; };
-  for (const s of sessions) {
-    if (!s.check_in || !s.check_out) continue;
-    mins += Math.max(0, toM(s.check_out) - toM(s.check_in));
-  }
-  return Math.round((mins/60)*100)/100;
-}
-
-// Format DECIMAL hours → "H.MM" (hours.minutes, NOT decimal) to match the rest of
-// the app. e.g. 5h 16m = 5.27 decimal → "5.16",  7h 6m → "7.06".
-function fmtHM(h: number): string {
-  const totalMins = Math.round(h * 60);
-  const hh = Math.floor(totalMins / 60);
-  const mm = totalMins % 60;
-  return `${hh}.${String(mm).padStart(2, "0")}`;
-}
+// calcHours and fmtHM ("H.MM") are centralised in ../lib/hours (imported above).
 
 // ── Toast ─────────────────────────────────────────────────────────────────────
 function useToast() {
@@ -2106,7 +2090,7 @@ function SendMail({
         await Promise.all(dates.map(async (date) => {
           try {
             const snap = await getDoc(doc(db, emp.emp_id, date));
-            if (snap.exists()) total += calcHours((snap.data().sessions as any[]) || []);
+            if (snap.exists()) total += calcHours((snap.data().sessions as any[]) || [], date);
           } catch (_) {}
         }));
         hours[emp.emp_id] = Math.round(total * 10) / 10;
@@ -3668,14 +3652,14 @@ const dayStatus = useCallback((empId: string, date: string): string => {
       if (leave.length > 0) {
         // Heatmap rule: count worked + leave hours together.
         // If the combined total reaches a full day → show "P" (blue) like a present day; else "L".
-        const combined = calcHours(work) + calcHours(leave);
+        const combined = calcHours(work, date) + calcHours(leave, date, { includeLeave: true });
         if (combined >= 8) return "P8";
         return "L";
       }
 
       const wfh = work.length > 0 && work.every((s:any) => s.wfh === true);
       if (wfh) return "R";
-      const hrs = calcHours(work);
+      const hrs = calcHours(work, date);
       if (hrs >= 8) return "P8";                       // full day → light green, just "P"
       return `P(${fmtHM(hrs)})`;                        // under 8 → dark green, "P(5.16)" = 5h16m
     }
@@ -3917,7 +3901,7 @@ const stats = useMemo(() => {
             const leaveSessions = allSessions.filter((s: any) => s.leave);
             if (workSessions.length > 0) {
               const isWfh = workSessions.every((s: any) => s.wfh === true);
-              const hrs = calcHours(workSessions);
+              const hrs = calcHours(workSessions, date);
               totalHrs += hrs;
               const isFull = hrs >= 8;                  // 8h and above → no ()
               if (isWfh) {

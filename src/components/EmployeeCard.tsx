@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { fmtHM } from "../lib/hours";
 
 // const SHOW_RED_BORDER_UNDER_8 = false;
 const SHOW_RED_BORDER_UNDER_8 = true;
@@ -65,18 +66,8 @@ function getInitials(name: string) {
   return name.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase();
 }
 
-// ─── Format decimal hours → "8.54" (hours.minutes, not decimal) ─────────────
-// e.g. 8h 54m → "8.54",  7h 6m → "7.06",  9h 0m → "9"
-function fmtHM(h: number): string {
-  const totalMins = Math.round(h * 60);
-  const hh = Math.floor(totalMins / 60);
-  const mm = totalMins % 60;
-  return `${hh}.${String(mm).padStart(2, "0")}`;
-}
-
-function fmtHMShort(h: number): string {
-  return fmtHM(h);
-}
+// fmtHM ("H.MM") is centralised in ../lib/hours (imported above).
+const fmtHMShort = fmtHM;
 
 // Required (expected) work hours for a day, based on any leave taken:
 //   full day → 8h, half-day leave → 4h, quarter-day leave → 6h.

@@ -507,6 +507,9 @@ export default function Attendance() {
   // Dev/preview override: add ?maint=1 to the URL to force the maintenance modal (so it can be seen without burning the quota).
   const forceMaint = typeof window !== "undefined" && new URLSearchParams(window.location.search).has("maint");
   const showMaintenance = quotaHit || forceMaint;
+  // The <MaintenanceOverlay> render below is currently commented out (WIP); keep
+  // these referenced so the import + variable don't trip the unused-symbol check.
+  void showMaintenance; void MaintenanceOverlay;
   const [, setCurrentlyIn] = useState<number>(0);
   const [toast,        setToast]       = useState<string | null>(null);
   const [activeFilter, setActiveFilter] = useState<FilterChip>("all");
@@ -686,8 +689,8 @@ async function fetchTodayInOffice() {
               };
             }
 
-            // today, no check-in yet → still awaiting (day not over, not a leave)
-            if (date === today) return { date, status: "awaiting" as const };
+            // today, no check-in → ABSENT (red) for the whole day (not "awaiting").
+            if (date === today) return { date, status: "absent" as const };
             // past working day with no attendance → treat as leave (was "absent")
             if (date < today)   return { date, status: "leave" as const };
             return { date, status: "future" as const };
@@ -702,8 +705,8 @@ async function fetchTodayInOffice() {
 
           const todayDay  = weekDays.find(d => d.date === today);
           const extraTime = todayDay?.extraTime ?? null;
-          // "awaiting" = today, not yet checked in (day not over) → neutral badge, not absent
-          let todayStatus: "present" | "checked-in" | "absent" | "awaiting" = "awaiting";
+          // No check-in today → "absent" (red). Becomes checked-in/present once they scan in.
+          let todayStatus: "present" | "checked-in" | "absent" | "awaiting" = "absent";
           let isCurrentlyIn = false;
           if (todayDay?.status === "present" && todayDay.sessions?.length) {
             const last = todayDay.sessions[todayDay.sessions.length - 1];
@@ -1077,13 +1080,19 @@ async function fetchTodayInOffice() {
         }
 
         @media (max-width: 760px) {
-                  .att-headrow    { flex-wrap: wrap !important; gap: 8px !important; padding: 8px 10px !important; }
+                  .att-headrow    { flex-wrap: wrap !important; gap: 6px !important; padding: 6px 10px !important; }
                   .att-rightgroup { width: 100% !important; flex-wrap: wrap !important; justify-content: flex-start !important; gap: 6px !important; }
                   .att-stats      { flex-wrap: wrap !important; row-gap: 4px !important; }
                   .att-clock      { margin-left: auto !important; }
+                  /* tighten the toolbar + legend so the cards start higher (less dead space up top) */
+                  .att-toolbar    { padding: 8px 10px !important; gap: 8px !important; }
+                  .att-legend     { padding: 0 10px 8px !important; padding-left: 10px !important; row-gap: 6px !important; }
                 }
                 @media (max-width: 480px) {
                   .att-clock { display: none !important; }
+                  .att-headrow { padding: 5px 8px !important; }
+                  .att-toolbar { padding: 6px 8px !important; }
+                  .att-legend  { padding: 0 8px 6px !important; }
                 }
 
 
@@ -1115,7 +1124,7 @@ async function fetchTodayInOffice() {
           display:none; position:absolute; top:calc(100% + 8px); right:0;
           background:#111C4A; border:1px solid rgba(99,102,241,0.35);
           border-radius:10px; padding:9px 13px; width:240px;
-          font-size:11px; line-height:1.55; color:#B0C0E0; z-index:200;
+          font-size:11px; line-height:1.55; color:#B0C0E0; z-index:400;
           box-shadow:0 8px 24px rgba(0,0,0,0.5); pointer-events:none; white-space:normal;
         }
         .adm-wrap:hover .adm-tip { display:block; }
@@ -1161,10 +1170,10 @@ async function fetchTodayInOffice() {
       `}</style>
 
       {toast && <Toast message={toast} onDone={dismissToast} />}
-
+{/* 
       {showMaintenance && !gameOpen && (
         <MaintenanceOverlay onPlay={() => { setGameFull(true); setGameOpen(true); }} />
-      )}
+      )} */}
 
       {gameOpen && (
         <CanaryGame
@@ -1229,7 +1238,10 @@ async function fetchTodayInOffice() {
       }}>
 
       {/* ══ HEADER ══ */}
+      {/* position+z-index raise the header above the toolbar below it so the hover
+          tooltips (.adm-tip) that overflow downward paint ON TOP of the toolbar/search. */}
       <header style={{
+        position: "relative", zIndex: 5,
         background: "linear-gradient(180deg,rgba(10,18,64,0.98) 0%,rgba(6,13,46,0.95) 100%)",
         borderBottom: `1px solid ${BORDER}`,
         backdropFilter: "blur(12px)",
@@ -1508,7 +1520,7 @@ async function fetchTodayInOffice() {
       </header>
 
       {/* ── TOOLBAR ── */}
-        <div style={{
+        <div className="att-toolbar" style={{
         maxWidth: 1500, margin: "0 auto", padding: "12px 8px",
           display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap",
           background: BG,
@@ -1610,7 +1622,7 @@ async function fetchTodayInOffice() {
         </div>
 
         {/* ── LEGEND ── */}
-        <div style={{ maxWidth: 1500, margin: "0 auto", padding: "0 10px 14px", display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", paddingLeft: 20 }}> 
+        <div className="att-legend" style={{ maxWidth: 1500, margin: "0 auto", padding: "0 10px 14px", display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", paddingLeft: 20 }}>
 
           {[
             { c: "#25ba5c",                l: "Present" },

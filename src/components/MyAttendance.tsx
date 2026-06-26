@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { collection, getDocs, doc, getDoc } from "firebase/firestore";
 import { db } from "../firebase";
 import { applyAttendanceBonus } from "../data/attendanceBonus";
+import { calcHours, fmtHoursLong as fmtHours, fmtHM as fmtHoursShort } from "../lib/hours";
 import logo from "../assets/react.png";
 import logo2 from "../assets/react1.png";
 import TextType from "./TextType";
@@ -78,33 +79,7 @@ function LogoLoader({ label = "Loading your attendance…" }: { label?: string }
   );
 }
 
-function calcHours(sessions: any[], forDate?: string): number {
-  let mins = 0;
-  const toMins = (t: string) => {
-    const [h, m, s] = t.split(":").map(Number);
-    return h * 60 + m + (s || 0) / 60;
-  };
-  const now = new Date();
-  const todayStr = toDateStr(now);
-  const nowMins = now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60;
-  // for TODAY only: never count time ahead of the current clock
-  const isToday = !forDate || forDate === todayStr;
-
-  for (const s of sessions || []) {
-    if (!s.check_in) continue;
-    const inMins = toMins(s.check_in);
-    let end: number;
-    if (s.check_out) end = toMins(s.check_out);
-    else if (isToday) end = nowMins;
-    else continue;
-    if (isToday) {
-      if (inMins >= nowMins) continue;     // starts in the future → ignore
-      if (end > nowMins) end = nowMins;    // clip the end to now
-    }
-    mins += Math.max(0, end - inMins);
-  }
-  return Math.round((mins / 60) * 100) / 100;
-}
+// calcHours is centralised in ../lib/hours (imported above).
 // ─── Standalone loader (shown before the modal, during the DB fetch) ─────────
 function LoaderOverlay() {
   return (
@@ -113,22 +88,7 @@ function LoaderOverlay() {
     </Backdrop>
   );
 }
-function fmtHours(h: number): string {
-  const totalMins = Math.round(h * 60);
-  const hh = Math.floor(totalMins / 60);
-  const mm = totalMins % 60;
-  if (hh === 0 && mm === 0) return "0m";
-  if (hh === 0) return `${mm}m`;
-  if (mm === 0) return `${hh}h`;
-  return `${hh}h ${mm}m`;
-}
-
-function fmtHoursShort(h: number): string {
-  const totalMins = Math.round(h * 60);
-  const hh = Math.floor(totalMins / 60);
-  const mm = totalMins % 60;
-  return `${hh}.${String(mm).padStart(2, "0")}`;
-}
+// fmtHours ("8h 30m") and fmtHoursShort ("H.MM") are centralised in ../lib/hours (imported/aliased above).
 
 function getInitials(name: string) {
   return (name || "?").split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase();

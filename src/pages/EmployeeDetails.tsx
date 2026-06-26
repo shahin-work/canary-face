@@ -1,9 +1,9 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { collection, getDocs } from "firebase/firestore";
 import { db } from "../firebase";
 import { query, where, documentId } from "firebase/firestore";
-import { isHiddenDate } from "../App";
+import { isHiddenDate, DATA_START } from "../App";
 import { applyAttendanceBonus } from "../data/attendanceBonus";
 import { calcHours, calcSessionHours, fmtHoursLong as fmtHM } from "../lib/hours";
 
@@ -181,13 +181,14 @@ function InsightCard({ label, value, unit, sub, color, icon, dates }: {
   );
 }
 
-function TimelineRow({ day, attendanceMap, today, hoveredDay, onHover }: {
+function TimelineRow({ day, attendanceMap, today, hoveredDay, onHover, rowRef }: {
   day: string;
   attendanceMap: Map<string, AttendanceDay>;
   today: string;
   hoveredDay: string | null;
   onHover: (day: string | null) => void;
-}) { 
+  rowRef?: React.Ref<HTMLDivElement>;   // attached to today's row → used to auto-scroll to it
+}) {
 
   const d       = new Date(day);
   const dayName = d.toLocaleDateString("en-IN", { weekday:"short" });
@@ -237,6 +238,7 @@ function TimelineRow({ day, attendanceMap, today, hoveredDay, onHover }: {
 
   return (
     <div
+      ref={rowRef}
       className="trow"
       onMouseEnter={() => onHover(day)}
       onMouseLeave={() => onHover(null)}
@@ -297,8 +299,24 @@ function TimelineRow({ day, attendanceMap, today, hoveredDay, onHover }: {
             "rgba(99,102,241,0.10)",
         }}/>
 
-        {/* Non-working label */}
-        {(weekend || (!hasSess && !isFutureDay) || (isFutureDay && (weekend || holiday))) && (
+        {/* Absent → solid red bar spanning the WORK day only (09:00 → 18:00 = 75% of the
+            09:00–21:00 track), no label. Covers both past no-show days AND today with no
+            check-in (today classifies as "absent" the whole day). */}
+        {state === "absent" && (
+          <div style={{
+            position:"absolute",
+            left:`${timeToPercent("09:00")}%`,
+            width:`${timeToPercent("18:00") - timeToPercent("09:00")}%`,
+            top:"50%", transform:"translateY(-50%)",
+            height:4, borderRadius:2,
+            background:C.red,
+            boxShadow:`0 0 6px ${C.red}66`,
+          }}/>
+        )}
+
+        {/* Non-working label — weekend / holiday only.
+            Absent days intentionally show NO text: just the solid red base track above. */}
+        {(weekend || (isFutureDay && (weekend || holiday))) && (
           <span style={{
             position:"absolute", left:"50%", transform:"translateX(-50%)",
             fontSize:9, fontWeight:700, letterSpacing:1, textTransform:"uppercase",
@@ -310,7 +328,7 @@ function TimelineRow({ day, attendanceMap, today, hoveredDay, onHover }: {
               "rgba(239,68,68,0.28)",
             userSelect:"none",
           }}>
-            {weekend ? getNonWorkingLabel(day) : "Absent"}
+            {getNonWorkingLabel(day)}
           </span>
         )}
 
@@ -644,6 +662,9 @@ export default function EmployeeDetails() {
   const [error,       setError]       = useState("");
   const [hoveredDay,  setHoveredDay]  = useState<string | null>(null);
   const [toast,       setToast]       = useState("");
+  // refs for auto-scrolling the timeline to today's row on load
+  const scrollBoxRef = useRef<HTMLDivElement>(null);
+  const todayRowRef  = useRef<HTMLDivElement>(null);
   const [isPhone, setIsPhone] = useState(
       typeof window !== "undefined" && window.innerWidth < 760
     );
@@ -652,11 +673,13 @@ export default function EmployeeDetails() {
       window.addEventListener("resize", onResize);
       return () => window.removeEventListener("resize", onResize);
     }, []);
-  // Allowed range: March 2026 (offset 0) → December 2026 (offset 9)
-  const RANGE_YEAR  = 2026;
-  const RANGE_START_MONTH = 2;  // March (0-indexed)
-  const RANGE_END_MONTH   = 11; // December
-  const TOTAL_MONTHS = RANGE_END_MONTH - RANGE_START_MONTH; // 9
+  // Allowed range start = DATA_START (no months before it — that data doesn't exist).
+  // DATA_START is "YYYY-MM-DD"; range runs from that month → December of that year.
+  const [DS_YEAR, DS_MONTH] = DATA_START.split("-").map(Number); // e.g. 2026, 6
+  const RANGE_YEAR  = DS_YEAR;
+  const RANGE_START_MONTH = DS_MONTH - 1;  // 0-indexed (June → 5)
+  const RANGE_END_MONTH   = 11;            // December
+  const TOTAL_MONTHS = RANGE_END_MONTH - RANGE_START_MONTH;
 
   const now   = new Date();
   const today = toDateStr(now);
@@ -732,6 +755,41 @@ export default function EmployeeDetails() {
     });
     return m;
   }, [attendance, empId]);
+
+  // Auto-scroll the timeline so today's row sits centred in view — runs once the
+  // data is loaded and only when the viewed month actually contains today.
+  const viewedMonthHasToday = monthDates.includes(today);
+  useEffect(() => {
+    if (loading || !viewedMonthHasToday) return;
+
+    // Measure with getBoundingClientRect (viewport-relative) instead of offsetTop:
+    // offsetTop depends on the nearest positioned ancestor, which neither the scroll
+    // box nor its inner wrapper is — so it gave a wrong origin and the page never moved.
+    // rect math works regardless of positioning. We retry across a few frames because
+    // the rows fade/animate in and the box may not be scrollable on the first frame.
+    let rafId = 0;
+    let timer: ReturnType<typeof setTimeout>;
+    let attempts = 0;
+    const tryScroll = () => {
+      const box = scrollBoxRef.current;
+      const row = todayRowRef.current;
+      // wait until the box actually overflows (is scrollable) and the row is laid out
+      const ready = box && row && box.scrollHeight > box.clientHeight + 1 && row.clientHeight > 0;
+      if (ready) {
+        const boxRect = box!.getBoundingClientRect();
+        const rowRect = row!.getBoundingClientRect();
+        // current offset of the row inside the scroll content + recentre it in the box
+        const target =
+          box!.scrollTop + (rowRect.top - boxRect.top) - box!.clientHeight / 2 + rowRect.height / 2;
+        box!.scrollTo({ top: Math.max(0, target), behavior: "smooth" });
+        return; // done
+      }
+      if (attempts++ < 30) timer = setTimeout(() => { rafId = requestAnimationFrame(tryScroll); }, 60);
+    };
+    // give the rows a moment to paint (fade-in animation is 0.25s) before measuring
+    timer = setTimeout(() => { rafId = requestAnimationFrame(tryScroll); }, 120);
+    return () => { clearTimeout(timer); cancelAnimationFrame(rafId); };
+  }, [loading, viewedMonthHasToday, monthOffset, attendance]);
 
   // ── Stats ──────────────────────────────────────────────────────────────────
  
@@ -907,7 +965,11 @@ export default function EmployeeDetails() {
       )}
 
       {/* ══ MAIN ═════════════════════════════════════════════════════════════ */}
-      <div style={{flex:1,display:"flex",flexDirection:"column",minHeight:"100vh",overflow:"hidden",paddingTop:`calc(${HEADER_H+RULER_H}px + env(safe-area-inset-top))`}}>
+      {/* height (not just minHeight) is capped to the viewport so the INNER rows box
+          (flex:1, overflow-y:auto) is the element that actually scrolls. With minHeight
+          alone the container grew past the viewport and the whole page scrolled instead,
+          making box.scrollTo() a no-op → auto-scroll to today never moved. */}
+      <div style={{flex:1,display:"flex",flexDirection:"column",height:"100vh",minHeight:"100vh",overflow:"hidden",paddingTop:`calc(${HEADER_H+RULER_H}px + env(safe-area-inset-top))`}}>
 
         {/* Fixed header — adds the phone notch/status-bar inset so the back button stays visible */}
         <div style={{
@@ -1029,7 +1091,7 @@ export default function EmployeeDetails() {
         </div>
 
         {/* Scrollable rows */}
-        <div style={{flex:1,overflowY:"auto"}}>
+        <div ref={scrollBoxRef} style={{flex:1,overflowY:"auto"}}>
           <div style={{animation:"fadeSlide 0.25s ease"}}>
             {monthDates.map(date=>(
               <TimelineRow
@@ -1039,6 +1101,7 @@ export default function EmployeeDetails() {
                 today={today}
                 hoveredDay={hoveredDay}
                 onHover={setHoveredDay}
+                rowRef={date === today ? todayRowRef : undefined}
               />
             ))}
           </div>
