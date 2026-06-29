@@ -1393,10 +1393,8 @@ async function fetchTodayInOffice() {
                   <span style={{ color: YELLOW, fontSize: 11, fontWeight: 600 }}>Request Leave</span>
                 )}
               </button>
-              <div className="adm-tip">Apply for a full, half, or quarter day leave. HR will review and approve it.</div>
+              <div className="adm-tip">Apply for a full, half day leave. HR will review and approve it.</div>
             </div>
-
-
 
             {/* Add meeting — desktop / office device only */}
             {!isPhone && (
@@ -1437,10 +1435,10 @@ async function fetchTodayInOffice() {
               </div>
             )}
  
-             {/* Report issue — desktop only, currently disabled (not clickable) */}
-            {!isPhone && (
+             {/* Report issue — opens the Report Issue modal (Google login required on submit) */}
             <div className="adm-wrap" style={{ flexShrink: 0 }}>
               <button
+                onClick={() => setIssueOpen(true)}
                 className="meetbtn"
                 style={{
                   display: "flex",
@@ -1451,19 +1449,20 @@ async function fetchTodayInOffice() {
                   border: `1px solid ${YELLOW}44`,
                   borderRadius: 10,
                   padding: "6px 12px",
-                  cursor: "default",
+                  cursor: "pointer",
                   transition: "all 0.15s",
                 }}
               >
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
                   <path d="M12 9v4m0 4h.01M10.3 3.86l-8.4 14.55A1.5 1.5 0 003.2 21h17.6a1.5 1.5 0 001.3-2.59L13.7 3.86a1.5 1.5 0 00-2.6 0z" stroke={YELLOW} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
                 </svg>
-                <span style={{ color: YELLOW, fontSize: 11, fontWeight: 600 }}>Report Issue</span>
+                {!isPhone && (
+                  <span style={{ color: YELLOW, fontSize: 11, fontWeight: 600 }}>Report Issue</span>
+                )}
               </button>
               <div className="adm-tip">Report an issue regarding attendance records, app, web dashboard bugs, workplace facilities, or personnel matters.</div>
             </div>
-            )}
- 
+
             {/* guide / help — desktop only */}
             {!isPhone && (
               <div className="adm-wrap" style={{ flexShrink: 0 }}>

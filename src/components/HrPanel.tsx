@@ -20,7 +20,7 @@ const firebaseConfig = {
 const fbApp = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
 const db    = getFirestore(fbApp);
 
-const HR_PASS  = "2024";
+const HR_PASS  = "4347";
 const SESS_KEY = "hr_remote_ts";
 const SESS_MIN = 60;
 const NAME_KEY = "hr_user_name";   // HR person's display name (per device)

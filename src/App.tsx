@@ -7,9 +7,15 @@ import AdminPanel from "./components/AdminPanel";
 import HrPanel from "./components/HrPanel";
 import Guide from "./pages/Guide";
 import MyAttendance from "./components/MyAttendance";
+import FeatureTour from "./components/FeatureTour";
 import InstallPrompt from './InstallPrompt'
 
 const MOBILE_BLOCK_ENABLED = false; // toggle: set false to allow mobile
+
+// Feature tour: true → the intro slides open EVERY time the dashboard loads/refreshes.
+// false → never shown. Flip this to control it dynamically.
+export const SHOW_TOURS = true;
+
 export const DATA_START = "2026-06-01";
 
 export const HIDDEN_DATES = new Set([""]);
@@ -115,6 +121,11 @@ function AppInner() {
   const isAdminRoute =
     /^\/(phone\/)?(console|hr)$/.test(location.pathname);
 
+  // Dashboard route = "/" or "/phone" (the main attendance page). The tour is shown
+  // only here, and only when SHOW_TOURS is true. It re-opens on every load/refresh.
+  const isDashboardRoute = location.pathname === "/" || location.pathname === "/phone";
+  const [tourOpen, setTourOpen] = useState(SHOW_TOURS);
+
   if (
     MOBILE_BLOCK_ENABLED &&
     (isMobile || isTouch) &&
@@ -143,6 +154,11 @@ function AppInner() {
       </Routes>
 
     {!isAdminRoute && <MyAttendance />}
+
+      {/* Feature tour — dashboard only, opens on every load when SHOW_TOURS is true */}
+      {SHOW_TOURS && isDashboardRoute && (
+        <FeatureTour open={tourOpen} onClose={() => setTourOpen(false)} />
+      )}
  
       {!online && (
         <div style={{

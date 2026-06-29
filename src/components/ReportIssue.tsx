@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { collection, getDocs, doc, getDoc, setDoc } from "firebase/firestore";
+import { collection, getDocs, doc, getDoc, setDoc, serverTimestamp, arrayUnion } from "firebase/firestore";
 import { db } from "../firebase";
+import { useJITAuth } from "../hooks/useJITAuth";
 
 // ─── theme ────────────────────────────────────────────────────────────────────
 const BG     = "#060D2E";
@@ -66,6 +67,9 @@ interface IssueReport {
   status: IssueStatus;
   created_at: number;
   resolver_note?: string;
+  // verified identity from the Google token (never client-typed) — audit trail
+  submittedByEmail?: string;
+  submittedByUid?: string;
 }
 
 interface EmployeeLite {
@@ -133,12 +137,13 @@ function StatusPill({ status }: { status: IssueStatus }) {
   );
 }
 
-function ReportRow({ r }: { r: IssueReport }) {
+function ReportRow({ r, index = 0 }: { r: IssueReport; index?: number }) {
   const [showImg, setShowImg] = useState(false);
   return (
-    <div style={{
+    <div className="rep-row-anim" style={{
       background: "rgba(99,102,241,0.05)", border: `1px solid ${BORDER}`,
-      borderRadius: 12, padding: "10px 12px", marginBottom: 8,
+      borderRadius: 12, padding: "11px 13px", marginBottom: 9,
+      animationDelay: `${Math.min(index, 8) * 0.035}s`,
     }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
         <span style={{
@@ -225,6 +230,9 @@ interface ReportIssueProps {
 }
 
 export default function ReportIssue({ open, onClose, onSaved }: ReportIssueProps) {
+  // JIT Google auth — only triggered when the user actually submits a report.
+  const { user, signingIn, executeProtectedAction } = useJITAuth();
+
   const [empId, setEmpId]     = useState<string | null>(() => localStorage.getItem(ID_KEY));
   const [empName, setEmpName] = useState<string | null>(() => localStorage.getItem(NAME_KEY));
   const [me, setMe]           = useState<EmployeeLite | null>(null);
@@ -319,28 +327,66 @@ export default function ReportIssue({ open, onClose, onSaved }: ReportIssueProps
     if (!empId) { setErr("Please select your profile first."); return; }
     if (!category || !selectedCat) { setErr("Please select an issue type."); return; }
     if (!description.trim()) { setErr("Description is required."); return; }
-    setSaving(true); setErr("");
-    try {
-      const newReport: IssueReport = {
-        id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-        category: category as CategoryValue,
-        solver: selectedCat.solver,
-        description: description.trim(),
-        attachment: attachment ?? null,
-        status: "open",
-        created_at: Date.now(),
-      };
-      await setDoc(doc(db, "issues", empId), {
-        emp_id: empId,
-        emp_name: empName || empId,
-        reports: [...reports, newReport],
-      }, { merge: true });
-      onSaved?.(`Issue reported to ${selectedCat.solver}.`);
-      resetForm(); setMode("list");
-      await loadReports(empId);
-    } catch (e) {
-      console.error(e); setErr("Could not submit your report. Please try again.");
-    } finally { setSaving(false); }
+    setErr("");
+
+    // JIT auth gate: if not signed in, this opens the Google popup and only runs
+    // the inner callback after a successful login. If already signed in, it runs
+    // immediately. The verified identity is read from the token (auth user),
+    // NOT from any client-typed field.
+    const result = await executeProtectedAction(async (authUser) => {
+      setSaving(true);
+      try {
+        const newReport: IssueReport = {
+          id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+          category: category as CategoryValue,
+          solver: selectedCat.solver,
+          description: description.trim(),
+          attachment: attachment ?? null,
+          status: "open",
+          created_at: Date.now(),
+          // tamper-proof: taken straight from the signed Google token
+          submittedByEmail: authUser.email ?? "",
+          submittedByUid: authUser.uid,
+        };
+        // arrayUnion APPENDS atomically server-side — never sends the whole array,
+        // so a client can't wipe/shrink it. With merge:true this same call both
+        // creates the doc (first report) and appends to it (later reports). The
+        // security rule still verifies lastWriterEmail == token email and that the
+        // reports array only grows.
+        await setDoc(doc(db, "issues", empId), {
+          emp_id: empId,
+          emp_name: empName || empId,
+          // doc-level verified writer + server time — the fields the rules enforce
+          lastWriterEmail: authUser.email ?? "",
+          lastWriterUid: authUser.uid,
+          updatedAt: serverTimestamp(),
+          reports: arrayUnion(newReport),
+        }, { merge: true });
+
+        // Best-effort: link this Google email to the chosen employee record so HR
+        // can see who logged in. Never blocks the submit if it fails.
+        try {
+          await setDoc(
+            doc(db, "employees", empId),
+            { google_email: authUser.email ?? "", google_uid: authUser.uid },
+            { merge: true }
+          );
+        } catch (linkErr) {
+          console.warn("[ReportIssue] could not link google email to employee:", linkErr);
+        }
+
+        onSaved?.(`Issue reported to ${selectedCat.solver}.`);
+        resetForm(); setMode("list");
+        await loadReports(empId);
+      } catch (e) {
+        console.error(e); setErr("Could not submit your report. Please try again.");
+      } finally {
+        setSaving(false);
+      }
+    });
+
+    // Login was cancelled or failed → surface a friendly message, keep the form open.
+    if (!result.ok) setErr(result.message);
   }
 
   if (!open) return null;
@@ -352,20 +398,29 @@ export default function ReportIssue({ open, onClose, onSaved }: ReportIssueProps
       display: "flex", alignItems: "center", justifyContent: "center",
       padding: 20, fontFamily: "'Sora',sans-serif",
     }}>
-      <div onClick={e => e.stopPropagation()} className="rep-scroll" style={{
-        width: "min(520px,100%)", maxHeight: "90vh", overflowY: "auto",
+      <div onClick={e => e.stopPropagation()} className="rep-modal" style={{
+        width: "min(520px,100%)", maxHeight: "90vh",
+        display: "flex", flexDirection: "column", overflow: "hidden",
         background: `linear-gradient(160deg,${SURF2} 0%,${BG} 100%)`,
         border: `1px solid ${BORDER}`, borderRadius: 18,
-        boxShadow: "0 24px 80px rgba(0,0,0,0.7)", padding: 22,
+        boxShadow: "0 24px 80px rgba(0,0,0,0.7)",
       }}>
         <style>{`
           .rep-scroll { scrollbar-width: thin; scrollbar-color: rgba(99,102,241,0.35) transparent; }
-          .rep-scroll::-webkit-scrollbar { width: 5px; }
-          .rep-scroll::-webkit-scrollbar-thumb { background: rgba(99,102,241,0.35); border-radius: 4px; }
+          .rep-scroll::-webkit-scrollbar { width: 6px; }
+          .rep-scroll::-webkit-scrollbar-track { background: transparent; margin: 4px 0; }
+          .rep-scroll::-webkit-scrollbar-thumb { background: linear-gradient(180deg,#60A5FA,#6366F1); border-radius: 6px; border: 1px solid rgba(11,19,64,0.6); }
+          .rep-scroll::-webkit-scrollbar-thumb:hover { background: linear-gradient(180deg,#93C5FD,#818CF8); }
+          @keyframes rep-row-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+          .rep-row-anim { animation: rep-row-in 0.22s ease both; }
+          .rep-close:hover { background: rgba(248,113,113,0.12) !important; border-color: rgba(248,113,113,0.4) !important; color: #F87171 !important; }
         `}</style>
 
-        {/* header */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+        {/* ── pinned header (does not scroll) ── */}
+        <div style={{
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          padding: "18px 20px 14px", borderBottom: `1px solid ${BORDER}`, flexShrink: 0,
+        }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
             <div style={{
               width: 36, height: 36, borderRadius: 10, flexShrink: 0,
@@ -381,12 +436,16 @@ export default function ReportIssue({ open, onClose, onSaved }: ReportIssueProps
               <p style={{ fontSize: 10, color: SUB, margin: "2px 0 0" }}>Raise a problem — it routes to the right person.</p>
             </div>
           </div>
-          <button onClick={onClose} style={{
+          <button onClick={onClose} className="rep-close" style={{
             width: 30, height: 30, borderRadius: 8, border: `1px solid ${BORDER}`,
             background: SURF, color: SUB, cursor: "pointer", fontSize: 16, lineHeight: 1,
             display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+            transition: "all 0.14s",
           }}>×</button>
         </div>
+
+        {/* ── scrollable body (identity bar + list/form/picker all scroll here) ── */}
+        <div className="rep-scroll" style={{ flex: 1, overflowY: "auto", padding: "16px 20px 20px" }}>
 
         {/* identity bar */}
         {empId && mode !== "picker" && (
@@ -432,6 +491,21 @@ export default function ReportIssue({ open, onClose, onSaved }: ReportIssueProps
               Report New Issue
             </button>
 
+            {/* list header with count */}
+            {!loading && reports.length > 0 && (
+              <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "2px 2px 10px" }}>
+                <span style={{ fontSize: 9.5, fontWeight: 800, color: SUB, letterSpacing: 0.8, textTransform: "uppercase" }}>
+                  Your reports
+                </span>
+                <span style={{
+                  fontSize: 10, fontWeight: 800, color: BLUE,
+                  background: `${BLUE}18`, border: `1px solid ${BLUE}33`,
+                  borderRadius: 20, padding: "1px 8px",
+                }}>{reports.length}</span>
+                <div style={{ flex: 1, height: 1, background: "rgba(99,102,241,0.12)" }} />
+              </div>
+            )}
+
             {loading ? (
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                 {Array.from({ length: 3 }).map((_, i) => (
@@ -439,10 +513,16 @@ export default function ReportIssue({ open, onClose, onSaved }: ReportIssueProps
                 ))}
               </div>
             ) : reports.length === 0 ? (
-              <div style={{ textAlign: "center", padding: "32px 0", color: SUB, fontSize: 12 }}>
-                <div style={{ fontSize: 30, marginBottom: 8 }}>🛟</div>No issues reported yet.
+              <div style={{ textAlign: "center", padding: "40px 0 36px", color: SUB }}>
+                <div style={{
+                  width: 56, height: 56, borderRadius: "50%", margin: "0 auto 12px",
+                  display: "flex", alignItems: "center", justifyContent: "center", fontSize: 26,
+                  background: "rgba(99,102,241,0.08)", border: `1px solid ${BORDER}`,
+                }}>🛟</div>
+                <p style={{ fontSize: 12.5, fontWeight: 700, color: TEXT, margin: "0 0 3px" }}>No issues reported yet</p>
+                <p style={{ fontSize: 11, color: SUB, margin: 0 }}>Tap “Report New Issue” above to raise one.</p>
               </div>
-            ) : reports.map(r => <ReportRow key={r.id} r={r} />)}
+            ) : reports.map((r, i) => <ReportRow key={r.id} r={r} index={i} />)}
 
             {err && (
               <div style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.3)", color: "#FCA5A5", borderRadius: 10, padding: "8px 12px", fontSize: 11.5, marginTop: 12 }}>⚠ {err}</div>
@@ -450,10 +530,17 @@ export default function ReportIssue({ open, onClose, onSaved }: ReportIssueProps
           </>
         ) : (
           <>
-            {/* category — mandatory buttons */}
+            {/* category — mandatory buttons (own scroll region so the list of types
+                doesn't push the rest of the form down) */}
             <div style={{ marginBottom: 14 }}>
               <label style={labelStyle}>Issue type <span style={{ color: RED }}>*</span></label>
-              <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+              <div className="rep-scroll" style={{
+                display: "flex", flexDirection: "column", gap: 7,
+                maxHeight: 196, overflowY: "auto",
+                padding: 2, paddingRight: 6,
+                border: `1px solid ${BORDER}`, borderRadius: 12,
+                background: "rgba(99,102,241,0.03)",
+              }}>
                 {CATEGORIES.map(c => {
                   const on = category === c.value;
                   return (
@@ -472,6 +559,9 @@ export default function ReportIssue({ open, onClose, onSaved }: ReportIssueProps
                   );
                 })}
               </div>
+              <span style={{ fontSize: 9, color: DIM, display: "block", marginTop: 5, paddingLeft: 2 }}>
+                Scroll to see all {CATEGORIES.length} types · pick the closest match.
+              </span>
             </div>
 
             {/* solver preview */}
@@ -521,20 +611,56 @@ export default function ReportIssue({ open, onClose, onSaved }: ReportIssueProps
               <div style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.3)", color: "#FCA5A5", borderRadius: 10, padding: "8px 12px", fontSize: 11.5, marginBottom: 12 }}>⚠ {err}</div>
             )}
 
+            {/* verified identity / login hint */}
+            <div style={{
+              display: "flex", alignItems: "center", gap: 7, marginBottom: 10,
+              fontSize: 10.5, color: SUB,
+            }}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
+                <path d="M12 11a4 4 0 100-8 4 4 0 000 8z" stroke={user ? GREEN : DIM} strokeWidth="1.8"/>
+                <path d="M4 21c0-4 3.6-7 8-7s8 3 8 7" stroke={user ? GREEN : DIM} strokeWidth="1.8" strokeLinecap="round"/>
+              </svg>
+              {user ? (
+                <span>Signed in as <span style={{ color: GREEN, fontWeight: 700 }}>{user.email}</span></span>
+              ) : (
+                <span>You'll sign in with Google when you submit — for a verified, tamper-proof record.</span>
+              )}
+            </div>
+
             <div style={{ display: "flex", gap: 10, marginTop: 4 }}>
-              <button onClick={() => { setMode("list"); setErr(""); }} style={{
+              <button onClick={() => { setMode("list"); setErr(""); }} disabled={saving || signingIn} style={{
                 flex: 1, padding: "10px", borderRadius: 10, border: `1px solid ${BORDER}`,
-                background: SURF, color: SUB, fontSize: 12.5, fontWeight: 600, cursor: "pointer",
+                background: SURF, color: SUB, fontSize: 12.5, fontWeight: 600,
+                cursor: (saving || signingIn) ? "not-allowed" : "pointer", opacity: (saving || signingIn) ? 0.6 : 1,
               }}>Back</button>
-              <button onClick={handleSubmit} disabled={!canSave} style={{
+              <button onClick={handleSubmit} disabled={!canSave || signingIn} style={{
                 flex: 2, padding: "10px", borderRadius: 10, border: "none",
-                background: canSave ? RED : "rgba(248,113,113,0.25)",
-                color: canSave ? "#1a0606" : "rgba(255,255,255,0.5)",
-                fontSize: 12.5, fontWeight: 700, letterSpacing: 0.3, cursor: canSave ? "pointer" : "not-allowed",
-              }}>{saving ? "Submitting…" : "Submit Report"}</button>
+                background: (canSave && !signingIn) ? RED : "rgba(248,113,113,0.25)",
+                color: (canSave && !signingIn) ? "#1a0606" : "rgba(255,255,255,0.5)",
+                fontSize: 12.5, fontWeight: 700, letterSpacing: 0.3,
+                cursor: (canSave && !signingIn) ? "pointer" : "not-allowed",
+                display: "flex", alignItems: "center", justifyContent: "center", gap: 7,
+              }}>
+                {signingIn
+                  ? "Signing in…"
+                  : saving
+                  ? "Submitting…"
+                  : user
+                  ? "Submit Report"
+                  : (
+                    <>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                        <path d="M21.8 12.2c0-.7-.06-1.4-.18-2.05H12v3.9h5.5a4.7 4.7 0 01-2.04 3.08v2.56h3.3c1.93-1.78 3.04-4.4 3.04-7.49z" fill="#1a0606"/>
+                        <path d="M12 22c2.76 0 5.07-.92 6.76-2.48l-3.3-2.56c-.92.62-2.1.98-3.46.98-2.66 0-4.92-1.8-5.73-4.22H2.86v2.64A10 10 0 0012 22z" fill="#1a0606"/>
+                      </svg>
+                      Sign in &amp; Submit
+                    </>
+                  )}
+              </button>
             </div>
           </>
         )}
+        </div>{/* ── end scrollable body ── */}
       </div>
     </div>
   );

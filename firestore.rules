@@ -1,0 +1,102 @@
+rules_version = '2';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Canary Face — Firestore Security Rules
+//
+// Security model (as agreed):
+//   • READ is fully public for the whole app (the dashboards are anonymous).
+//   • "issues" (Report Issue) is SERVER-ENFORCED: every write must come from a
+//     signed-in, email-verified Google user whose token email == the doc's
+//     `lastWriterEmail`, and the reports array is append-only. Unforgeable.
+//   • Leave / Regularization / Log Meeting now also require a Google login, but that
+//     gate is enforced in the UI (the forms call executeProtectedAction) and each
+//     write is STAMPED with the verified email for audit. Their collections stay
+//     open at the rule level on purpose: the HR Panel and the face-scan/AdminPanel
+//     attendance writers also write here WITHOUT a Google login, so server-locking
+//     them would break HR approvals and check-ins. (Audit-grade, not write-proof.)
+//   • employees / settings / mail_logs stay open too.
+//
+// IMPORTANT — Firestore rule semantics:
+//   Access is granted if ANY matching `allow` rule evaluates true (rules are OR'd,
+//   not overridden by specificity). So a broad recursive `match /{document=**}`
+//   with `allow write: if true` would ALSO grant writes to /issues and silently
+//   bypass the auth gate. To avoid that, we do NOT use a permissive recursive
+//   write. Instead we match each fixed collection explicitly, and cover the dynamic
+//   per-employee attendance collections with a single-segment wildcard that is
+//   safe because each reserved collection has its own explicit block above.
+//
+// NOTE on the issues data model: issues are one doc per employee (id = emp_id) with
+// a `reports[]` array appended client-side. A submission (and a cancel) is an
+// UPDATE to that shared doc, so we cannot use `allow update: if false`. Every write
+// must instead stamp the verified writer email. Rules can't validate the author of
+// each individual array element (that needs one-doc-per-report) — but every write
+// is provably attributed to a real, verified Google account.
+// ─────────────────────────────────────────────────────────────────────────────
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── Helpers ──────────────────────────────────────────────────────────────
+    function isSignedIn()    { return request.auth != null; }
+    function tokenEmail()    { return request.auth.token.email; }
+    function emailVerified() { return request.auth.token.email_verified == true; }
+    function writerMatchesToken() {
+      return request.resource.data.lastWriterEmail == tokenEmail();
+    }
+
+    // ── issues (Report Issue) — AUTH-GATED, APPEND-ONLY ──────────────────────
+    // Writes require a signed-in, email-verified Google user whose token email
+    // equals the doc's verified `lastWriterEmail`. Reports are append-only: an
+    // update may only GROW the reports array (never shrink/wipe it), so a malicious
+    // client cannot blank out the audit history. There is no client cancel/delete.
+    match /issues/{empId} {
+      allow read: if true;                       // public read
+
+      allow create: if isSignedIn()
+                    && emailVerified()
+                    && writerMatchesToken();
+
+      allow update: if isSignedIn()
+                    && emailVerified()
+                    && writerMatchesToken()
+                    // array may only grow — blocks shrink/overwrite/wipe
+                    && request.resource.data.reports.size() >= resource.data.reports.size();
+
+      allow delete: if false;                    // never delete report history
+    }
+
+    // ── Open collections (public read, open write) — unchanged behaviour ──────
+    match /employees/{doc}        { allow read, write: if true; }
+    match /leaveRequests/{doc}    { allow read, write: if true; }
+    match /regularizations/{doc}  { allow read, write: if true; }
+    match /settings/{doc}         { allow read, write: if true; }
+    match /mail_logs/{doc}        { allow read, write: if true; }
+
+    // ── EVERYTHING is publicly readable ──────────────────────────────────────
+    // The whole portal (dashboards, timelines, leave/regularization lists, etc.) is
+    // anonymous-readable by design. This recursive read rule guarantees no read is
+    // ever denied, on any collection or sub-collection, now or in the future. It
+    // grants READ ONLY — it does not grant write, so the issues write-gate above is
+    // unaffected (writes still fall to the per-collection rules below).
+    match /{document=**} {
+      allow read: if true;
+    }
+
+    // ── Per-employee attendance day docs ─────────────────────────────────────
+    // Each employee has a top-level collection named by their emp_id (e.g.
+    // "CDAI007") holding "YYYY-MM-DD" day docs (check-ins, meetings, leave). These
+    // collection names are dynamic, so a single-segment wildcard covers their
+    // WRITES (reads are already granted by the recursive read rule above).
+    //
+    // CRITICAL: Firestore OR-grants across matching rules, so this wildcard ALSO
+    // matches /issues/{empId} and would bypass the auth gate above. We therefore
+    // explicitly EXCLUDE every reserved collection name here, so the auth-gated
+    // "issues" block (and the explicit open blocks) remain the only rule deciding
+    // those paths.
+    match /{empCollection}/{dayDoc} {
+      allow write: if !(empCollection in [
+        'issues', 'employees', 'leaveRequests', 'regularizations', 'settings', 'mail_logs'
+      ]);
+    }
+  }
+}

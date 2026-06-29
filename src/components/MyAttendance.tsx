@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { collection, getDocs, doc, getDoc } from "firebase/firestore";
+import { collection, getDocs, doc, getDoc, setDoc } from "firebase/firestore";
 import { db } from "../firebase";
+import { useJITAuth } from "../hooks/useJITAuth";
 import { applyAttendanceBonus } from "../data/attendanceBonus";
 import { calcHours, fmtHoursLong as fmtHours, fmtHM as fmtHoursShort } from "../lib/hours";
 import logo from "../assets/react.png";
@@ -207,13 +208,14 @@ function AvatarRing({ emp, size = 40, color, spinning }: { emp: EmployeeLite | n
 
 // ─── Employee Picker Modal ───────────────────────────────────────────────────
 function EmployeePicker({
-  employees, loading, onSelect, onClose, dismissible,
+  employees, loading, onSelect, onClose, dismissible, relink = false,
 }: {
   employees: EmployeeLite[];
   loading: boolean;
   onSelect: (e: EmployeeLite) => void;
   onClose: () => void;
   dismissible: boolean;
+  relink?: boolean;   // true when opened via "change email" → reword + re-auth
 }) {
   const [search, setSearch] = useState("");
 
@@ -240,10 +242,14 @@ function EmployeePicker({
                 display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16,
                 }}>🔍</div>
                 <div style={{ flex: 1 }}>
-                <h2 style={{ color: TEXT, fontSize: 15, fontWeight: 800, margin: 0 }}>Find your profile</h2>
+                <h2 style={{ color: TEXT, fontSize: 15, fontWeight: 800, margin: 0 }}>
+                    {relink ? "Change your Google email" : "Sign in to your profile"}
+                </h2>
                 <p style={{ color: SUB, fontSize: 11, margin: "2px 0 0" }}>
-                    Select your name to view your attendance summary
-                </p>    
+                    {relink
+                      ? "Pick your profile, then choose the Google account to link"
+                      : "Pick your name, then sign in with Google to view your summary"}
+                </p>
             </div>
             {dismissible && (
               <button onClick={onClose} style={{
@@ -322,12 +328,13 @@ function EmployeePicker({
           )}
         </div>
 
-        <div style={{ padding: "10px 22px 16px", borderTop: `1px solid ${BORDER}`, display: "flex", flexDirection: "column", gap: 8 }}>
+        <div style={{ padding: "10px 22px 16px", borderTop: `1px solid ${BORDER}`, display: "flex", flexDirection: "column", gap: 10 }}>
+
             <button onClick={onClose} style={{
                 width: "100%", padding: "9px", borderRadius: 10, border: `1px solid ${BORDER}`,
-                background: SURF2, color: TEXT, fontSize: 15, fontWeight: 500,
+                background: SURF2, color: TEXT, fontSize: 13.5, fontWeight: 500,
                 cursor: "pointer", fontFamily: "inherit",
-            }}>Skip for now</button> 
+            }}>Continue to public dashboard</button>
         </div>
       </div>
     </Backdrop>
@@ -685,7 +692,7 @@ function InstallButton({ onClick }: { onClick: () => void }) {
 
 // ─── Summary Modal ────────────────────────────────────────────────────────────
 function SummaryModal({
-  me, today, week, loading, refreshing, onClose, onSwitch,
+  me, today, week, loading, refreshing, onClose, onSwitch, googleEmail,
 }: {
   me: EmployeeLite | null;
   today: DayInfo | null;
@@ -695,6 +702,7 @@ function SummaryModal({
   onClose: () => void;
   onSwitch: () => void;
   navigate: (path: string) => void;
+  googleEmail?: string | null;   // verified Google login email (shown when signed in)
 }) {
   const todayStr = toDateStr(new Date());
   const { canInstall, prompt: promptInstall } = usePwaInstall();
@@ -942,14 +950,32 @@ function SummaryModal({
           )}
         </div>
 
-        {/* footer */}
-        <div style={{ padding: "10px 22px 14px", borderTop: `1px solid ${BORDER}`, display: "flex", flexDirection: "column", gap: 8 }}>
-          
-          <button onClick={onSwitch} style={{
-            background: "none", border: "none", color: TEXT, fontSize: 16,
-            cursor: "pointer", fontFamily: "inherit", padding: 0,
-            textDecoration: "underline", textAlign: "center", width: "100%",
-          }}>Not you? Switch profile</button>
+        {/* footer — signed-in Google email + a "change email" link (replaces the old
+            'switch profile'). Re-runs the profile-pick + Google sign-in to re-link. */}
+        <div style={{
+          padding: "11px 22px 14px", borderTop: `1px solid ${BORDER}`,
+          display: "flex", alignItems: "center", justifyContent: "center", gap: 8, flexWrap: "wrap",
+        }}>
+          {googleEmail ? (
+            <>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 5, color: SUB, fontSize: 11 }}>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
+                  <path d="M20 6L9 17l-5-5" stroke={GREEN} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+                Signed in as <span style={{ color: GREEN, fontWeight: 700, fontFamily: "'JetBrains Mono',monospace" }}>{googleEmail}</span>
+              </span>
+              <button onClick={onSwitch} style={{
+                background: "none", border: "none", color: BLUE, fontSize: 11, fontWeight: 600,
+                cursor: "pointer", fontFamily: "inherit", padding: 0, textDecoration: "underline",
+              }}>change email</button>
+            </>
+          ) : (
+            <button onClick={onSwitch} style={{
+              background: "none", border: "none", color: TEXT, fontSize: 14,
+              cursor: "pointer", fontFamily: "inherit", padding: 0,
+              textDecoration: "underline", textAlign: "center",
+            }}>Not you? Switch profile</button>
+          )}
         </div>
       </div>
     </Backdrop>
@@ -959,12 +985,19 @@ function SummaryModal({
 // ─── Main export ──────────────────────────────────────────────────────────────
 export default function MyAttendance() {
   const navigate = useNavigate();
+  // Google auth state — `googleUser` is the signed-in account (or null), restored
+  // automatically from Firebase's IndexedDB session on load. `executeProtectedAction`
+  // is the JIT login used when a user signs up / links their profile.
+  const { user: googleUser, loading: authLoading, executeProtectedAction } = useJITAuth();
 
   const [empId, setEmpId] = useState<string | null>(() => localStorage.getItem(ID_KEY));
   const [me, setMe]       = useState<EmployeeLite | null>(null);
 
   const [pickerOpen, setPickerOpen]   = useState(false);
   const [summaryOpen, setSummaryOpen] = useState(false);
+  // true when the picker was opened via "change email" → force a fresh Google
+  // sign-in (account chooser) so the user can switch to a different Gmail.
+  const [relinkMode, setRelinkMode]   = useState(false);
 
   const [employees, setEmployees]     = useState<EmployeeLite[]>([]);
   const [loadingEmps, setLoadingEmps] = useState(false);
@@ -975,15 +1008,25 @@ export default function MyAttendance() {
   const [refreshing, setRefreshing] = useState(false);
   const [summaryReady, setSummaryReady] = useState(false);
 
-  // decide what to show on first mount
+  // Decide what to show once the Google auth state has resolved.
+  //   • signed in + a linked profile (empId)  → auto-open the personal summary
+  //   • signed in but no linked profile        → open the picker to link one
+  //   • NOT signed in                          → show nothing (the floating "Sign in"
+  //                                               pill is the only entry point; the
+  //                                               personal modal never opens without
+  //                                               a Google login)
+  const didInitRef = useRef(false);
   useEffect(() => {
-    if (!empId) {
-      setPickerOpen(true);
-    } else {
+    if (authLoading || didInitRef.current) return;   // wait for Firebase to restore session
+    didInitRef.current = true;
+    if (!googleUser) return;                          // anonymous → no auto-open
+    if (empId) {
       const auto = localStorage.getItem(AUTO_KEY);
       if (auto !== "0") openSummary();
+    } else {
+      setPickerOpen(true);                            // signed in, needs to link a profile
     }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [authLoading, googleUser, empId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // load employee list when picker is needed
   const loadEmployees = useCallback(async () => {
@@ -1084,27 +1127,54 @@ export default function MyAttendance() {
     return () => clearInterval(id);
   }, [empId, summaryOpen, loadMyData]);
 
+  // Open the personal summary. Requires a Google sign-in: if signed in + linked,
+  // open it; otherwise route to the sign-in/link picker instead of the data.
   function openSummary() {
+    if (!googleUser) { setPickerOpen(true); return; }
+    if (!empId)      { setPickerOpen(true); return; }
     setSummaryReady(false);   // show the flicker loader first
     setSummaryOpen(true);
   }
 
+  // "Sign up / link": user picks their profile, then signs in with Google. On
+  // success we link their verified email to the employees/{id} doc and open the
+  // summary. The personal data is only ever reached through this gated path.
   function selectEmployee(emp: EmployeeLite) {
-    localStorage.setItem(ID_KEY, emp.emp_id);
-    localStorage.setItem(NAME_KEY, emp.name);
-    setEmpId(emp.emp_id);
-    setMe(emp);
-    setPickerOpen(false);
-    openSummary();
+    const forceReauth = relinkMode;   // "change email" → always show the account chooser
+    executeProtectedAction(async (authUser) => {
+      // Link/REPLACE the verified Google email on this employee record. With
+      // merge:true this overwrites any previous google_email — that's the "change
+      // email" update in the DB.
+      try {
+        await setDoc(
+          doc(db, "employees", emp.emp_id),
+          { google_email: authUser.email ?? "", google_uid: authUser.uid },
+          { merge: true }
+        );
+      } catch (e) {
+        console.warn("[MyAttendance] could not link google email:", e);
+      }
+      localStorage.setItem(ID_KEY, emp.emp_id);
+      localStorage.setItem(NAME_KEY, emp.name);
+      setEmpId(emp.emp_id);
+      setMe(emp);
+      setRelinkMode(false);
+      setPickerOpen(false);
+      setSummaryReady(false);
+      setSummaryOpen(true);
+    }, { forceReauth }).then(res => {
+      // if the Google popup was cancelled, stay on the picker (don't open data)
+      if (!res.ok) setPickerOpen(true);
+    });
   }
 
-  function switchProfile() {
-    localStorage.removeItem(ID_KEY);
-    localStorage.removeItem(NAME_KEY);
-    setEmpId(null);
-    setMe(null);
-    setToday(null);
-    setWeek([]);
+  // "Change email" — re-link the Google account for the CURRENT profile (NOT a
+  // profile switch). Opens the profile picker so the user confirms which profile,
+  // then selecting it triggers a fresh Google sign-in (the account chooser is
+  // always shown) and writes the new google_email onto that employees/{id} doc,
+  // replacing the old one. We keep the existing link until the new one succeeds.
+  function changeEmail() {
+    setRelinkMode(true);          // next profile pick forces a fresh Google sign-in
     setSummaryOpen(false);
     setSummaryReady(false);
     setPickerOpen(true);
@@ -1183,8 +1253,9 @@ export default function MyAttendance() {
           employees={employees}
           loading={loadingEmps}
           onSelect={selectEmployee}
-          onClose={() => setPickerOpen(false)}
-          dismissible={!!empId}
+          onClose={() => { setPickerOpen(false); setRelinkMode(false); }}
+          dismissible={true}
+          relink={relinkMode}
         />
       )}
 
@@ -1198,33 +1269,73 @@ export default function MyAttendance() {
           loading={false}
           refreshing={refreshing}
           onClose={() => setSummaryOpen(false)}
-          onSwitch={switchProfile}
+          onSwitch={changeEmail}
           navigate={navigate}
+          googleEmail={googleUser?.email ?? null}
         />
       )}
 
-      {/* floating reopen pill */}
-      {empId && !summaryOpen && !pickerOpen && (
-        <button
-          onClick={openSummary}
-          className="ma-fab"
-          title="My attendance"
-          style={{
-            position: "fixed", bottom: 18, right: 18, zIndex: 999,
-            display: "flex", alignItems: "center", gap: 8,
-            background: "linear-gradient(135deg,#111C4A,#0A1235)",
-            border: `1px solid ${BORDER}`, borderRadius: 50,
-            padding: "9px 16px 9px 9px", cursor: "pointer",
-            boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
-            transition: "transform 0.15s, box-shadow 0.15s",
-            fontFamily: "'Sora',sans-serif",
-          }}
-        >
-          <Avatar emp={me} size={26} />
-          <span style={{ color: TEXT, fontSize: 11.5, fontWeight: 700 }}>
-            {storedName.split(" ")[0] || "Me"}
-          </span>
-        </button>
+      {/* ── floating pill ──
+          • signed in + linked  → avatar + name + email → reopens the summary
+          • otherwise            → a "Sign in" pill that opens the profile-link step.
+            (Anyone can still browse the public attendance page without this.) */}
+      {!summaryOpen && !pickerOpen && (
+        googleUser && empId ? (
+          <button
+            onClick={openSummary}
+            className="ma-fab"
+            title="My attendance"
+            style={{
+              position: "fixed", bottom: 18, right: 18, zIndex: 999,
+              display: "flex", alignItems: "center", gap: 8,
+              background: "linear-gradient(135deg,#111C4A,#0A1235)",
+              border: `1px solid ${BORDER}`, borderRadius: 50,
+              padding: "9px 16px 9px 9px", cursor: "pointer",
+              boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
+              transition: "transform 0.15s, box-shadow 0.15s",
+              fontFamily: "'Sora',sans-serif",
+            }}
+          >
+            <Avatar emp={me} size={30} />
+            <span style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", minWidth: 0, lineHeight: 1.2 }}>
+              <span style={{ color: TEXT, fontSize: 11.5, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 150 }}>
+                {storedName || "Me"}
+              </span>
+              {googleUser.email && (
+                <span style={{
+                  display: "flex", alignItems: "center", gap: 3,
+                  color: GREEN, fontSize: 8.5, fontWeight: 600,
+                  fontFamily: "'JetBrains Mono',monospace",
+                  whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 150,
+                }}>
+                  <span style={{ width: 4, height: 4, borderRadius: "50%", background: GREEN, flexShrink: 0 }} />
+                  {googleUser.email}
+                </span>
+              )}
+            </span>
+          </button>
+        ) : (
+          <button
+            onClick={() => setPickerOpen(true)}
+            className="ma-fab"
+            title="Sign in to see your attendance"
+            style={{
+              position: "fixed", bottom: 18, right: 18, zIndex: 999,
+              display: "flex", alignItems: "center", gap: 8,
+              background: "linear-gradient(135deg,#111C4A,#0A1235)",
+              border: `1px solid ${YELLOW}55`, borderRadius: 50,
+              padding: "10px 18px", cursor: "pointer",
+              boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
+              transition: "transform 0.15s, box-shadow 0.15s",
+              fontFamily: "'Sora',sans-serif",
+            }}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
+              <path d="M15 3h4a2 2 0 012 2v14a2 2 0 01-2 2h-4M10 17l5-5-5-5M15 12H3" stroke={YELLOW} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+            <span style={{ color: YELLOW, fontSize: 12, fontWeight: 700 }}>Sign in</span>
+          </button>
+        )
       )}
     </>
   );

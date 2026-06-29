@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from "react";
-import { collection, getDocs, doc, getDoc, setDoc } from "firebase/firestore";
+import { collection, getDocs, doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "../firebase";
+import { useJITAuth } from "../hooks/useJITAuth";
 
 // ─── theme ───────────────────────────────────────────────────────────────────
 const BG     = "#060D2E";
@@ -11,6 +12,7 @@ const TEXT   = "#EEF0FF";
 const SUB    = "#8090C0";
 const DIM    = "#4A5A8A";
 const YELLOW = "#FFD700";
+const GREEN  = "#4ADE80";
 const RED    = "#F87171";
 
 // ─── range (matches your dashboard) ────────────────────────────────────────────
@@ -50,6 +52,10 @@ const todayStr = () => {
 const clampDate = (d: string) => (d < RANGE_MIN ? RANGE_MIN : d > RANGE_MAX ? RANGE_MAX : d);
 
 export default function AddMeeting({ open, onClose, onSaved }: AddMeetingProps) {
+  // JIT Google auth — login required to log a meeting (UI gate; the attendance day
+  // collection stays open so face-scan check-ins / AdminPanel keep working).
+  const { user, signingIn, executeProtectedAction } = useJITAuth();
+
   const [emps, setEmps]         = useState<Emp[]>([]);
   const [loadingEmps, setLoad]  = useState(false);
   const [selected, setSelected] = useState<Emp | null>(null);
@@ -135,27 +141,40 @@ const canSave = !!selected && !!date && !!start && !!end && durValid && title.tr
     if (!selected) return;
     if (!title.trim()) { setErr("Please enter the purpose."); return; }
     if (!durValid) { setErr("Meeting must be between 1 and 60 minutes."); return; }
-    setSaving(true); setErr("");
-    try {
-      const ref = doc(db, selected.emp_id, date);
-      const snap = await getDoc(ref);
-      const existing: any[] = snap.exists() ? ((snap.data().sessions as any[]) || []) : [];
-      const newSession = {
-        session: existing.length + 1,
-        check_in: `${start}:00`,
-        check_out: `${end}:00`,
-        meeting: true,
-        ...(title.trim() ? { meeting_purpose: title.trim() } : {}),
-      };
-      await setDoc(ref, { sessions: [...existing, newSession] }, { merge: true });
-      onSaved?.(`Meeting added for ${selected.name} on ${date} (${start}–${end}).`);
-      onClose();
-    } catch (e) {
-      console.error(e);
-      setErr("Could not save the meeting. Please try again.");
-    } finally {
-      setSaving(false);
-    }
+    setErr("");
+
+    // JIT auth gate: opens the Google popup if not signed in, then saves. The
+    // meeting session is stamped with the verified email for the audit trail.
+    const result = await executeProtectedAction(async (authUser) => {
+      setSaving(true);
+      try {
+        const ref = doc(db, selected.emp_id, date);
+        const snap = await getDoc(ref);
+        const existing: any[] = snap.exists() ? ((snap.data().sessions as any[]) || []) : [];
+        const newSession = {
+          session: existing.length + 1,
+          check_in: `${start}:00`,
+          check_out: `${end}:00`,
+          meeting: true,
+          ...(title.trim() ? { meeting_purpose: title.trim() } : {}),
+          // verified who logged this meeting
+          logged_by_email: authUser.email ?? "",
+        };
+        await setDoc(ref, {
+          sessions: [...existing, newSession],
+          lastWriterEmail: authUser.email ?? "",
+          updatedAt: serverTimestamp(),
+        }, { merge: true });
+        onSaved?.(`Meeting added for ${selected.name} on ${date} (${start}–${end}).`);
+        onClose();
+      } catch (e) {
+        console.error(e);
+        setErr("Could not save the meeting. Please try again.");
+      } finally {
+        setSaving(false);
+      }
+    });
+    if (!result.ok) setErr(result.message);
   }
 
   if (!open) return null;
@@ -353,22 +372,34 @@ const canSave = !!selected && !!date && !!start && !!end && durValid && title.tr
           }}>⚠ {err}</div>
         )}
 
+        {/* verified identity / login hint */}
+        <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 10, fontSize: 10.5, color: SUB }}>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
+            <path d="M12 11a4 4 0 100-8 4 4 0 000 8z" stroke={user ? GREEN : DIM} strokeWidth="1.8"/>
+            <path d="M4 21c0-4 3.6-7 8-7s8 3 8 7" stroke={user ? GREEN : DIM} strokeWidth="1.8" strokeLinecap="round"/>
+          </svg>
+          {user
+            ? <span>Signed in as <span style={{ color: GREEN, fontWeight: 700 }}>{user.email}</span></span>
+            : <span>You'll sign in with Google when you save — for a verified record.</span>}
+        </div>
+
         {/* actions */}
         <div style={{ display: "flex", gap: 10, marginTop: 4 }}>
-          <button onClick={onClose}
+          <button onClick={onClose} disabled={saving || signingIn}
             style={{
               flex: 1, padding: "10px", borderRadius: 10, border: `1px solid ${BORDER}`,
-              background: SURF, color: SUB, fontSize: 12.5, fontWeight: 600, cursor: "pointer",
+              background: SURF, color: SUB, fontSize: 12.5, fontWeight: 600,
+              cursor: (saving || signingIn) ? "not-allowed" : "pointer", opacity: (saving || signingIn) ? 0.6 : 1,
             }}>Cancel</button>
-          <button onClick={handleSave} disabled={!canSave}
+          <button onClick={handleSave} disabled={!canSave || signingIn}
             style={{
               flex: 2, padding: "10px", borderRadius: 10, border: "none",
-              background: canSave ? YELLOW : "rgba(255,215,0,0.25)",
-              color: canSave ? BG : "rgba(6,13,46,0.6)",
+              background: (canSave && !signingIn) ? YELLOW : "rgba(255,215,0,0.25)",
+              color: (canSave && !signingIn) ? BG : "rgba(6,13,46,0.6)",
               fontSize: 12.5, fontWeight: 700, letterSpacing: 0.3,
-              cursor: canSave ? "pointer" : "not-allowed",
+              cursor: (canSave && !signingIn) ? "pointer" : "not-allowed",
             }}>
-            {saving ? "Saving…" : "Add Meeting"}
+            {signingIn ? "Signing in…" : saving ? "Saving…" : user ? "Add Meeting" : "Sign in & Add"}
           </button>
         </div>
       </div>

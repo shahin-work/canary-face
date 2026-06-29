@@ -1,8 +1,9 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import {
-  collection, getDocs, doc, getDoc, setDoc,
+  collection, getDocs, doc, getDoc, setDoc, serverTimestamp,
 } from "firebase/firestore";
 import { db } from "../firebase";
+import { useJITAuth } from "../hooks/useJITAuth";
 
 // ─── theme (matches AddMeeting / MyAttendance) ────────────────────────────────
 const BG     = "#060D2E";
@@ -58,6 +59,8 @@ interface RegRequest {
   created_at: number;          // epoch ms
   reviewed_by?: string;
   reviewer_note?: string;
+  submittedByEmail?: string;   // verified Google email (audit)
+  submittedByUid?: string;
 }
 
 interface EmployeeLite {
@@ -534,6 +537,9 @@ interface RegularizationProps {
 }
 
 export default function Regularization({ open, onClose, onSaved }: RegularizationProps) {
+  // JIT Google auth — login required to submit (and to cancel) a regularization.
+  const { user, signingIn, executeProtectedAction } = useJITAuth();
+
   // identity (mutable so we can switch profile in-place)
   const [empId, setEmpId]     = useState<string | null>(() => localStorage.getItem(ID_KEY));
   const [empName, setEmpName] = useState<string | null>(() => localStorage.getItem(NAME_KEY));
@@ -668,56 +674,72 @@ export default function Regularization({ open, onClose, onSaved }: Regularizatio
     if (!reason) { setErr("Please select a reason."); return; }
     if (!durValid) { setErr("Check-out time must be after check-in time."); return; }
     if (!description.trim()) { setErr("Description is required."); return; }
-    setSaving(true); setErr("");
-    try {
-      const newReq: RegRequest = {
-        id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-        date,
-        day: dayName(date),
-        reason: reason as ReasonValue,
-        check_in: checkIn,
-        check_out: checkOut,
-        description: description.trim(),
-        attachment: attachment ?? null,
-        status: "pending",
-        created_at: Date.now(),
-      };
-      // doc id = emp_id; requests live in an array on that doc
-      await setDoc(
-        doc(db, "regularizations", empId),
-        {
-          emp_id: empId,
-          emp_name: empName || empId,
-          requests: [...requests, newReq],
-        },
-        { merge: true }
-      );
-      onSaved?.(`Regularization request submitted for ${new Date(date + "T00:00:00").toLocaleDateString("en-IN", { day: "numeric", month: "short" })}.`);
-      resetForm();
-      setMode("list");
-      setTab("pending");
-      await loadRequests(empId);
-    } catch (e) {
-      console.error(e);
-      setErr("Could not submit your request. Please try again.");
-    } finally {
-      setSaving(false);
-    }
+    setErr("");
+
+    const result = await executeProtectedAction(async (authUser) => {
+      setSaving(true);
+      try {
+        const newReq: RegRequest = {
+          id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+          date,
+          day: dayName(date),
+          reason: reason as ReasonValue,
+          check_in: checkIn,
+          check_out: checkOut,
+          description: description.trim(),
+          attachment: attachment ?? null,
+          status: "pending",
+          created_at: Date.now(),
+          submittedByEmail: authUser.email ?? "",
+          submittedByUid: authUser.uid,
+        };
+        // doc id = emp_id; requests live in an array on that doc
+        await setDoc(
+          doc(db, "regularizations", empId),
+          {
+            emp_id: empId,
+            emp_name: empName || empId,
+            lastWriterEmail: authUser.email ?? "",   // doc-level — the field rules check
+            lastWriterUid: authUser.uid,
+            updatedAt: serverTimestamp(),
+            requests: [...requests, newReq],
+          },
+          { merge: true }
+        );
+        onSaved?.(`Regularization request submitted for ${new Date(date + "T00:00:00").toLocaleDateString("en-IN", { day: "numeric", month: "short" })}.`);
+        resetForm();
+        setMode("list");
+        setTab("pending");
+        await loadRequests(empId);
+      } catch (e) {
+        console.error(e);
+        setErr("Could not submit your request. Please try again.");
+      } finally {
+        setSaving(false);
+      }
+    });
+    if (!result.ok) setErr(result.message);
   }
 
   async function handleCancel(req: RegRequest) {
     if (!empId) return;
     setBusyId(req.id);
-    try {
-      const updated = requests.map(r => r.id === req.id ? { ...r, status: "cancelled" as RegStatus } : r);
-      await setDoc(doc(db, "regularizations", empId), { requests: updated }, { merge: true });
-      setRequests(updated);
-    } catch (e) {
-      console.error(e);
-      setErr("Could not cancel the request.");
-    } finally {
-      setBusyId(null);
-    }
+    const result = await executeProtectedAction(async (authUser) => {
+      try {
+        const updated = requests.map(r => r.id === req.id ? { ...r, status: "cancelled" as RegStatus } : r);
+        await setDoc(
+          doc(db, "regularizations", empId),
+          { lastWriterEmail: authUser.email ?? "", lastWriterUid: authUser.uid, updatedAt: serverTimestamp(), requests: updated },
+          { merge: true }
+        );
+        setRequests(updated);
+      } catch (e) {
+        console.error(e);
+        setErr("Could not cancel the request.");
+      }
+    });
+    if (!result.ok) setErr(result.message);
+    setBusyId(null);
   }
 
   const counts = useMemo(() => {
@@ -994,22 +1016,34 @@ export default function Regularization({ open, onClose, onSaved }: Regularizatio
               }}>⚠ {err}</div>
             )}
 
+            {/* verified identity / login hint */}
+            <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 10, fontSize: 10.5, color: SUB }}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
+                <path d="M12 11a4 4 0 100-8 4 4 0 000 8z" stroke={user ? GREEN : DIM} strokeWidth="1.8"/>
+                <path d="M4 21c0-4 3.6-7 8-7s8 3 8 7" stroke={user ? GREEN : DIM} strokeWidth="1.8" strokeLinecap="round"/>
+              </svg>
+              {user
+                ? <span>Signed in as <span style={{ color: GREEN, fontWeight: 700 }}>{user.email}</span></span>
+                : <span>You'll sign in with Google when you submit — for a verified record.</span>}
+            </div>
+
             {/* actions */}
             <div style={{ display: "flex", gap: 10, marginTop: 4 }}>
-              <button onClick={() => { setMode("list"); setErr(""); }}
+              <button onClick={() => { setMode("list"); setErr(""); }} disabled={saving || signingIn}
                 style={{
                   flex: 1, padding: "10px", borderRadius: 10, border: `1px solid ${BORDER}`,
-                  background: SURF, color: SUB, fontSize: 12.5, fontWeight: 600, cursor: "pointer",
+                  background: SURF, color: SUB, fontSize: 12.5, fontWeight: 600,
+                  cursor: (saving || signingIn) ? "not-allowed" : "pointer", opacity: (saving || signingIn) ? 0.6 : 1,
                 }}>Back</button>
-              <button onClick={handleSubmit} disabled={!canSave}
+              <button onClick={handleSubmit} disabled={!canSave || signingIn}
                 style={{
                   flex: 2, padding: "10px", borderRadius: 10, border: "none",
-                  background: canSave ? YELLOW : "rgba(255,215,0,0.25)",
-                  color: canSave ? BG : "rgba(6,13,46,0.6)",
+                  background: (canSave && !signingIn) ? YELLOW : "rgba(255,215,0,0.25)",
+                  color: (canSave && !signingIn) ? BG : "rgba(6,13,46,0.6)",
                   fontSize: 12.5, fontWeight: 700, letterSpacing: 0.3,
-                  cursor: canSave ? "pointer" : "not-allowed",
+                  cursor: (canSave && !signingIn) ? "pointer" : "not-allowed",
                 }}>
-                {saving ? "Submitting…" : "Submit Request"}
+                {signingIn ? "Signing in…" : saving ? "Submitting…" : user ? "Submit Request" : "Sign in & Submit"}
               </button>
             </div>
           </>
