@@ -18,8 +18,8 @@ const MOBILE_BLOCK_ENABLED = false; // toggle: set false to allow mobile
 //   • SHOW_TOOLS_TOUR → employee "tools" walkthrough on the dashboard (/, /phone)
 //   • SHOW_HR_TOUR    → HR-panel walkthrough inside /hr
 // Flip either to false to hide that tour.
-export const SHOW_TOOLS_TOUR = true;
-export const SHOW_HR_TOUR = true;
+export const SHOW_TOOLS_TOUR = false;
+export const SHOW_HR_TOUR = false;
 
 // kept for backwards-compat with any existing import of SHOW_TOURS
 export const SHOW_TOURS = SHOW_TOOLS_TOUR;
