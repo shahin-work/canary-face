@@ -8,13 +8,21 @@ import HrPanel from "./components/HrPanel";
 import Guide from "./pages/Guide";
 import MyAttendance from "./components/MyAttendance";
 import FeatureTour from "./components/FeatureTour";
+import { TOOLS_TOUR_SLIDES, HR_TOUR_SLIDES } from "./data/tourSlides";
 import InstallPrompt from './InstallPrompt'
 
 const MOBILE_BLOCK_ENABLED = false; // toggle: set false to allow mobile
 
-// Feature tour: true → the intro slides open EVERY time the dashboard loads/refreshes.
-// false → never shown. Flip this to control it dynamically.
-export const SHOW_TOURS = true;
+// Feature tours: each opens EVERY time its page loads/refreshes while its flag is
+// true (no "don't show again" memory — Skip/Finish closes it for the session).
+//   • SHOW_TOOLS_TOUR → employee "tools" walkthrough on the dashboard (/, /phone)
+//   • SHOW_HR_TOUR    → HR-panel walkthrough inside /hr
+// Flip either to false to hide that tour.
+export const SHOW_TOOLS_TOUR = true;
+export const SHOW_HR_TOUR = true;
+
+// kept for backwards-compat with any existing import of SHOW_TOURS
+export const SHOW_TOURS = SHOW_TOOLS_TOUR;
 
 export const DATA_START = "2026-06-01";
 
@@ -121,10 +129,12 @@ function AppInner() {
   const isAdminRoute =
     /^\/(phone\/)?(console|hr)$/.test(location.pathname);
 
-  // Dashboard route = "/" or "/phone" (the main attendance page). The tour is shown
-  // only here, and only when SHOW_TOURS is true. It re-opens on every load/refresh.
+  // Dashboard route = "/" or "/phone" (the main attendance page) → employee tools tour.
+  // HR route = "/hr" or "/phone/hr" → HR-panel tour. Each re-opens on every load.
   const isDashboardRoute = location.pathname === "/" || location.pathname === "/phone";
-  const [tourOpen, setTourOpen] = useState(SHOW_TOURS);
+  const isHrRoute = location.pathname === "/hr" || location.pathname === "/phone/hr";
+  const [toolsTourOpen, setToolsTourOpen] = useState(SHOW_TOOLS_TOUR);
+  const [hrTourOpen, setHrTourOpen] = useState(SHOW_HR_TOUR);
 
   if (
     MOBILE_BLOCK_ENABLED &&
@@ -155,9 +165,14 @@ function AppInner() {
 
     {!isAdminRoute && <MyAttendance />}
 
-      {/* Feature tour — dashboard only, opens on every load when SHOW_TOURS is true */}
-      {SHOW_TOURS && isDashboardRoute && (
-        <FeatureTour open={tourOpen} onClose={() => setTourOpen(false)} />
+      {/* Employee tools tour — dashboard only, opens each load when SHOW_TOOLS_TOUR is true */}
+      {SHOW_TOOLS_TOUR && isDashboardRoute && TOOLS_TOUR_SLIDES.length > 0 && (
+        <FeatureTour open={toolsTourOpen} onClose={() => setToolsTourOpen(false)} slides={TOOLS_TOUR_SLIDES} accent="#FFD700" />
+      )}
+
+      {/* HR-panel tour — /hr only, opens each load when SHOW_HR_TOUR is true */}
+      {SHOW_HR_TOUR && isHrRoute && HR_TOUR_SLIDES.length > 0 && (
+        <FeatureTour open={hrTourOpen} onClose={() => setHrTourOpen(false)} slides={HR_TOUR_SLIDES} accent="#60A5FA" />
       )}
  
       {!online && (

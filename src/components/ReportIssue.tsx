@@ -16,9 +16,50 @@ const GREEN  = "#4ADE80";
 const RED    = "#F87171";
 const BLUE   = "#60A5FA";
 
-const MAX_ATTACH_BYTES = 3 * 1024 * 1024; // 3 MB
+const MAX_ATTACH_BYTES = 5 * 1024 * 1024; // 5 MB per selected file (before compression)
+const MAX_PHOTOS       = 3;               // up to 3 photos per report
 const ID_KEY   = "cf_my_emp_id";
 const NAME_KEY = "cf_my_emp_name";
+
+// ─── image compression ────────────────────────────────────────────────────────
+// Firestore caps a document at 1 MB and photos are stored as base64 INSIDE the
+// issue doc. So we downscale + re-encode each photo in the browser before saving:
+// max 1280px on the long edge, JPEG quality stepping down until it's under
+// ~250 KB. This keeps up to 3 photos comfortably within the 1 MB doc limit while
+// staying clear enough to read a screen/error.
+const COMPRESS_MAX_DIM   = 1280;
+const COMPRESS_TARGET_KB = 250;
+
+function compressImage(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("read failed"));
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error("decode failed"));
+      img.onload = () => {
+        let { width, height } = img;
+        if (width > height && width > COMPRESS_MAX_DIM) { height = Math.round(height * COMPRESS_MAX_DIM / width); width = COMPRESS_MAX_DIM; }
+        else if (height >= width && height > COMPRESS_MAX_DIM) { width = Math.round(width * COMPRESS_MAX_DIM / height); height = COMPRESS_MAX_DIM; }
+        const canvas = document.createElement("canvas");
+        canvas.width = width; canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) { reject(new Error("no canvas ctx")); return; }
+        ctx.drawImage(img, 0, 0, width, height);
+        // step quality down until under the target size (or quality floor reached)
+        let q = 0.72;
+        let out = canvas.toDataURL("image/jpeg", q);
+        while (out.length / 1.37 / 1024 > COMPRESS_TARGET_KB && q > 0.4) {
+          q -= 0.1;
+          out = canvas.toDataURL("image/jpeg", q);
+        }
+        resolve(out);
+      };
+      img.src = reader.result as string;
+    };
+    reader.readAsDataURL(file);
+  });
+}
 
 // ─── issue categories + routing ──────────────────────────────────────────────
 // Attendance-device issues go to Shahin; everything else goes to HR (Vandana).
@@ -63,13 +104,21 @@ interface IssueReport {
   category: CategoryValue;
   solver: string;
   description: string;
-  attachment?: string | null;
+  attachment?: string | null;   // legacy single image (older reports) — still read
+  attachments?: string[];       // new: up to MAX_PHOTOS compressed images (data URLs)
   status: IssueStatus;
   created_at: number;
   resolver_note?: string;
   // verified identity from the Google token (never client-typed) — audit trail
   submittedByEmail?: string;
   submittedByUid?: string;
+}
+
+// Normalise legacy `attachment` + new `attachments[]` into one array for display.
+function reportPhotos(r: IssueReport): string[] {
+  const list = [...(r.attachments || [])];
+  if (r.attachment && !list.includes(r.attachment)) list.unshift(r.attachment);
+  return list;
 }
 
 interface EmployeeLite {
@@ -162,13 +211,19 @@ function ReportRow({ r, index = 0 }: { r: IssueReport; index?: number }) {
           <span style={{ fontWeight: 700 }}>Update:</span> {r.resolver_note}
         </p>
       )}
-      {r.attachment && (
+      {reportPhotos(r).length > 0 && (
         <>
           <button onClick={() => setShowImg(s => !s)} style={{
             marginTop: 8, fontSize: 10, fontWeight: 600, color: BLUE, background: "transparent",
             border: `1px solid ${BLUE}33`, borderRadius: 8, padding: "3px 9px", cursor: "pointer",
-          }}>{showImg ? "Hide attachment" : "View attachment"}</button>
-          {showImg && <img src={r.attachment} alt="" style={{ marginTop: 8, width: "100%", borderRadius: 8, border: `1px solid ${BORDER}` }} />}
+          }}>{showImg ? "Hide" : "View"} {reportPhotos(r).length} photo{reportPhotos(r).length === 1 ? "" : "s"}</button>
+          {showImg && (
+            <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 8 }}>
+              {reportPhotos(r).map((src, i) => (
+                <img key={i} src={src} alt="" style={{ width: "100%", borderRadius: 8, border: `1px solid ${BORDER}` }} />
+              ))}
+            </div>
+          )}
         </>
       )}
     </div>
@@ -246,8 +301,8 @@ export default function ReportIssue({ open, onClose, onSaved }: ReportIssueProps
 
   const [category, setCategory]       = useState<CategoryValue | "">("");
   const [description, setDescription] = useState("");
-  const [attachment, setAttachment]   = useState<string | null>(null);
-  const [attachName, setAttachName]   = useState("");
+  const [photos, setPhotos]           = useState<string[]>([]); // compressed data URLs
+  const [compressing, setCompressing] = useState(false);
   const [saving, setSaving]           = useState(false);
   const [err, setErr]                 = useState("");
 
@@ -296,7 +351,7 @@ export default function ReportIssue({ open, onClose, onSaved }: ReportIssueProps
   }, [open, onClose]);
 
   function resetForm() {
-    setCategory(""); setDescription(""); setAttachment(null); setAttachName(""); setErr("");
+    setCategory(""); setDescription(""); setPhotos([]); setErr("");
     if (fileRef.current) fileRef.current.value = "";
   }
 
@@ -308,20 +363,37 @@ export default function ReportIssue({ open, onClose, onSaved }: ReportIssueProps
   }
 
   const selectedCat = CATEGORIES.find(c => c.value === category) || null;
-  const canSave = !!empId && !!category && description.trim().length > 0 && !saving;
+  const canSave = !!empId && !!category && description.trim().length > 0 && !saving && !compressing;
 
-  function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
+  async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     setErr("");
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (!file.type.startsWith("image/")) { setErr("Attachment must be an image."); e.target.value = ""; return; }
-    if (file.size > MAX_ATTACH_BYTES) { setErr(`Image is ${fmtBytes(file.size)} — max allowed is 3 MB.`); e.target.value = ""; return; }
-    const reader = new FileReader();
-    reader.onload = () => { setAttachment(reader.result as string); setAttachName(file.name); };
-    reader.onerror = () => setErr("Could not read the image. Please try another file.");
-    reader.readAsDataURL(file);
+    const files = Array.from(e.target.files || []);
+    if (fileRef.current) fileRef.current.value = ""; // allow re-picking the same file
+    if (files.length === 0) return;
+
+    const room = MAX_PHOTOS - photos.length;
+    if (room <= 0) { setErr(`You can attach up to ${MAX_PHOTOS} photos.`); return; }
+    const take = files.slice(0, room);
+    if (files.length > room) setErr(`Only the first ${room} photo${room === 1 ? "" : "s"} were added (max ${MAX_PHOTOS}).`);
+
+    setCompressing(true);
+    try {
+      const added: string[] = [];
+      for (const file of take) {
+        if (!file.type.startsWith("image/")) { setErr("Attachments must be images."); continue; }
+        if (file.size > MAX_ATTACH_BYTES) { setErr(`"${file.name}" is ${fmtBytes(file.size)} — max allowed is 5 MB.`); continue; }
+        try {
+          added.push(await compressImage(file));
+        } catch {
+          setErr("Could not process one of the images. Please try another file.");
+        }
+      }
+      if (added.length) setPhotos(prev => [...prev, ...added].slice(0, MAX_PHOTOS));
+    } finally {
+      setCompressing(false);
+    }
   }
-  function clearAttachment() { setAttachment(null); setAttachName(""); if (fileRef.current) fileRef.current.value = ""; }
+  function removePhoto(idx: number) { setPhotos(prev => prev.filter((_, i) => i !== idx)); }
 
   async function handleSubmit() {
     if (!empId) { setErr("Please select your profile first."); return; }
@@ -341,7 +413,7 @@ export default function ReportIssue({ open, onClose, onSaved }: ReportIssueProps
           category: category as CategoryValue,
           solver: selectedCat.solver,
           description: description.trim(),
-          attachment: attachment ?? null,
+          attachments: photos,
           status: "open",
           created_at: Date.now(),
           // tamper-proof: taken straight from the signed Google token
@@ -587,24 +659,40 @@ export default function ReportIssue({ open, onClose, onSaved }: ReportIssueProps
               <span style={{ fontSize: 9.5, color: DIM, display: "block", marginTop: 4, textAlign: "right" }}>{description.length}/400</span>
             </div>
 
-            {/* attachment — optional */}
+            {/* attachments — optional, up to MAX_PHOTOS */}
             <div style={{ marginBottom: 14 }}>
-              <label style={labelStyle}>Attachment <span style={{ color: DIM, fontWeight: 500 }}>(optional · image · max 3 MB)</span></label>
-              {attachment ? (
-                <div style={{ display: "flex", alignItems: "center", gap: 10, border: `1px solid ${BORDER}`, borderRadius: 10, padding: 8, background: SURF }}>
-                  <img src={attachment} alt="" style={{ width: 44, height: 44, borderRadius: 8, objectFit: "cover", flexShrink: 0 }} />
-                  <span style={{ flex: 1, minWidth: 0, fontSize: 11, color: TEXT, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{attachName || "image"}</span>
-                  <button onClick={clearAttachment} style={{ fontSize: 10, fontWeight: 600, color: RED, background: "transparent", border: `1px solid ${RED}33`, borderRadius: 8, padding: "4px 9px", cursor: "pointer", flexShrink: 0 }}>Remove</button>
+              <label style={labelStyle}>
+                Photos <span style={{ color: DIM, fontWeight: 500 }}>(optional · up to {MAX_PHOTOS} · max 5 MB each)</span>
+              </label>
+
+              {photos.length > 0 && (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: photos.length < MAX_PHOTOS ? 8 : 0 }}>
+                  {photos.map((src, i) => (
+                    <div key={i} style={{ position: "relative", width: 64, height: 64, borderRadius: 8, overflow: "hidden", border: `1px solid ${BORDER}`, flexShrink: 0 }}>
+                      <img src={src} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                      <button onClick={() => removePhoto(i)} title="Remove" style={{
+                        position: "absolute", top: 2, right: 2, width: 18, height: 18, borderRadius: "50%",
+                        border: "none", background: "rgba(2,6,23,0.75)", color: RED, fontSize: 12, lineHeight: 1,
+                        cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+                      }}>×</button>
+                    </div>
+                  ))}
                 </div>
-              ) : (
-                <button onClick={() => fileRef.current?.click()} style={{ ...fieldStyle, display: "flex", alignItems: "center", justifyContent: "center", gap: 7, cursor: "pointer", color: SUB, borderStyle: "dashed" }}>
+              )}
+
+              {photos.length < MAX_PHOTOS && (
+                <button onClick={() => fileRef.current?.click()} disabled={compressing} style={{
+                  ...fieldStyle, display: "flex", alignItems: "center", justifyContent: "center", gap: 7,
+                  cursor: compressing ? "wait" : "pointer", color: SUB, borderStyle: "dashed",
+                  opacity: compressing ? 0.6 : 1,
+                }}>
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
                     <path d="M12 16V4m0 0L8 8m4-4l4 4M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2" stroke={SUB} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
                   </svg>
-                  Upload image
+                  {compressing ? "Processing…" : photos.length === 0 ? "Upload images" : `Add more (${MAX_PHOTOS - photos.length} left)`}
                 </button>
               )}
-              <input ref={fileRef} type="file" accept="image/*" onChange={handleFile} style={{ display: "none" }} />
+              <input ref={fileRef} type="file" accept="image/*" multiple onChange={handleFile} style={{ display: "none" }} />
             </div>
 
             {err && (

@@ -5,7 +5,7 @@ import { db } from "../firebase";
 import { query, where, documentId } from "firebase/firestore";
 import { isHiddenDate, DATA_START } from "../App";
 import { applyAttendanceBonus } from "../data/attendanceBonus";
-import { calcHours, calcSessionHours, fmtHoursLong as fmtHM } from "../lib/hours";
+import { calcHours, calcSessionHours, lunchOverlapHours, fmtHoursLong as fmtHM } from "../lib/hours";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface Session { session: number; check_in: string; check_out?: string; }
@@ -200,6 +200,9 @@ function TimelineRow({ day, attendanceMap, today, hoveredDay, onHover, rowRef }:
   const att      = attendanceMap.get(day);
   const hasSess  = !!(att && att.sessions.length > 0);
   const hours    = hasSess ? calcHours(att!.sessions, day) : 0;
+  // worked hours with the 1–2pm lunch break removed (display-only, in brackets)
+  const lunchCut = hasSess ? lunchOverlapHours(att!.sessions, day) : 0;
+  const hoursNoLunch = Math.max(0, Math.round((hours - lunchCut) * 100) / 100);
   const isHovered = hoveredDay === day;
 
   // for TODAY only: hide attendance ahead of the current clock
@@ -232,9 +235,10 @@ function TimelineRow({ day, attendanceMap, today, hoveredDay, onHover, rowRef }:
   const nowStr  = `${String(nowObj.getHours()).padStart(2,"0")}:${String(nowObj.getMinutes()).padStart(2,"0")}`;
   const nowPct  = timeToPercent(nowStr);
 
+  // Day total colour by worked hours: ≥8h green · 4–7.9h yellow · 0–3.9h red.
   const hoursColor =
     state !== "present" ? C.dim :
-    hours >= 8.5 ? C.green : hours >= 4 ? C.yellow : C.red;
+    hours >= 8 ? C.green : hours >= 4 ? C.yellow : C.red;
 
   return (
     <div
@@ -625,6 +629,13 @@ function TimelineRow({ day, attendanceMap, today, hoveredDay, onHover, rowRef }:
               transition:"all 0.12s",
               textShadow: isHovered ? `0 0 12px ${hoursColor}66` : "none",
             }}>{fmtHM(hours)}</div>
+            {/* worked time minus the 1–2pm lunch break — shown only when lunch
+                overlapped the worked time (otherwise both values are identical) */}
+            {lunchCut > 0 && (
+              <div style={{ fontSize: isHovered ? 11 : 10, fontWeight:700, color:C.dim, fontFamily:"'JetBrains Mono',monospace", lineHeight:1, marginTop:2, transition:"all 0.12s" }}>
+                ({fmtHM(hoursNoLunch)})
+              </div>
+            )}
             <div style={{ fontSize:8, color: isHovered ? C.sub : C.dim, marginTop:2, letterSpacing:0.5, transition:"color 0.12s" }}>worked</div>
             {extraTime && (() => {
               const parts = extraTime.split(":");
@@ -853,12 +864,12 @@ export default function EmployeeDetails() {
       // { label:"Hours This Month", value: monthActualRounded, unit:`/ ${expectedHours}h`, sub:`${monthWorkingDays.length} working days`, color:C.yellow, icon:<svg width="12" height="12" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke={C.yellow} strokeWidth="1.8"/><path d="M12 7v5l3 3" stroke={C.yellow} strokeWidth="1.8" strokeLinecap="round"/></svg> },
       { label:"Avg / Day", value: monthAvg, unit:"hrs", sub:`over ${monthPresentDays} present days`, color:C.blue, icon:<svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M3 12h18M3 6h18M3 18h18" stroke={C.blue} strokeWidth="1.8" strokeLinecap="round"/></svg> },
       { label:"Days Under 8h", value: daysUnder8, unit:"days", sub:"short days this month", color:C.orange, dates: daysUnder8List, icon:<svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M12 3v9l5 3" stroke={C.orange} strokeWidth="1.8" strokeLinecap="round"/><path d="M5 19h14" stroke={C.orange} strokeWidth="1.8" strokeLinecap="round"/></svg> },
-      { label:"No Check-out Days", value: daysNoCheckout, unit:"days", sub:"missing checkout", color:C.red, dates: daysNoCheckoutList, icon:<svg width="12" height="12" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke={C.red} strokeWidth="1.8"/><path d="M15 9l-6 6M9 9l6 6" stroke={C.red} strokeWidth="1.8" strokeLinecap="round"/></svg> },
+      { label:"Forgot to Check Out", value: daysNoCheckout, unit:"days", sub:"didn't scan out", color:C.red, dates: daysNoCheckoutList, icon:<svg width="12" height="12" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke={C.red} strokeWidth="1.8"/><path d="M15 9l-6 6M9 9l6 6" stroke={C.red} strokeWidth="1.8" strokeLinecap="round"/></svg> },
       {
         label:"Regularized",
         value: regDays,
         unit:"days",
-        sub: "HR-marked",
+        sub: "corrected by HR",
         color:C.regGreen,
         dates: regDaysList,
         icon:<svg width="12" height="12" viewBox="0 0 24 24" fill="none">

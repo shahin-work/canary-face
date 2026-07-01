@@ -89,6 +89,68 @@ export function calcHours(
 }
 
 /**
+ * How many hours of the WORKED time fall inside the lunch window (13:00–14:00).
+ * Used only for the EmployeeDetails "minus lunch" display — it never changes the
+ * real worked total. Mirrors calcHours' interval building + today/now clipping, so
+ * the subtraction is consistent (overlaps merged, leave excluded).
+ *
+ * Returns hours (0..1) of overlap, rounded to 2 decimals.
+ */
+const LUNCH_START_MIN = 13 * 60; // 13:00
+const LUNCH_END_MIN   = 14 * 60; // 14:00
+
+export function lunchOverlapHours(
+  sessions: HourSession[] | null | undefined,
+  forDate?: string,
+): number {
+  if (!Array.isArray(sessions) || sessions.length === 0) return 0;
+
+  const now = new Date();
+  const todayStr = toDateStr(now);
+  const nowMins = now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60;
+  const isToday = !forDate || forDate === todayStr;
+
+  // build the same worked intervals calcHours uses
+  const intervals: [number, number][] = [];
+  for (const s of sessions) {
+    if (!s || !s.check_in) continue;
+    if (s.leave) continue;                       // worked time only
+
+    const start = toMins(s.check_in);
+    let end: number;
+    if (s.check_out) end = toMins(s.check_out);
+    else if (isToday) end = nowMins;
+    else continue;
+
+    if (isToday) {
+      if (start >= nowMins) continue;
+      if (end > nowMins) end = nowMins;
+    }
+    if (end > start) intervals.push([start, end]);
+  }
+  if (intervals.length === 0) return 0;
+
+  // merge overlaps (so a 1–2pm overlap isn't double-subtracted across sessions)
+  intervals.sort((a, b) => a[0] - b[0]);
+  const merged: [number, number][] = [intervals[0]];
+  for (let i = 1; i < intervals.length; i++) {
+    const [s, e] = intervals[i];
+    const last = merged[merged.length - 1];
+    if (s <= last[1]) { if (e > last[1]) last[1] = e; }
+    else merged.push([s, e]);
+  }
+
+  // sum the part of each merged interval that lies within 13:00–14:00
+  let overlap = 0;
+  for (const [s, e] of merged) {
+    const lo = Math.max(s, LUNCH_START_MIN);
+    const hi = Math.min(e, LUNCH_END_MIN);
+    if (hi > lo) overlap += hi - lo;
+  }
+  return Math.round((overlap / 60) * 100) / 100;
+}
+
+/**
  * Hours for a SINGLE session (used by the per-session labels on timelines).
  * Same today/now clipping as calcHours.
  */

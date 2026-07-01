@@ -123,14 +123,21 @@ function WeekBar({ day, isCheckedIn = false, today }: { day: DayStatus; isChecke
   const isFuture   = day.status === "future";
   const h          = day.totalHours ?? 0;
 
+  // A present day under 4 worked hours counts as Absent in the export banding —
+  // colour its tile red to match the "A" label shown on it.
+  const isUnder4 = isPresent && h > 0 && h < 4;
+
   const bg =
-    day.wfh && day.status === "present"
+    isUnder4
+      ? "rgba(239, 68, 68, 0.90)"   // same red as Leave / Absent tiles
+      : day.wfh && day.status === "present"
       ? "rgba(166, 38, 128, 0.74)"
       : (isCheckedIn && isPresent && h === 0
           ? "#15731B"
           : barBg(day));
 
   const textColor = (() => {
+    if (isUnder4) return "#000";   // match the Leave tile's dark text on red
     if (!isPresent) return "#001a00";
     if (isCheckedIn && h === 0) return "rgba(150,255,150,0.9)";
     return h < 5 ? "rgba(150,255,150,0.85)" : "#001a00";
@@ -170,15 +177,23 @@ function WeekBar({ day, isCheckedIn = false, today }: { day: DayStatus; isChecke
       {isPresent && (isCheckedIn && h === 0) && (
         <span style={{ color: "rgba(150,255,150,0.9)", fontSize: 8, fontWeight: 800, letterSpacing: 0.3 }}>IN</span>
       )}
-      {isPresent && h > 0 && (
-        <span style={{
-          color: textColor,
-          fontSize: 13, fontWeight: 900,
-          fontFamily: "'JetBrains Mono',monospace", lineHeight: 1, letterSpacing: -0.3,
-        }}>
-          {fmtHMShort(h)}
-        </span>
-      )}
+      {isPresent && h > 0 && (() => {
+        // Same banding as the Excel export (raw worked hours, time as H.MM), but
+        // the time is ALWAYS shown under the band on every tile:
+        //   ≥ 8h        → "P"    over the time
+        //   4h to <8h   → "0.5P" over the time
+        //   < 4h        → "A"    over the time (too few hours)
+        const isWfh = !!day.wfh;
+        const band = h >= 8 ? (isWfh ? "R" : "P") : h >= 4 ? (isWfh ? "0.5R" : "0.5P") : "A";
+        return (
+          <span style={{ display: "flex", flexDirection: "column", alignItems: "center", lineHeight: 1, color: textColor }}>
+            <span style={{ fontSize: 12.5, fontWeight: 900, fontFamily: "'JetBrains Mono',monospace", letterSpacing: -0.3 }}>
+              {fmtHMShort(h)}
+            </span>
+            <span style={{ marginTop: 1.5, fontSize: 8.5, fontWeight: 800, letterSpacing: 0.2, opacity: 0.85 }}>{band}</span>
+          </span>
+        );
+      })()}
       {isAbsent && (
         <span style={{ color: "#ff6b6b", fontSize: 8, fontWeight: 800 }}></span>
       )}

@@ -2,11 +2,50 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { initializeApp, getApps } from "firebase/app";
 import { getFirestore, collection, getDocs, doc, setDoc, getDoc } from "firebase/firestore";
+import { onAuthStateChanged, signInWithPopup, signOut, type User } from "firebase/auth";
+import { auth, googleProvider } from "../firebase";
 import * as XLSX from "xlsx-js-style";
 import emailjs from "@emailjs/browser";
 import { applyAttendanceBonus } from "../data/attendanceBonus";
 import { calcHours, fmtHM } from "../lib/hours";
+import HrChatPanel, { type ChatTarget } from "./HrChatPanel";
+import { totalUnreadForHr, type ChatContext } from "../lib/chat";
 import logo from "../assets/react.png";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HR PANEL ACCESS — Google login allow-list.
+//
+// Only the Google accounts listed here can open the HR Panel. Sign-in uses the
+// shared Firebase Google provider; the verified email from the signed token is
+// matched against this list (case-insensitive). Anyone else is rejected and
+// signed straight back out.
+//
+// To add more HR users later, just add their Gmail addresses to this array.
+// ─────────────────────────────────────────────────────────────────────────────
+const HR_ALLOWED_EMAILS: string[] = [
+  "vandanakb0@gmail.com", "shahincanary@gmail.com",
+];
+const isHrEmail = (email: string | null | undefined): boolean =>
+  !!email && HR_ALLOWED_EMAILS.map(e => e.toLowerCase()).includes(email.toLowerCase());
+
+// ⚠️ TEMPORARY DEV BYPASS — remove before production.
+// When enabled, visiting the HR Panel with `?dev=1` in the URL (e.g. /hr?dev=1)
+// skips the Google login entirely and enters as a fake HR user. This is for local
+// testing ONLY — it offers zero security. Set HR_DEV_BYPASS to false (or delete
+// this block) to fully disable it.
+const HR_DEV_BYPASS = true;
+function devBypassActive(): boolean {
+  if (!HR_DEV_BYPASS) return false;
+  try { return new URLSearchParams(window.location.search).get("dev") === "1"; }
+  catch { return false; }
+}
+
+// Session lifetime. Once an HR user logs in, the session stays valid for this long
+// (a full working day) regardless of activity — they are NOT logged out for being
+// idle. After it expires, the next visit asks them to sign in again. Firebase keeps
+// the session across page refreshes; we only enforce this daily cap on top of that.
+const HR_SESSION_MS  = 12 * 60 * 60 * 1000; // 12 hours
+const HR_LOGIN_AT_KEY = "hr_login_at";      // epoch ms of the current login
 
 const firebaseConfig = {
   apiKey: "YOUR_API_KEY",
@@ -20,20 +59,24 @@ const firebaseConfig = {
 const fbApp = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
 const db    = getFirestore(fbApp);
 
-const HR_PASS  = "4347";
-const SESS_KEY = "hr_remote_ts";
-const SESS_MIN = 60;
 const NAME_KEY = "hr_user_name";   // HR person's display name (per device)
 
-function isAuthed() {
-  const ts = localStorage.getItem(SESS_KEY);
-  if (!ts) return false;
-  return Date.now() - parseInt(ts) < SESS_MIN * 20 * 1000;
-}
-function setAuth()   { localStorage.setItem(SESS_KEY, Date.now().toString()); }
-function clearAuth() { localStorage.removeItem(SESS_KEY); }
 function getHrName(): string { return (localStorage.getItem(NAME_KEY) || "").trim(); }
 function saveHrName(n: string) { localStorage.setItem(NAME_KEY, n.trim()); }
+
+// ── HR session window helpers ────────────────────────────────────────────────
+// We record when the login happened and treat the session as valid for
+// HR_SESSION_MS after that. No stamp yet → start one now (fresh login).
+function getLoginAt(): number {
+  const v = parseInt(localStorage.getItem(HR_LOGIN_AT_KEY) || "", 10);
+  return Number.isFinite(v) ? v : 0;
+}
+function startSession() { localStorage.setItem(HR_LOGIN_AT_KEY, Date.now().toString()); }
+function clearSession() { localStorage.removeItem(HR_LOGIN_AT_KEY); }
+function sessionExpired(): boolean {
+  const at = getLoginAt();
+  return at === 0 || (Date.now() - at) >= HR_SESSION_MS;
+}
 
 // ── Colours ───────────────────────────────────────────────────────────────────
 const BG      = "#0D0D0D";
@@ -822,20 +865,34 @@ function ExportModal({ onClose, onExport }: { onClose:()=>void; onExport:(from:s
   );
 }
 
-// ── HR Login ──────────────────────────────────────────────────────────────────
-function HrLogin({ onLogin }: { onLogin: () => void }) {
-  const [code, setCode]   = useState("");
-  const [shake, setShake] = useState(false);
+// ── HR Login (Google sign-in, restricted to the HR allow-list) ─────────────────
+function HrLogin() {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr]   = useState("");
 
-  function handleInput(val: string) {
-    if (!/^\d*$/.test(val) || val.length > 4) return;
-    setCode(val);
-    if (val.length === 4) {
-      if (val === HR_PASS) { setAuth(); onLogin(); }
-      else {
-        setShake(true);
-        setTimeout(() => { setShake(false); setCode(""); }, 700);
+  async function handleSignIn() {
+    setErr(""); setBusy(true);
+    try {
+      const cred = await signInWithPopup(auth, googleProvider);
+      // Reject any account that isn't on the HR allow-list — sign it straight
+      // back out so an unauthorised Google session can't linger.
+      if (!isHrEmail(cred.user.email)) {
+        await signOut(auth);
+        setErr(`${cred.user.email ?? "This account"} is not authorised for the HR Panel.`);
       }
+      // On success the top-level onAuthStateChanged listener flips the gate.
+    } catch (e: any) {
+      const code = e?.code || "";
+      if (code === "auth/popup-closed-by-user" || code === "auth/cancelled-popup-request" || code === "auth/user-cancelled") {
+        setErr("Sign-in was cancelled.");
+      } else if (code === "auth/popup-blocked") {
+        setErr("Popup was blocked. Please allow popups and try again.");
+      } else {
+        console.error("[HrLogin] sign-in failed:", e);
+        setErr("Could not sign in with Google. Please try again.");
+      }
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -844,13 +901,11 @@ function HrLogin({ onLogin }: { onLogin: () => void }) {
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&family=JetBrains+Mono:wght@600;700&display=swap');
         *,*::before,*::after{box-sizing:border-box;}
-        @keyframes shake{0%,100%{transform:translateX(0)}20%{transform:translateX(-8px)}40%{transform:translateX(8px)}60%{transform:translateX(-6px)}80%{transform:translateX(6px)}}
       `}</style>
       <div style={{
         background:"linear-gradient(155deg,#161616 0%,#0D0D0D 100%)",
         border:`1px solid ${BORDER}`,borderRadius:20,padding:"38px 32px",
-        width:300,maxWidth:"100%",textAlign:"center",boxShadow:"0 24px 80px rgba(0,0,0,0.7)",
-        animation: shake ? "shake 0.6s ease" : "none",
+        width:330,maxWidth:"100%",textAlign:"center",boxShadow:"0 24px 80px rgba(0,0,0,0.7)",
       }}>
         <div style={{
           width:52,height:52,borderRadius:15,margin:"0 auto 18px",
@@ -858,48 +913,34 @@ function HrLogin({ onLogin }: { onLogin: () => void }) {
           display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,
         }}>🔐</div>
         <h2 style={{color:TEXT,fontWeight:800,fontSize:17,margin:"0 0 4px"}}>CanaryFace — HR Panel</h2>
-        <p style={{color:SUB,fontSize:11,margin:"0 0 22px"}}>Enter 4-digit passcode</p>
-        <div style={{display:"flex",gap:9,justifyContent:"center",marginBottom:18}}>
-          {[0,1,2,3].map(i => (
-            <div key={i} style={{
-              width:42,height:48,borderRadius:9,
-              background: shake ? "rgba(248,113,113,0.1)" : "rgba(30,54,194,0.08)",
-              border:`2px solid ${shake ? RED : (code.length > i ? MAGENTA : BORDER)}`,
-              display:"flex",alignItems:"center",justifyContent:"center",
-              fontSize:20,fontWeight:800,color:MAGENTA,
-              fontFamily:"'JetBrains Mono',monospace",
-              transition:"border 0.15s, background 0.15s",
-            }}>
-              {code.length > i ? "●" : ""}
-            </div>
-          ))}
-        </div>
-        <input autoFocus inputMode="numeric" value={code}
-          onChange={e => handleInput(e.target.value)}
-          style={{position:"absolute",opacity:0,width:1,height:1,pointerEvents:"none"}} />
-        <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:7}}>
-          {[1,2,3,4,5,6,7,8,9,"",0,"⌫"].map((k,i) => (
-            <button key={i}
-              onClick={() => {
-                if (k==="⌫") { handleInput(code.slice(0,-1)); return; }
-                if (k==="") return;
-                handleInput(code + String(k));
-              }}
-              style={{
-                padding:"11px 0",borderRadius:8,
-                background: k==="" ? "transparent" : "rgba(30,54,194,0.1)",
-                border: k==="" ? "none" : `1px solid ${BORDER}`,
-                color:TEXT,fontSize:16,fontWeight:700,
-                cursor: k==="" ? "default" : "pointer",
-                fontFamily:"'JetBrains Mono',monospace",transition:"background 0.12s",
-              }}
-              onMouseEnter={e=>{ if(k!=="") (e.currentTarget as HTMLButtonElement).style.background=`rgba(30,54,194,0.12)`; }}
-              onMouseLeave={e=>{ if(k!=="") (e.currentTarget as HTMLButtonElement).style.background="rgba(30,54,194,0.1)"; }}
-            >{k}</button>
-          ))}
-        </div>
-        {shake && <p style={{color:RED,fontSize:11,marginTop:12,marginBottom:0}}>Incorrect passcode</p>}
-        <p style={{color:DIM,fontSize:10,marginTop:14,marginBottom:0}}>Session lasts {SESS_MIN} minutes</p>
+        <p style={{color:SUB,fontSize:11.5,margin:"0 0 24px",lineHeight:1.5}}>
+          Restricted area. Sign in with your authorised HR Google account to continue.
+        </p>
+
+        <button onClick={handleSignIn} disabled={busy} style={{
+          width:"100%",padding:"12px",borderRadius:11,border:"none",
+          background: busy ? "rgba(255,255,255,0.7)" : "#FFFFFF",
+          color:"#1a1a1a",fontSize:13.5,fontWeight:700,fontFamily:"'Sora',sans-serif",
+          cursor: busy ? "not-allowed" : "pointer",
+          display:"flex",alignItems:"center",justifyContent:"center",gap:10,
+        }}>
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none">
+            <path d="M21.8 12.2c0-.7-.06-1.4-.18-2.05H12v3.9h5.5a4.7 4.7 0 01-2.04 3.08v2.56h3.3c1.93-1.78 3.04-4.4 3.04-7.49z" fill="#4285F4"/>
+            <path d="M12 22c2.76 0 5.07-.92 6.76-2.48l-3.3-2.56c-.92.62-2.1.98-3.46.98-2.66 0-4.92-1.8-5.73-4.22H2.86v2.64A10 10 0 0012 22z" fill="#34A853"/>
+            <path d="M6.27 13.72a6 6 0 010-3.44V7.64H2.86a10 10 0 000 8.72l3.41-2.64z" fill="#FBBC05"/>
+            <path d="M12 5.96c1.5 0 2.85.52 3.91 1.53l2.93-2.93C17.07 2.93 14.76 2 12 2 7.99 2 4.53 4.3 2.86 7.64l3.41 2.64C7.08 7.76 9.34 5.96 12 5.96z" fill="#EA4335"/>
+          </svg>
+          {busy ? "Signing in…" : "Sign in with Google"}
+        </button>
+
+        {err && (
+          <p style={{
+            color:RED,fontSize:11,marginTop:14,marginBottom:0,lineHeight:1.5,
+            background:"rgba(248,113,113,0.08)",border:`1px solid ${RED}33`,
+            borderRadius:8,padding:"8px 10px",
+          }}>{err}</p>
+        )}
+        <p style={{color:DIM,fontSize:10,marginTop:16,marginBottom:0}}>Access limited to authorised HR accounts</p>
       </div>
     </div>
   );
@@ -967,13 +1008,81 @@ function NameCapture({ initial = "", onSave, onBack }: {
 }
 
 export default function HrPanel() {
-  const [authed, setAuthed]       = useState(isAuthed());
+  // Auth is the real Firebase Google session, restricted to the HR allow-list.
+  const [user, setUser]           = useState<User | null>(() => auth.currentUser);
+  const [authResolving, setAuthResolving] = useState(true); // resolving initial session
   const [hrName, setHrNameState]  = useState(getHrName());
   const [editingName, setEditing] = useState(false);
 
-  if (!authed) return <HrLogin onLogin={() => setAuthed(true)} />;
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, (u) => {
+      // Only treat allow-listed accounts as logged in. A stray non-HR Google
+      // session (e.g. from elsewhere in the app) must not unlock the panel.
+      const isHr = isHrEmail(u?.email);
+      if (isHr) {
+        // If the daily session window has lapsed since the last login, force a
+        // fresh sign-in; otherwise (re)affirm the session — and start the clock
+        // on a brand-new login that has no stamp yet.
+        if (getLoginAt() !== 0 && sessionExpired()) {
+          clearSession();
+          signOut(auth).catch(() => {});
+          setUser(null);
+        } else {
+          if (getLoginAt() === 0) startSession();
+          setUser(u);
+        }
+      } else {
+        setUser(null);
+      }
+      setAuthResolving(false);
+    });
+    return unsub;
+  }, []);
 
-  // ask for the name only the first time (or when the user chooses to change it)
+  // Pre-fill the HR display name from the Google profile the first time, so a
+  // verified user isn't asked to retype it (they can still change it later).
+  useEffect(() => {
+    if (user && !getHrName()) {
+      const fromGoogle = (user.displayName || user.email?.split("@")[0] || "").trim();
+      if (fromGoogle) { saveHrName(fromGoogle); setHrNameState(fromGoogle); }
+    }
+  }, [user]);
+
+  const logout = async () => { clearSession(); try { await signOut(auth); } catch { /* ignore */ } };
+
+  // ── Daily session expiry ──────────────────────────────────────────────────
+  // Once logged in, the session is valid for HR_SESSION_MS (a full day) — the
+  // user is NOT logged out for being idle. We only schedule a single sign-out for
+  // the moment the window ends. If that moment is already past, sign out now.
+  useEffect(() => {
+    if (!user) return;
+    const remaining = HR_SESSION_MS - (Date.now() - getLoginAt());
+    if (remaining <= 0) { logout(); return; }
+    const timer = setTimeout(() => { logout(); }, remaining);
+    return () => clearTimeout(timer);
+  }, [user]);
+
+  // ⚠️ TEMPORARY DEV BYPASS — /hr?dev=1 enters without logging in. Remove for prod.
+  if (devBypassActive()) {
+    return <HrMain
+      hrName={hrName || "Dev"}
+      onChangeName={() => setEditing(true)}
+      onLogout={() => { window.location.href = window.location.pathname; }}
+    />;
+  }
+
+  // While Firebase resolves the persisted session, avoid flashing the login screen.
+  if (authResolving) {
+    return (
+      <div style={{minHeight:"100vh",background:BG,display:"flex",alignItems:"center",justifyContent:"center",color:SUB,fontFamily:"'Sora',sans-serif",fontSize:13}}>
+        Checking access…
+      </div>
+    );
+  }
+
+  if (!user) return <HrLogin />;
+
+  // ask for the name only if we still don't have one (or the user chooses to change it)
   if (!hrName || editingName)
     return <NameCapture
       initial={hrName}
@@ -984,7 +1093,7 @@ export default function HrPanel() {
   return <HrMain
     hrName={hrName}
     onChangeName={() => setEditing(true)}
-    onLogout={() => { clearAuth(); setAuthed(false); }}
+    onLogout={logout}
   />;
 }
 
@@ -1028,6 +1137,25 @@ const REG_REASON_LABEL: Record<string, string> = {
 };
 const regReasonLabel = (r: string) => REG_REASON_LABEL[r] || r;
 
+// open the Messages tab on an employee's thread (passed down to the review cards)
+type OpenChatFn = (empId: string, empName: string, context?: ChatContext, refId?: string | null) => void;
+
+// small reusable "chat with employee" icon button for the review cards
+function ChatIconButton({ onClick, title = "Message employee" }: { onClick: () => void; title?: string }) {
+  return (
+    <button onClick={onClick} title={title} style={{
+      display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 5,
+      background: `${YELLOW}12`, border: `1px solid ${YELLOW}55`, borderRadius: 8,
+      padding: "7px 12px", cursor: "pointer", color: YELLOW, fontSize: 11, fontWeight: 800, fontFamily: "inherit",
+    }}>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+        <path d="M21 11.5a8.5 8.5 0 01-12.3 7.6L3 21l1.9-5.7A8.5 8.5 0 1121 11.5z" stroke={YELLOW} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+      </svg>
+      Chat
+    </button>
+  );
+}
+
 function regFmtCreated(ms: number): string {
   if (!ms) return "";
   const d = new Date(ms);
@@ -1044,7 +1172,7 @@ function regFmtDuration(mins: number) {
 }
 
 function RegRequestCard({
-  row, empMeta, busy, onApprove, onReject, onViewImg,
+  row, empMeta, busy, onApprove, onReject, onViewImg, onOpenChat,
 }: {
   row: RegRow;
   empMeta?: any;
@@ -1052,6 +1180,7 @@ function RegRequestCard({
   onApprove: (r: RegRow) => void;
   onReject: (r: RegRow) => void;
   onViewImg: (img: string) => void;
+  onOpenChat: OpenChatFn;
 }) {
   const [rejecting, setRejecting] = useState(false);
   const [note, setNote] = useState("");
@@ -1062,8 +1191,8 @@ function RegRequestCard({
 
   // compact, right-aligned action button
   const actBtn = (color: string, solid: boolean): React.CSSProperties => ({
-    padding: "7px 14px", borderRadius: 8, fontSize: 11.5, fontWeight: 800,
-    border: solid ? "none" : `1px solid ${color}55`,
+    padding: "11px 24px", borderRadius: 10, fontSize: 13.5, fontWeight: 800,
+    border: solid ? "none" : `1.5px solid ${color}66`,
     background: solid ? color : `${color}14`,
     color: solid ? "#06130a" : color,
     cursor: busy ? "not-allowed" : "pointer", fontFamily: "inherit",
@@ -1072,8 +1201,8 @@ function RegRequestCard({
 
   return (
     <div style={{
-      background: SURF2, border: `1px solid ${BORDER}`, borderRadius: 12, padding: "12px 14px",
-      display: "flex", alignItems: "center", gap: 16,
+      background: SURF2, border: `1px solid ${BORDER}`, borderRadius: 12, padding: "14px 16px",
+      display: "flex", alignItems: "center", gap: 18,
     }}>
       {/* ── identity (left) ── */}
       <div style={{ display: "flex", alignItems: "center", gap: 10, width: 210, flexShrink: 0, minWidth: 0 }}>
@@ -1096,33 +1225,76 @@ function RegRequestCard({
         </div>
       </div>
 
-      {/* ── details (middle, grows) ── */}
-      <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 5 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-          <span style={{
-            fontSize: 10, fontWeight: 700, color: BLUE, background: `${BLUE}15`,
-            border: `1px solid ${BLUE}33`, borderRadius: 20, padding: "2px 8px",
-          }}>{regReasonLabel(row.reason)}</span>
-          <span style={{ color: GREEN, fontFamily: "'JetBrains Mono',monospace", fontWeight: 700, fontSize: 17 }}>{row.check_in}</span>
-          <span style={{ color: DIM }}>→</span>
-          <span style={{ color: RED, fontFamily: "'JetBrains Mono',monospace", fontWeight: 700, fontSize: 17 }}>{row.check_out}</span>
-          <span style={{ color: SUB, fontSize: 22 }}>· {regFmtDuration(mins)}</span>
-          {row.created_at ? <span style={{ color: DIM, fontSize: 12 }}>· {regFmtCreated(row.created_at)}</span> : null}
+      {/* ── details (middle, grows) — laid out HORIZONTALLY across the width ── */}
+      <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 8 }}>
+
+        {/* top row: Date · Reason · Time · Duration — side by side columns */}
+        <div style={{ display: "flex", alignItems: "center", gap: 24, flexWrap: "wrap" }}>
+
+          {/* DATE being regularized */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+            <span style={{ color: DIM, fontSize: 9, fontWeight: 700, letterSpacing: 0.5, textTransform: "uppercase" }}>Date</span>
+            <span style={{
+              display: "inline-flex", alignItems: "center", gap: 6,
+              fontSize: 14, fontWeight: 800, color: YELLOW,
+            }}>
+              <span style={{ fontSize: 13 }}>📅</span>
+              {new Date(row.date + "T00:00:00").toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short", year: "numeric" })}
+            </span>
+          </div>
+
+          {/* REASON */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+            <span style={{ color: DIM, fontSize: 9, fontWeight: 700, letterSpacing: 0.5, textTransform: "uppercase" }}>Reason</span>
+            <span style={{ color: BLUE, fontSize: 13, fontWeight: 700 }}>{regReasonLabel(row.reason)}</span>
+          </div>
+
+          {/* TIME range */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+            <span style={{ color: DIM, fontSize: 9, fontWeight: 700, letterSpacing: 0.5, textTransform: "uppercase" }}>Time</span>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 9 }}>
+              <span style={{ color: GREEN, fontFamily: "'JetBrains Mono',monospace", fontWeight: 800, fontSize: 21 }}>{row.check_in}</span>
+              <span style={{ color: DIM, fontSize: 16 }}>→</span>
+              <span style={{ color: RED, fontFamily: "'JetBrains Mono',monospace", fontWeight: 800, fontSize: 21 }}>{row.check_out}</span>
+            </span>
+          </div>
+
+          {/* DURATION */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+            <span style={{ color: DIM, fontSize: 9, fontWeight: 700, letterSpacing: 0.5, textTransform: "uppercase" }}>Duration</span>
+            <span style={{ color: TEXT, fontFamily: "'JetBrains Mono',monospace", fontSize: 19, fontWeight: 800 }}>{regFmtDuration(mins)}</span>
+          </div>
+
+          {/* REQUESTED time — kept on the left, beside the other columns */}
+          {row.created_at ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+              <span style={{ color: DIM, fontSize: 9, fontWeight: 700, letterSpacing: 0.5, textTransform: "uppercase" }}>Requested</span>
+              <span style={{ color: SUB, fontSize: 12, fontWeight: 600 }}>{regFmtCreated(row.created_at)}</span>
+            </div>
+          ) : null}
+
+          {/* DESCRIPTION — its own column, grows to fill remaining width */}
+          {row.description ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 3, flex: 1, minWidth: 120 }}>
+              <span style={{ color: DIM, fontSize: 9, fontWeight: 700, letterSpacing: 0.5, textTransform: "uppercase" }}>Description</span>
+              <span style={{ color: TEXT, fontSize: 12.5, lineHeight: 1.4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={row.description}>
+                {row.description}
+              </span>
+            </div>
+          ) : null}
+
+          {/* attachment */}
           {row.attachment && (
             <button onClick={() => onViewImg(row.attachment!)} title="View attachment" style={{
               display: "inline-flex", alignItems: "center", gap: 5, background: "transparent",
-              border: `1px solid ${BLUE}33`, borderRadius: 7, padding: "2px 8px", cursor: "pointer",
+              border: `1px solid ${BLUE}33`, borderRadius: 7, padding: "5px 9px", cursor: "pointer", alignSelf: "flex-end",
             }}>
               <span style={{ fontSize: 11 }}>📎</span>
               <span style={{ color: BLUE, fontSize: 10, fontWeight: 600 }}>Attachment</span>
             </button>
           )}
         </div>
-        {row.description ? (
-          <p style={{ color: SUB, fontSize: 11.5, margin: 0, lineHeight: 1.45, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={row.description}>
-            {row.description}
-          </p>
-        ) : null}
+
         {resolved && (
           <div style={{ fontSize: 10.5, color: row.status === "rejected" ? RED : GREEN }}>
             <span style={{ fontWeight: 700 }}>
@@ -1141,6 +1313,9 @@ function RegRequestCard({
             border: `1px solid ${m.color}40`, borderRadius: 20, padding: "3px 10px",
           }}>{m.label}</span>
         )}
+
+        {/* message this employee about this request */}
+        <ChatIconButton onClick={() => onOpenChat(row.emp_id, row.emp_name, "regularization", row.id)} />
 
         {row.status === "pending" && (
           rejecting ? (
@@ -1172,12 +1347,13 @@ function RegRequestCard({
 }
 
 function RegularizationRequests({
-  hrName, employees, onToast, onResolved,
+  hrName, employees, onToast, onResolved, onOpenChat,
 }: {
   hrName: string;
   employees: any[];
   onToast: (msg: string, type?: string) => void;
   onResolved?: () => void;
+  onOpenChat: OpenChatFn;
 }) {
   const [docs, setDocs]       = useState<RegDoc[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1413,6 +1589,7 @@ function RegularizationRequests({
                       onApprove={handleApprove}
                       onReject={handleReject}
                       onViewImg={setImgView}
+                      onOpenChat={onOpenChat}
                     />
                   ))}
                 </div>
@@ -1476,7 +1653,7 @@ function lvKindLabel(r: Pick<LeaveReqItem, "kind" | "half" | "quarter">): string
 }
 
 function LeaveRequestCard({
-  row, empMeta, busy, onApprove, onReject, onViewImg,
+  row, empMeta, busy, onApprove, onReject, onViewImg, onOpenChat,
 }: {
   row: LeaveRow;
   empMeta?: any;
@@ -1484,6 +1661,7 @@ function LeaveRequestCard({
   onApprove: (r: LeaveRow) => void;
   onReject: (r: LeaveRow) => void;
   onViewImg: (img: string) => void;
+  onOpenChat: OpenChatFn;
 }) {
   const [rejecting, setRejecting] = useState(false);
   const [note, setNote] = useState("");
@@ -1491,8 +1669,8 @@ function LeaveRequestCard({
   const resolved = row.status === "approved" || row.status === "rejected";
 
   const actBtn = (color: string, solid: boolean): React.CSSProperties => ({
-    padding: "7px 14px", borderRadius: 8, fontSize: 11.5, fontWeight: 800,
-    border: solid ? "none" : `1px solid ${color}55`,
+    padding: "11px 24px", borderRadius: 10, fontSize: 13.5, fontWeight: 800,
+    border: solid ? "none" : `1.5px solid ${color}66`,
     background: solid ? color : `${color}14`,
     color: solid ? "#06130a" : color,
     cursor: busy ? "not-allowed" : "pointer", fontFamily: "inherit",
@@ -1501,8 +1679,8 @@ function LeaveRequestCard({
 
   return (
     <div style={{
-      background: SURF2, border: `1px solid ${BORDER}`, borderRadius: 12, padding: "12px 14px",
-      display: "flex", alignItems: "center", gap: 16,
+      background: SURF2, border: `1px solid ${BORDER}`, borderRadius: 12, padding: "14px 16px",
+      display: "flex", alignItems: "center", gap: 18,
     }}>
       {/* identity (left) */}
       <div style={{ display: "flex", alignItems: "center", gap: 10, width: 210, flexShrink: 0, minWidth: 0 }}>
@@ -1525,38 +1703,68 @@ function LeaveRequestCard({
         </div>
       </div>
 
-      {/* details (middle, grows) */}
-      <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 5 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-          <span style={{
-            fontSize: 10, fontWeight: 700, color: YELLOW, background: `${YELLOW}15`,
-            border: `1px solid ${YELLOW}33`, borderRadius: 20, padding: "2px 8px",
-          }}>{lvCategoryLabel(row.category)}</span>
-          <span style={{
-            fontSize: 10, fontWeight: 700, color: LV_GREEN, background: `${LV_GREEN}15`,
-            border: `1px solid ${LV_GREEN}33`, borderRadius: 20, padding: "2px 8px",
-          }}>🌴 {lvKindLabel(row)}</span>
-          <span style={{ color: SUB, fontFamily: "'JetBrains Mono',monospace", fontWeight: 700, fontSize: 14 }}>
-            {row.check_in?.slice(0, 5)}–{row.check_out?.slice(0, 5)}
-          </span>
-          {row.created_at ? <span style={{ color: DIM, fontSize: 12 }}>· {regFmtCreated(row.created_at)}</span> : null}
+      {/* details (middle, grows) — laid out HORIZONTALLY across the width */}
+      <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 24, flexWrap: "wrap" }}>
+
+          {/* DATE of leave */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+            <span style={{ color: DIM, fontSize: 9, fontWeight: 700, letterSpacing: 0.5, textTransform: "uppercase" }}>Date</span>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 14, fontWeight: 800, color: YELLOW }}>
+              <span style={{ fontSize: 13 }}>📅</span>
+              {new Date(row.date + "T00:00:00").toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short", year: "numeric" })}
+            </span>
+          </div>
+
+          {/* CATEGORY + kind */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+            <span style={{ color: DIM, fontSize: 9, fontWeight: 700, letterSpacing: 0.5, textTransform: "uppercase" }}>Leave type</span>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
+              <span style={{ color: LV_GREEN, fontSize: 13, fontWeight: 700 }}>🌴 {lvCategoryLabel(row.category)}</span>
+              <span style={{ color: SUB, fontSize: 12, fontWeight: 600 }}>· {lvKindLabel(row)}</span>
+            </span>
+          </div>
+
+          {/* TIME range */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+            <span style={{ color: DIM, fontSize: 9, fontWeight: 700, letterSpacing: 0.5, textTransform: "uppercase" }}>Time</span>
+            <span style={{ color: TEXT, fontFamily: "'JetBrains Mono',monospace", fontWeight: 800, fontSize: 18 }}>
+              {row.check_in?.slice(0, 5)}–{row.check_out?.slice(0, 5)}
+            </span>
+          </div>
+
+          {/* REQUESTED time — on the left, beside other columns */}
+          {row.created_at ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+              <span style={{ color: DIM, fontSize: 9, fontWeight: 700, letterSpacing: 0.5, textTransform: "uppercase" }}>Requested</span>
+              <span style={{ color: SUB, fontSize: 12, fontWeight: 600 }}>{regFmtCreated(row.created_at)}</span>
+            </div>
+          ) : null}
+
+          {/* REASON — own column, grows */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 3, flex: 1, minWidth: 120 }}>
+            <span style={{ color: DIM, fontSize: 9, fontWeight: 700, letterSpacing: 0.5, textTransform: "uppercase" }}>Reason</span>
+            {row.reason ? (
+              <span style={{ color: TEXT, fontSize: 12.5, lineHeight: 1.4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={row.reason}>
+                {row.reason}
+              </span>
+            ) : (
+              <span style={{ color: DIM, fontSize: 11.5, fontStyle: "italic" }}>No reason provided.</span>
+            )}
+          </div>
+
+          {/* attachment */}
           {row.attachment && (
             <button onClick={() => onViewImg(row.attachment!)} title="View attachment" style={{
               display: "inline-flex", alignItems: "center", gap: 5, background: "transparent",
-              border: `1px solid ${BLUE}33`, borderRadius: 7, padding: "2px 8px", cursor: "pointer",
+              border: `1px solid ${BLUE}33`, borderRadius: 7, padding: "5px 9px", cursor: "pointer", alignSelf: "flex-end",
             }}>
               <span style={{ fontSize: 11 }}>📎</span>
               <span style={{ color: BLUE, fontSize: 10, fontWeight: 600 }}>Attachment</span>
             </button>
           )}
         </div>
-        {row.reason ? (
-          <p style={{ color: SUB, fontSize: 11.5, margin: 0, lineHeight: 1.45, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={row.reason}>
-            {row.reason}
-          </p>
-        ) : (
-          <p style={{ color: DIM, fontSize: 11, margin: 0, fontStyle: "italic" }}>No reason provided.</p>
-        )}
+
         {resolved && (
           <div style={{ fontSize: 10.5, color: row.status === "rejected" ? RED : GREEN }}>
             <span style={{ fontWeight: 700 }}>
@@ -1575,6 +1783,9 @@ function LeaveRequestCard({
             border: `1px solid ${m.color}40`, borderRadius: 20, padding: "3px 10px",
           }}>{m.label}</span>
         )}
+
+        {/* message this employee about this leave request */}
+        <ChatIconButton onClick={() => onOpenChat(row.emp_id, row.emp_name, "leave", row.id)} />
 
         {row.status === "pending" && (
           rejecting ? (
@@ -1606,12 +1817,13 @@ function LeaveRequestCard({
 }
 
 function LeaveRequests({
-  hrName, employees, onToast, onResolved,
+  hrName, employees, onToast, onResolved, onOpenChat,
 }: {
   hrName: string;
   employees: any[];
   onToast: (msg: string, type?: string) => void;
   onResolved?: () => void;
+  onOpenChat: OpenChatFn;
 }) {
   const [docs, setDocs]       = useState<LeaveDoc[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1852,6 +2064,7 @@ function LeaveRequests({
                       onApprove={handleApprove}
                       onReject={handleReject}
                       onViewImg={setImgView}
+                      onOpenChat={onOpenChat}
                     />
                   ))}
                 </div>
@@ -1971,6 +2184,9 @@ function mailFmtSent(ms: number) {
          d.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
 }
 
+// NOTE: the manual SendMail tool is retained for reference but no longer mounted —
+// the "Send Email" tab now shows MailComingSoon (automated system on the way).
+// `void SendMail` below keeps it from tripping the unused-symbol check.
 function SendMail({
   hrName, employees, onToast,
 }: {
@@ -3449,8 +3665,393 @@ function HrAddedHistory({
   );
 }
 
+// ── Reported Issues (employee-submitted via Report Issue; HR-only review) ──────
+// Issues live one doc per employee at issues/{emp_id} with a reports[] array.
+// HR can view all reports (incl. photos) and mark them resolved / reopen them.
+type IssueStatusHr = "open" | "resolved" | "cancelled";
+
+interface IssueReportHr {
+  id: string;
+  category: string;
+  solver: string;
+  description: string;
+  attachment?: string | null;   // legacy single image
+  attachments?: string[];       // new multi-photo
+  status: IssueStatusHr;
+  created_at: number;
+  resolver_note?: string;
+  submittedByEmail?: string;
+  submittedByUid?: string;
+}
+interface IssueDoc {
+  emp_id: string;
+  emp_name: string;
+  lastWriterEmail?: string;
+  reports: IssueReportHr[];
+}
+interface IssueRow extends IssueReportHr {
+  emp_id: string;
+  emp_name: string;
+}
+
+const ISSUE_STATUS_META: Record<IssueStatusHr, { label: string; color: string }> = {
+  open:      { label: "Open",      color: YELLOW },
+  resolved:  { label: "Resolved",  color: GREEN  },
+  cancelled: { label: "Cancelled", color: DIM    },
+};
+
+// category value → human label (mirrors ReportIssue's CATEGORIES)
+const ISSUE_CAT_LABEL: Record<string, string> = {
+  regularization: "Attendance Regularization",
+  record_sync: "Zoho Sync / Record Error",
+  leave_wfh: "Leave or WFH Discrepancy",
+  app_issue: "Canary Face App Issue",
+  face_recognition: "Face Recognition",
+  dashboard_bug: "Web Dashboard Bug",
+  workplace: "Workplace & Facilities",
+  missed_scan_violation: "Failure to Scan In/Out",
+  unreported_absence: "Unreported Absence / WFH",
+  unauthorized_break: "Excessive / Unlogged Break",
+  policy_violation: "General Policy Violation",
+  device_misuse: "Device Tampering / Misuse",
+  other: "Other / General",
+};
+const issueCatLabel = (v: string) => ISSUE_CAT_LABEL[v] ?? v;
+const issuePhotos = (r: IssueReportHr): string[] => {
+  const list = [...(r.attachments || [])];
+  if (r.attachment && !list.includes(r.attachment)) list.unshift(r.attachment);
+  return list;
+};
+
+function IssuesPanel({
+  hrName, employees, onToast, onResolved, onOpenChat,
+}: {
+  hrName: string;
+  employees: any[];
+  onToast: (msg: string, type?: string) => void;
+  onResolved?: () => void;
+  onOpenChat: OpenChatFn;
+}) {
+  const [docs, setDocs]       = useState<IssueDoc[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [tab, setTab]         = useState<IssueStatusHr | "all">("open");
+  const [busyId, setBusyId]   = useState<string | null>(null);
+  const [imgView, setImgView] = useState<string | null>(null);
+  const [noteFor, setNoteFor] = useState<string | null>(null); // row id being resolved
+  const [noteText, setNoteText] = useState("");
+
+  const empById = useMemo(() => {
+    const map: Record<string, any> = {};
+    for (const e of employees) map[e.emp_id] = e;
+    return map;
+  }, [employees]);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const snap = await getDocs(collection(db, "issues"));
+      setDocs(snap.docs.map(d => {
+        const data = d.data() as Partial<IssueDoc>;
+        return {
+          emp_id: data.emp_id || d.id,
+          emp_name: data.emp_name || d.id,
+          lastWriterEmail: data.lastWriterEmail,
+          reports: Array.isArray(data.reports) ? data.reports : [],
+        };
+      }));
+    } catch (e) {
+      console.error(e);
+      onToast("Could not load reported issues.", "error");
+    } finally {
+      setLoading(false);
+    }
+  }, [onToast]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const rows: IssueRow[] = useMemo(() => {
+    const out: IssueRow[] = [];
+    for (const d of docs) {
+      for (const r of d.reports) out.push({ ...r, emp_id: d.emp_id, emp_name: d.emp_name });
+    }
+    out.sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+    return out;
+  }, [docs]);
+
+  const counts = useMemo(() => {
+    const c = { all: rows.length, open: 0, resolved: 0, cancelled: 0 } as Record<string, number>;
+    for (const r of rows) c[r.status] = (c[r.status] || 0) + 1;
+    return c;
+  }, [rows]);
+
+  const visible = useMemo(
+    () => tab === "all" ? rows : rows.filter(r => r.status === tab),
+    [rows, tab]
+  );
+
+  // Patch one report inside issues/{empId}. NOTE: the issues collection is
+  // server-locked to require the doc's lastWriterEmail == the signed-in token
+  // email. HR (Vandana) is signed in, so we stamp HER email so the rule passes.
+  async function patchReport(empId: string, reportId: string, patch: Partial<IssueReportHr>) {
+    const target = docs.find(d => d.emp_id === empId);
+    const updated = (target?.reports || []).map(r => r.id === reportId ? { ...r, ...patch } : r);
+    const hrEmail = auth.currentUser?.email ?? "";
+    await setDoc(doc(db, "issues", empId), {
+      reports: updated,
+      lastWriterEmail: hrEmail,
+      lastWriterUid: auth.currentUser?.uid ?? "",
+    }, { merge: true });
+    setDocs(prev => prev.map(d => d.emp_id === empId ? { ...d, reports: updated } : d));
+  }
+
+  async function resolve(row: IssueRow, note: string) {
+    setBusyId(row.id);
+    try {
+      await patchReport(row.emp_id, row.id, {
+        status: "resolved",
+        resolver_note: note.trim() || `Resolved by ${hrName || "HR"}.`,
+      });
+      onToast(`Issue resolved · ${row.emp_name} ✓`);
+      onResolved?.();
+    } catch (e) {
+      console.error(e);
+      onToast("Could not update the issue. (Check you're signed in.)", "error");
+    } finally {
+      setBusyId(null); setNoteFor(null); setNoteText("");
+    }
+  }
+
+  async function reopen(row: IssueRow) {
+    setBusyId(row.id);
+    try {
+      await patchReport(row.emp_id, row.id, { status: "open" });
+      onToast(`Issue reopened · ${row.emp_name}`);
+      onResolved?.();
+    } catch (e) {
+      console.error(e);
+      onToast("Could not reopen the issue.", "error");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  const TABS: (IssueStatusHr | "all")[] = ["open", "resolved", "cancelled", "all"];
+  const ISSUE_ACCENT = RED;
+
+  return (
+    <div style={{ maxWidth: HR_MAX_W, margin: "0 auto", width: "100%" }}>
+      {/* image lightbox */}
+      {imgView && (
+        <div onClick={() => setImgView(null)} style={{
+          position: "fixed", inset: 0, zIndex: 99998, background: "rgba(2,6,23,0.85)",
+          backdropFilter: "blur(6px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24,
+        }}>
+          <img src={imgView} alt="attachment" style={{ maxWidth: "90vw", maxHeight: "90vh", borderRadius: 12, border: `1px solid ${BORDER}` }} />
+        </div>
+      )}
+
+      {/* heading */}
+      <div style={{
+        display: "flex", alignItems: "center", gap: 11,
+        paddingBottom: 14, marginBottom: 16, borderBottom: `1px solid ${BORDER}`,
+      }}>
+        <span style={{
+          width: 38, height: 38, borderRadius: 11, flexShrink: 0,
+          background: `${ISSUE_ACCENT}18`, border: `1px solid ${ISSUE_ACCENT}40`,
+          display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18,
+        }}>🛟</span>
+        <div style={{ flex: 1 }}>
+          <h2 style={{ color: TEXT, fontWeight: 800, fontSize: 16, margin: 0, lineHeight: 1.15 }}>
+            Reported Issues
+          </h2>
+          <p style={{ color: SUB, fontSize: 11, margin: "3px 0 0" }}>
+            Employee-submitted issues. Visible only to HR. Mark them resolved when handled.
+          </p>
+        </div>
+        <button onClick={load} disabled={loading} title="Refresh" style={{
+          background: "rgba(30,54,194,0.07)", border: `1px solid ${ISSUE_ACCENT}44`, borderRadius: 9,
+          color: ISSUE_ACCENT, fontSize: 11, fontWeight: 700, padding: "7px 12px", cursor: "pointer", fontFamily: "inherit",
+        }}>{loading ? "Loading…" : "↻ Refresh"}</button>
+      </div>
+
+      {/* status tabs */}
+      <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginBottom: 16 }}>
+        {TABS.map(t => {
+          const active = tab === t;
+          const color = t === "all" ? ISSUE_ACCENT : ISSUE_STATUS_META[t].color;
+          const label = t === "all" ? "All" : ISSUE_STATUS_META[t].label;
+          return (
+            <button key={t} className="tab-btn" onClick={() => setTab(t)} style={{
+              display: "flex", alignItems: "center", gap: 6, padding: "6px 11px", borderRadius: 9,
+              border: `1px solid ${active ? color + "66" : BORDER}`,
+              background: active ? `${color}14` : "transparent",
+              color: active ? color : SUB, fontSize: 11.5, fontWeight: 700, cursor: "pointer", fontFamily: "inherit",
+            }}>
+              {label}
+              <span style={{
+                background: active ? `${color}22` : "rgba(30,54,194,0.15)",
+                color: active ? color : SUB, borderRadius: 8, padding: "0 6px", fontSize: 9.5, fontWeight: 700,
+              }}>{counts[t] || 0}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* list */}
+      {loading ? (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} style={{ height: 110, borderRadius: 13, background: SURF2, opacity: 0.5 }} />
+          ))}
+        </div>
+      ) : visible.length === 0 ? (
+        <div style={{ textAlign: "center", padding: "48px 0", color: SUB, fontSize: 13 }}>
+          <div style={{ fontSize: 34, marginBottom: 10 }}>🛟</div>
+          No {tab === "all" ? "" : ISSUE_STATUS_META[tab].label.toLowerCase() + " "}issues.
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 11 }}>
+          {visible.map(row => {
+            const emp = empById[row.emp_id];
+            const photos = issuePhotos(row);
+            const meta = ISSUE_STATUS_META[row.status];
+            const isBusy = busyId === row.id;
+            return (
+              <div key={`${row.emp_id}_${row.id}`} style={{
+                background: SURF2, border: `1px solid ${BORDER}`, borderRadius: 13, padding: "14px 16px",
+                display: "flex", alignItems: "center", gap: 18,
+              }}>
+                {/* ── identity (left) ── */}
+                <div style={{ display: "flex", alignItems: "center", gap: 10, width: 210, flexShrink: 0, minWidth: 0 }}>
+                  <span style={{
+                    width: 36, height: 36, borderRadius: "50%", flexShrink: 0, overflow: "hidden", background: BG,
+                    border: `1.5px solid ${BORDER}`, display: "flex", alignItems: "center", justifyContent: "center",
+                    fontSize: 11, fontWeight: 700, color: SUB,
+                  }}>
+                    {emp?.profile_image
+                      ? <img src={emp.profile_image} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                      : initials(row.emp_name)}
+                  </span>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ color: TEXT, fontSize: 12.5, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{row.emp_name}</div>
+                    <div style={{ color: DIM, fontSize: 9.5, fontFamily: "'JetBrains Mono',monospace" }}>{row.emp_id}</div>
+                  </div>
+                </div>
+
+                {/* ── details (middle, grows) — HORIZONTAL columns ── */}
+                <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 8 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 24, flexWrap: "wrap" }}>
+
+                    {/* CATEGORY */}
+                    <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                      <span style={{ color: DIM, fontSize: 9, fontWeight: 700, letterSpacing: 0.5, textTransform: "uppercase" }}>Category</span>
+                      <span style={{ color: BLUE, fontSize: 13, fontWeight: 700 }}>{issueCatLabel(row.category)}</span>
+                    </div>
+
+                    {/* ROUTED TO */}
+                    <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                      <span style={{ color: DIM, fontSize: 9, fontWeight: 700, letterSpacing: 0.5, textTransform: "uppercase" }}>Routed to</span>
+                      <span style={{ color: SUB, fontSize: 12.5, fontWeight: 600 }}>{row.solver}</span>
+                    </div>
+
+                    {/* REQUESTED date */}
+                    {row.created_at ? (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                        <span style={{ color: DIM, fontSize: 9, fontWeight: 700, letterSpacing: 0.5, textTransform: "uppercase" }}>Reported</span>
+                        <span style={{ color: SUB, fontSize: 12 }}>{regFmtCreated(row.created_at)}</span>
+                      </div>
+                    ) : null}
+
+                    {/* DESCRIPTION — grows */}
+                    <div style={{ display: "flex", flexDirection: "column", gap: 3, flex: 1, minWidth: 140 }}>
+                      <span style={{ color: DIM, fontSize: 9, fontWeight: 700, letterSpacing: 0.5, textTransform: "uppercase" }}>Description</span>
+                      <span style={{ color: TEXT, fontSize: 12.5, lineHeight: 1.4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={row.description}>
+                        {row.description}
+                      </span>
+                    </div>
+
+                    {/* PHOTOS — thumbnail strip */}
+                    {photos.length > 0 && (
+                      <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                        {photos.map((src, i) => (
+                          <img key={i} src={src} alt="" onClick={() => setImgView(src)} style={{
+                            width: 46, height: 46, borderRadius: 7, objectFit: "cover", cursor: "pointer",
+                            border: `1px solid ${BORDER}`,
+                          }} />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* resolver note (full width under columns) */}
+                  {row.resolver_note && row.status === "resolved" && (
+                    <p style={{ color: GREEN, fontSize: 10.5, margin: 0, background: "rgba(30,54,194,0.06)", borderRadius: 8, padding: "6px 9px" }}>
+                      <span style={{ fontWeight: 700 }}>Resolution:</span> {row.resolver_note}
+                    </p>
+                  )}
+                </div>
+
+                {/* ── status + actions (right) ── */}
+                <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0, justifyContent: "flex-end" }}>
+                  <span style={{
+                    fontSize: 9.5, fontWeight: 700, color: meta.color, background: `${meta.color}18`,
+                    border: `1px solid ${meta.color}40`, borderRadius: 20, padding: "3px 10px", whiteSpace: "nowrap",
+                  }}>{meta.label}</span>
+
+                {/* message this employee about this issue */}
+                <ChatIconButton onClick={() => onOpenChat(row.emp_id, row.emp_name, "issue", row.id)} />
+
+                {/* actions */}
+                {noteFor === row.id ? (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8, width: 280 }}>
+                    <textarea value={noteText} onChange={e => setNoteText(e.target.value)}
+                      placeholder="Optional resolution note (visible to the employee)…" rows={2} maxLength={300}
+                      autoFocus
+                      style={{
+                        width: "100%", background: BG, border: `1px solid ${BORDER}`, borderRadius: 9,
+                        color: TEXT, fontSize: 12, padding: "8px 10px", outline: "none", resize: "vertical",
+                        fontFamily: "'Sora',sans-serif", boxSizing: "border-box",
+                      }} />
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <button onClick={() => { setNoteFor(null); setNoteText(""); }} disabled={isBusy} style={{
+                        flex: 1, padding: "11px", borderRadius: 10, border: `1.5px solid ${BORDER}`, background: "transparent",
+                        color: SUB, fontSize: 13.5, fontWeight: 700, cursor: "pointer", fontFamily: "inherit",
+                      }}>Cancel</button>
+                      <button onClick={() => resolve(row, noteText)} disabled={isBusy} style={{
+                        flex: 2, padding: "11px", borderRadius: 10, border: "none", background: GREEN,
+                        color: BG, fontSize: 13.5, fontWeight: 800, cursor: isBusy ? "wait" : "pointer", fontFamily: "inherit",
+                      }}>{isBusy ? "Saving…" : "Confirm Resolve"}</button>
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+                    {row.status !== "resolved" ? (
+                      <button onClick={() => { setNoteFor(row.id); setNoteText(""); }} disabled={isBusy} style={{
+                        fontSize: 13.5, fontWeight: 800, color: BG, background: GREEN,
+                        border: "none", borderRadius: 10, padding: "11px 24px",
+                        cursor: isBusy ? "wait" : "pointer", fontFamily: "inherit",
+                      }}>✓ Mark Resolved</button>
+                    ) : (
+                      <button onClick={() => reopen(row)} disabled={isBusy} style={{
+                        fontSize: 13.5, fontWeight: 800, color: YELLOW, background: `${YELLOW}14`,
+                        border: `1.5px solid ${YELLOW}66`, borderRadius: 10, padding: "11px 24px",
+                        cursor: isBusy ? "wait" : "pointer", fontFamily: "inherit",
+                      }}>↺ Reopen</button>
+                    )}
+                  </div>
+                )}
+                </div>{/* end actions */}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── HR Main ───────────────────────────────────────────────────────────────────
-type NavId = "dashboard" | "requests" | "leaveRequests" | "notices" | "mail" | "regularize" | "remote" | "leave";
+type NavId = "dashboard" | "requests" | "leaveRequests" | "issues" | "chat" | "notices" | "mail" | "regularize" | "remote" | "leave";
 
 function HrMain({ hrName, onLogout, onChangeName }: { hrName: string; onLogout: () => void; onChangeName: () => void }) {
   const navigate = useNavigate();
@@ -3463,6 +4064,9 @@ function HrMain({ hrName, onLogout, onChangeName }: { hrName: string; onLogout: 
   const [nav, setNav]                 = useState<NavId>("dashboard");
   const [pendingReq, setPendingReq]   = useState(0);   // pending regularization requests → blinking badge
   const [pendingLeave, setPendingLeave] = useState(0); // pending leave requests → blinking badge
+  const [pendingIssues, setPendingIssues] = useState(0); // open reported issues → badge
+  const [unreadChats, setUnreadChats] = useState(0);   // unread messages from employees → badge
+  const [chatTarget, setChatTarget]   = useState<ChatTarget | null>(null); // deep-link from a module card
   const [weekOffset, setWeekOffset]   = useState(0);   // 0 = current week
 
   // today's data → KPI cards (always today, independent of week navigation)
@@ -3527,9 +4131,10 @@ function HrMain({ hrName, onLogout, onChangeName }: { hrName: string; onLogout: 
   // count pending regularization + leave requests → drives the blinking nav badges (poll every 30s)
   const refreshPending = useCallback(async () => {
     try {
-      const [regSnap, leaveSnap] = await Promise.all([
+      const [regSnap, leaveSnap, issuesSnap] = await Promise.all([
         getDocs(collection(db, "regularizations")),
         getDocs(collection(db, "leaveRequests")),
+        getDocs(collection(db, "issues")),
       ]);
       let nReg = 0;
       regSnap.docs.forEach(d => {
@@ -3544,7 +4149,24 @@ function HrMain({ hrName, onLogout, onChangeName }: { hrName: string; onLogout: 
         nLeave += reqs.filter(r => r?.status === "pending").length;
       });
       setPendingLeave(nLeave);
+
+      let nIssues = 0;
+      issuesSnap.docs.forEach(d => {
+        const reps = (d.data().reports as any[]) || [];
+        nIssues += reps.filter(r => r?.status === "open").length;
+      });
+      setPendingIssues(nIssues);
     } catch (_) {}
+
+    // unread chat messages from employees (separate try — never block the others)
+    try { setUnreadChats(await totalUnreadForHr()); } catch (_) {}
+  }, []);
+
+  // open the Messages tab on a specific employee's thread, optionally tagged with
+  // the module + request it was launched from (used by the card 💬 icons).
+  const openChatWith = useCallback((empId: string, empName: string, context: ChatContext = null, refId: string | null = null) => {
+    setChatTarget({ empId, empName, context, refId });
+    setNav("chat");
   }, []);
   useEffect(() => {
     refreshPending();
@@ -3650,10 +4272,9 @@ const dayStatus = useCallback((empId: string, date: string): string => {
       const leave = ddSessions.filter((s:any) => s.leave);
 
       if (leave.length > 0) {
-        // Heatmap rule: count worked + leave hours together.
-        // If the combined total reaches a full day → show "P" (blue) like a present day; else "L".
-        const combined = calcHours(work, date) + calcHours(leave, date, { includeLeave: true });
-        if (combined >= 8) return "P8";
+        // A day with any leave session is a LEAVE day → "L". This matches the
+        // employee card and the Excel export (leave is never counted as present,
+        // even a full-day leave). Worked hours, if any, don't turn a leave into "P".
         return "L";
       }
 
@@ -3672,11 +4293,15 @@ const stats = useMemo(() => {
   const presentList: any[] = [], remoteList: any[] = [], absentList: any[] = [];
   employees.forEach(emp => {
     const dd = todayData[emp.emp_id];
-    if (dd && dd.sessions?.length > 0) {
-      const wfh = dd.sessions.every((s:any) => s.wfh === true);
+    // Only actual WORK sessions count toward presence — a leave-only day is not
+    // "present" (consistent with the weekly grid, employee card and export).
+    const workSessions = (dd?.sessions || []).filter((s:any) => !s.leave);
+    if (workSessions.length > 0) {
+      const wfh = workSessions.every((s:any) => s.wfh === true);
       if (wfh) { remote++;  remoteList.push(emp); }
       else     { present++; presentList.push(emp); }
     } else if (workday) {
+      // no work today (absent or on leave) → counts toward the "absent" tile
       absent++; absentList.push(emp);
     }
   });
@@ -3706,14 +4331,16 @@ const stats = useMemo(() => {
   // group "no check-out" people under each working day of the week
   const missingByDay = useMemo(() => {
     return week
-      .filter(d => d <= today && !isWeekend(d) && !isHoliday(d))   // working days only, up to today
+      .filter(d => d < today && !isWeekend(d) && !isHoliday(d))   // working days only, BEFORE today (today's check-out may still be pending)
       .map(date => {
         const people: { emp:any; check_in:string }[] = [];
         employees.forEach(emp => {
           const dd = weekData[emp.emp_id]?.[date];
-          const ss = dd?.sessions;
-          if (!ss || ss.length === 0) return;
-          const last = ss[ss.length - 1];                          // only the last session of the day
+          // Only real WORK sessions can be a "forgot to check out" — leave sessions
+          // are not check-ins and must never appear here.
+          const ss = (dd?.sessions || []).filter((s:any) => !s.leave);
+          if (ss.length === 0) return;
+          const last = ss[ss.length - 1];                          // only the last work session of the day
           if (last.check_in && (!last.check_out || last.check_out === "")) {
             people.push({ emp, check_in: last.check_in });
           }
@@ -3903,13 +4530,22 @@ const stats = useMemo(() => {
               const isWfh = workSessions.every((s: any) => s.wfh === true);
               const hrs = calcHours(workSessions, date);
               totalHrs += hrs;
-              const isFull = hrs >= 8;                  // 8h and above → no ()
-              if (isWfh) {
-                row.push(isFull ? "R" : `R(${fmtHM(hrs)})`);   // "R(5.16)" = 5h16m
-                cellStyles[cellAddr] = styleRemote;
+              // Attendance bands by worked hours (time shown as H.MM, e.g. 7.55 = 7h55m):
+              //   ≥ 8h         → full present    → P / R           (no time)
+              //   4h to < 8h   → half present    → 0.5P(time) / 0.5R(time)
+              //   > 0h to < 4h → counts absent   → A(time)   (too few hours)
+              const t = fmtHM(hrs);
+              const prefix = isWfh ? "R" : "P";
+              if (hrs >= 8) {
+                row.push(prefix);                              // full day → just "P" / "R"
+                cellStyles[cellAddr] = isWfh ? styleRemote : stylePresent8;
+              } else if (hrs >= 4) {
+                row.push(`0.5${prefix}(${t})`);
+                cellStyles[cellAddr] = isWfh ? styleRemote : stylePresent7;
               } else {
-                row.push(isFull ? "P" : `P(${fmtHM(hrs)})`);   // "P(5.16)" = 5h16m
-                cellStyles[cellAddr] = isFull ? stylePresent8 : stylePresent7;
+                // under 4 worked hours → marked Absent, but keep the time for context
+                row.push(`A(${t})`);
+                cellStyles[cellAddr] = styleAbsent;
               }
             } else if (leaveSessions.length > 0) {
               // HR-added leave (full/half/quarter) → "L"
@@ -3926,7 +4562,7 @@ const stats = useMemo(() => {
       }
 
       ws_data.push([]);
-      const legendText = "Legend:   P = Present (≥8h)   ·   P(x.x) = Present below 8h   ·   R = Remote   ·   L = Leave   ·   A = Absent   ·   H = Holiday   ·   W = Weekend";
+      const legendText = "Legend:   P = Present (≥8h)   ·   0.5P(h.mm) = Half day (4–8h)   ·   A(h.mm) = Absent (under 4h worked)   ·   A = Absent   ·   R/0.5R = Remote   ·   L = Leave   ·   H = Holiday   ·   W = Weekend   ·   time is H.MM (7.55 = 7h 55m)";
       ws_data.push([legendText]);
       const legendRowIndex = ws_data.length - 1;
 
@@ -3994,6 +4630,8 @@ const stats = useMemo(() => {
     { id: "dashboard",  label: "Dashboard",             icon: "📊", color: GREEN   },
     { id: "requests",   label: "Regularization Requests", icon: "📥", color: YELLOW },
     { id: "leaveRequests", label: "Leave Requests",      icon: "🌴", color: LV_GREEN },
+    { id: "issues",     label: "Reported Issues",        icon: "🛟", color: RED     },
+    { id: "chat",       label: "Messages",               icon: "💬", color: YELLOW  },
     { id: "regularize", label: "Regularize Attendance", icon: "🏢", color: BLUE    },
     { id: "leave",      label: "Add Leave",             icon: "🌴", color: RED     },
     { id: "remote",     label: "Add Remote",       icon: "🏠", color: MAGENTA },
@@ -4179,11 +4817,11 @@ const stats = useMemo(() => {
             return (
               <button key={n.id}
                 className="tab-btn"
-                onClick={()=>{ if (n.id !== "mail") setNav(n.id); }}
+                onClick={()=>setNav(n.id)}
                 style={{
                   display:"flex",alignItems:"center",gap:8,whiteSpace:"nowrap",
                   padding:"14px 16px",border:"none",background:"transparent",
-                  cursor: n.id === "mail" ? "default" : "pointer",
+                  cursor:"pointer",
                   fontFamily:"'Sora',sans-serif",fontSize:13,fontWeight:700,
                   color: on ? n.color : SUB,
                   borderBottom: on ? `2px solid ${n.color}` : "2px solid transparent",
@@ -4205,6 +4843,22 @@ const stats = useMemo(() => {
                     display:"inline-flex",alignItems:"center",justifyContent:"center",
                     lineHeight:1,
                   }}>{pendingLeave}</span>
+                )}
+                {n.id === "issues" && pendingIssues > 0 && (
+                  <span className="req-badge" style={{
+                    background:"#FFFFFF",color:RED,fontSize:10,fontWeight:800,
+                    borderRadius:20,minWidth:18,height:18,padding:"0 5px",
+                    display:"inline-flex",alignItems:"center",justifyContent:"center",
+                    lineHeight:1,
+                  }}>{pendingIssues}</span>
+                )}
+                {n.id === "chat" && unreadChats > 0 && (
+                  <span className="req-badge" style={{
+                    background:"#FFFFFF",color:"#1A1606",fontSize:10,fontWeight:800,
+                    borderRadius:20,minWidth:18,height:18,padding:"0 5px",
+                    display:"inline-flex",alignItems:"center",justifyContent:"center",
+                    lineHeight:1,
+                  }}>{unreadChats}</span>
                 )}
               </button>
             );
@@ -4654,12 +5308,26 @@ const stats = useMemo(() => {
 
         {/* ===== REGULARIZATION REQUESTS ===== */}
         {nav === "requests" && (
-          <RegularizationRequests hrName={hrName} employees={employees} onToast={add} onResolved={refreshPending} />
+          <RegularizationRequests hrName={hrName} employees={employees} onToast={add} onResolved={refreshPending} onOpenChat={openChatWith} />
         )}
 
         {/* ===== LEAVE REQUESTS ===== */}
         {nav === "leaveRequests" && (
-          <LeaveRequests hrName={hrName} employees={employees} onToast={add} onResolved={refreshPending} />
+          <LeaveRequests hrName={hrName} employees={employees} onToast={add} onResolved={refreshPending} onOpenChat={openChatWith} />
+        )}
+
+        {/* ===== REPORTED ISSUES (HR-only) ===== */}
+        {nav === "issues" && (
+          <IssuesPanel hrName={hrName} employees={employees} onToast={add} onResolved={refreshPending} onOpenChat={openChatWith} />
+        )}
+
+        {/* ===== MESSAGES (HR ↔ employee chat) ===== */}
+        {nav === "chat" && (
+          <HrChatPanel
+            employees={employees}
+            target={chatTarget}
+            onClearTarget={() => { setChatTarget(null); refreshPending(); }}
+          />
         )}
 
         {/* ===== NOTICES ===== */}
@@ -4667,11 +5335,105 @@ const stats = useMemo(() => {
           <NoticesManager onToast={add} />
         )}
 
-        {/* ===== SEND MAIL ===== */}
+        {/* ===== SEND MAIL — coming soon (automated mailing system) ===== */}
         {nav === "mail" && (
-          <SendMail hrName={hrName} employees={employees} onToast={add} />
+          <MailComingSoon />
         )}
       </div>
     </div>
   );
 }
+
+// ── Send Email · Coming Soon ──────────────────────────────────────────────────
+// The manual mail tool is being replaced by an automated mailing system. Until it
+// ships, this tab shows a professional "coming soon" placeholder.
+function MailComingSoon() {
+  const FEATURES = [
+    { icon: "⏰", title: "Scheduled reminders", desc: "Automatic attendance & check-out reminders sent on a set cadence — no manual sending." },
+    { icon: "🎯", title: "Smart targeting", desc: "Mails go only to the right people — absentees, pending regularizations, or missed check-outs — auto-selected." },
+    { icon: "📝", title: "Ready-made templates", desc: "Professional, pre-approved templates for reminders, escalations and notices, personalised per employee." },
+    { icon: "📊", title: "Delivery tracking", desc: "See what was sent, to whom, and when — with success/failure logs for every run." },
+  ];
+  return (
+    <div style={{ maxWidth: HR_MAX_W, margin: "0 auto", width: "100%" }}>
+      <div style={{
+        background: `linear-gradient(160deg, ${SURF2}, ${BG})`,
+        border: `1px solid ${TEAL}33`, borderRadius: 18, padding: "44px 32px", textAlign: "center",
+        position: "relative", overflow: "hidden",
+      }}>
+        {/* glow */}
+        <div style={{
+          position: "absolute", top: -80, left: "50%", transform: "translateX(-50%)",
+          width: 280, height: 280, borderRadius: "50%",
+          background: `radial-gradient(circle, ${TEAL}22, transparent 70%)`, pointerEvents: "none",
+        }} />
+
+        <div style={{
+          position: "relative", width: 84, height: 84, borderRadius: 24, margin: "0 auto 22px",
+          background: `linear-gradient(150deg, ${TEAL}2e, ${TEAL}10)`,
+          border: `1px solid ${TEAL}55`,
+          boxShadow: `0 10px 30px ${TEAL}26, inset 0 1px 0 ${TEAL}33`,
+          display: "flex", alignItems: "center", justifyContent: "center",
+        }}>
+          <svg width="44" height="44" viewBox="0 0 48 48" fill="none">
+            {/* envelope body */}
+            <rect x="6" y="11" width="36" height="26" rx="5" fill={`${TEAL}1f`} stroke={TEAL} strokeWidth="2.2"/>
+            {/* flap */}
+            <path d="M8 14l16 12 16-12" stroke={TEAL} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/>
+            {/* paper-plane "sending" mark */}
+            <path d="M30 30l11-5-4.5 9.5-2-3.8-4.5-.7z" fill={TEAL} stroke="#0D0D0D" strokeWidth="0.6"/>
+          </svg>
+          {/* soft pulse */}
+          <span style={{
+            position: "absolute", inset: -1, borderRadius: 24, border: `1px solid ${TEAL}55`,
+            animation: "mail-pulse 2.4s ease-out infinite", pointerEvents: "none",
+          }} />
+          <style>{`@keyframes mail-pulse {
+            0% { transform: scale(1); opacity: 0.7; }
+            70% { transform: scale(1.18); opacity: 0; }
+            100% { opacity: 0; }
+          }`}</style>
+        </div>
+
+        <span style={{
+          display: "inline-block", marginBottom: 14, padding: "5px 14px", borderRadius: 20,
+          background: `${TEAL}18`, border: `1px solid ${TEAL}55`, color: TEAL,
+          fontSize: 11, fontWeight: 800, letterSpacing: 0.6, textTransform: "uppercase",
+        }}>🚧 Coming Soon</span>
+
+        <h2 style={{ color: TEXT, fontWeight: 800, fontSize: 24, margin: "0 0 10px", lineHeight: 1.2 }}>
+          Automated Mailing System
+        </h2>
+        <p style={{ color: SUB, fontSize: 14, lineHeight: 1.65, maxWidth: 560, margin: "0 auto 32px" }}>
+          We're building a fully automated email system for HR — it will send the right reminders and notices
+          to the right employees on schedule, with professional templates and delivery tracking. No more sending
+          mails by hand. This tab will light up the moment it's ready.
+        </p>
+
+        {/* feature grid */}
+        <div style={{
+          display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+          gap: 14, maxWidth: 720, margin: "0 auto", textAlign: "left",
+        }}>
+          {FEATURES.map(f => (
+            <div key={f.title} style={{
+              background: "rgba(30,54,194,0.05)", border: `1px solid ${BORDER}`, borderRadius: 12, padding: "16px 16px",
+            }}>
+              <div style={{ fontSize: 22, marginBottom: 8 }}>{f.icon}</div>
+              <div style={{ color: TEXT, fontSize: 13.5, fontWeight: 800, marginBottom: 4 }}>{f.title}</div>
+              <div style={{ color: SUB, fontSize: 11.5, lineHeight: 1.5 }}>{f.desc}</div>
+            </div>
+          ))}
+        </div>
+
+        <p style={{ color: DIM, fontSize: 11, marginTop: 28, marginBottom: 0 }}>
+          Need to send something urgently in the meantime? Use your regular email — automated sending is on the way.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// keep the retained (currently unmounted) SendMail component referenced so the
+// unused-symbol check passes; remove this line if SendMail is ever deleted.
+void SendMail;

@@ -8,6 +8,9 @@ import { calcHours, fmtHoursLong as fmtHours, fmtHM as fmtHoursShort } from "../
 import logo from "../assets/react.png";
 import logo2 from "../assets/react1.png";
 import TextType from "./TextType";
+import SupportChat from "./SupportChat";
+import { getThreadMeta } from "../lib/chat";
+import { motion } from "motion/react";
 
 // ─── storage keys ───────────────────────────────────────────────────────────
 const ID_KEY   = "cf_my_emp_id";
@@ -135,6 +138,8 @@ function sortEmployees<T extends { emp_id: string }>(emps: T[]): T[] {
 // ─── types ────────────────────────────────────────────────────────────────
 interface EmployeeLite {
   emp_id: string; name: string; department: string; type: string; profile_image?: string;
+  zoho_email?: string;    // company email (added by HR for some employees)
+  google_email?: string;  // the Gmail they signed in with
 }
 interface DayInfo {
   date: string;
@@ -995,6 +1000,9 @@ export default function MyAttendance() {
 
   const [pickerOpen, setPickerOpen]   = useState(false);
   const [summaryOpen, setSummaryOpen] = useState(false);
+  const [chatOpen, setChatOpen]       = useState(false);   // HR chat panel
+  const [chatUnread, setChatUnread]   = useState(false);   // unread HR reply dot
+  const [promptChat, setPromptChat]   = useState(false);   // pill morphs to "Chat with HR" on a loop
   // true when the picker was opened via "change email" → force a fresh Google
   // sign-in (account chooser) so the user can switch to a different Gmail.
   const [relinkMode, setRelinkMode]   = useState(false);
@@ -1114,7 +1122,9 @@ export default function MyAttendance() {
     if (empId && summaryOpen) loadMyData(empId, me);
   }, [empId, summaryOpen]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── live refresh while the modal is open — every 30s, only when the tab is visible ──
+  // ── live refresh while the summary modal is open — only when the tab is VISIBLE.
+  //    Reads ONLY this logged-in employee's own data (not everyone), so it's cheap.
+  //    60s while actively viewing; a background/hidden tab makes zero reads.
   useEffect(() => {
     if (!empId || !summaryOpen) return;
     const id = setInterval(() => {
@@ -1123,7 +1133,7 @@ export default function MyAttendance() {
       loadMyData(empId, meRef.current, true).finally(() => {
         setTimeout(() => setRefreshing(false), 1000);
       });
-    }, 30000);
+    }, 60000);
     return () => clearInterval(id);
   }, [empId, summaryOpen, loadMyData]);
 
@@ -1182,6 +1192,46 @@ export default function MyAttendance() {
 
   const storedName = me?.name || localStorage.getItem(NAME_KEY) || "";
 
+  // Email to display: prefer the company (zoho) email when HR has set one on the
+  // employee record; otherwise fall back to the Google account they signed in with.
+  const displayEmail = me?.zoho_email || googleUser?.email || "";
+
+  // ── HR chat: poll for an unread reply (only when signed in + identified) ──
+  const refreshChatUnread = useCallback(async () => {
+    if (!googleUser || !empId) { setChatUnread(false); return; }
+    try {
+      const meta = await getThreadMeta(empId);
+      setChatUnread(!!meta && meta.unreadForEmployee > 0);
+    } catch { /* ignore */ }
+  }, [googleUser, empId]);
+
+  useEffect(() => {
+    refreshChatUnread();
+    const id = setInterval(refreshChatUnread, 30000);
+    return () => clearInterval(id);
+  }, [refreshChatUnread]);
+
+  // periodically morph the pill into a "Chat with HR" invite (2s on, ~5s off) to
+  // nudge the user toward support. Pauses while the chat panel is open.
+  useEffect(() => {
+    if (chatOpen) { setPromptChat(false); return; }
+    let onTimer: ReturnType<typeof setTimeout>;
+    const cycle = () => {
+      setPromptChat(true);
+      onTimer = setTimeout(() => setPromptChat(false), 5000); // blue stays 5s
+    };
+    const first = setTimeout(cycle, 5000);                     // first nudge after 5s
+    const loop  = setInterval(cycle, 10000);                   // 5s blue + 5s yellow = 10s cycle
+    return () => { clearTimeout(first); clearTimeout(onTimer); clearInterval(loop); };
+  }, [chatOpen]);
+
+  // the chat opens only for a signed-in employee; ensureAuth re-affirms each send.
+  const ensureChatAuth = useCallback(async () => {
+    if (googleUser) return true;
+    const r = await executeProtectedAction(async () => {});
+    return r.ok;
+  }, [googleUser, executeProtectedAction]);
+
   return (
     <>
       <style>{`
@@ -1239,7 +1289,8 @@ export default function MyAttendance() {
 
 
         .ma-row:hover { background: rgba(99,102,241,0.08) !important; border-color: ${BORDER} !important; }
-        .ma-fab:hover { transform: translateY(-2px); box-shadow: 0 10px 28px rgba(0,0,0,0.5); }
+        .ma-fab:hover { box-shadow: 0 10px 28px rgba(0,0,0,0.5); }
+        .ma-chat-btn:hover { transform: scale(1.08); box-shadow: 0 4px 14px rgba(96,165,250,0.45) !important; border-color: #60A5FA !important; }
         .ma-scroll { scrollbar-width: thin; scrollbar-color: rgba(99,102,241,0.35) transparent; }
         .ma-scroll::-webkit-scrollbar { width: 5px; }
         .ma-scroll::-webkit-scrollbar-track { background: transparent; }
@@ -1281,61 +1332,214 @@ export default function MyAttendance() {
             (Anyone can still browse the public attendance page without this.) */}
       {!summaryOpen && !pickerOpen && (
         googleUser && empId ? (
-          <button
-            onClick={openSummary}
+          // The yellow pill periodically MORPHS into "Chat with HR": the blue logo
+          // circle on the right GROWS and floods the whole pill with blue (an ink-
+          // blot reveal), then shrinks back. Logo stays on the right in both states.
+          <div
             className="ma-fab"
-            title="My attendance"
             style={{
               position: "fixed", bottom: 18, right: 18, zIndex: 999,
-              display: "flex", alignItems: "center", gap: 8,
-              background: "linear-gradient(135deg,#111C4A,#0A1235)",
-              border: `1px solid ${BORDER}`, borderRadius: 50,
-              padding: "9px 16px 9px 9px", cursor: "pointer",
-              boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
-              transition: "transform 0.15s, box-shadow 0.15s",
-              fontFamily: "'Sora',sans-serif",
+              height: 56, width: "fit-content",
+              background: `linear-gradient(135deg, ${YELLOW}, #FFC400)`,
+              border: `1px solid ${YELLOW}`, borderRadius: 50,
+              boxShadow: promptChat ? "0 8px 28px rgba(30,54,194,0.55)" : `0 8px 24px ${YELLOW}55`,
+              fontFamily: "'Sora',sans-serif", overflow: "hidden",
+              cursor: promptChat ? "pointer" : "default",
+              transition: "box-shadow 0.4s ease",
+              display: "flex", alignItems: "center",
             }}
+            onClick={promptChat ? () => { setChatOpen(true); setChatUnread(false); setPromptChat(false); } : undefined}
           >
-            <Avatar emp={me} size={30} />
-            <span style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", minWidth: 0, lineHeight: 1.2 }}>
-              <span style={{ color: TEXT, fontSize: 11.5, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 150 }}>
-                {storedName || "Me"}
-              </span>
-              {googleUser.email && (
-                <span style={{
-                  display: "flex", alignItems: "center", gap: 3,
-                  color: GREEN, fontSize: 8.5, fontWeight: 600,
-                  fontFamily: "'JetBrains Mono',monospace",
-                  whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 150,
-                }}>
-                  <span style={{ width: 4, height: 4, borderRadius: "50%", background: GREEN, flexShrink: 0 }} />
-                  {googleUser.email}
+            {/* ── BLUE ink-blot: a circle over the right-side logo that scales up to
+                  flood the whole pill when promptChat, and shrinks back otherwise ── */}
+            <motion.div
+              initial={false}
+              animate={{ scale: promptChat ? 16 : 1 }}
+              transition={{ type: "spring", stiffness: 120, damping: 20 }}
+              style={{
+                position: "absolute", top: "50%", right: 8, width: 44, height: 44,
+                marginTop: -22, borderRadius: "50%", zIndex: 1,
+                background: "linear-gradient(145deg, #1E36C2, #0A1235)",
+                transformOrigin: "center", pointerEvents: "none",
+              }}
+            />
+
+            {/* ── text stack: name AND "Chat with HR" share the SAME grid cell, so the
+                  pill sizes to whichever is wider (no empty space, no width jump).
+                  position:relative + zIndex keeps the text ABOVE the absolutely-
+                  positioned blue ink-blot (positioned siblings otherwise paint over
+                  static content, which was hiding the "Chat with HR" text). ── */}
+            <div style={{ position: "relative", zIndex: 2, display: "grid", alignItems: "center", paddingLeft: 9 }}>
+              {/* identity (yellow state) */}
+              <motion.button
+                onClick={(e) => { if (promptChat) return; e.stopPropagation(); openSummary(); }}
+                title="My attendance"
+                animate={{ opacity: promptChat ? 0 : 1 }}
+                transition={{ duration: 0.2 }}
+                style={{
+                  gridArea: "1 / 1", display: "flex", alignItems: "center", gap: 8,
+                  background: "transparent", border: "none",
+                  cursor: promptChat ? "default" : "pointer",
+                  pointerEvents: promptChat ? "none" : "auto",
+                  padding: 0, paddingRight: 14, fontFamily: "inherit",
+                }}
+              >
+                <Avatar emp={me} size={30} />
+                <span style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", minWidth: 0, lineHeight: 1.2 }}>
+                  <span style={{ color: "#1A1606", fontSize: 11.5, fontWeight: 800, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 170 }}>
+                    {storedName || "Me"}
+                  </span>
+                  {displayEmail && (
+                    <span style={{
+                      display: "flex", alignItems: "center", gap: 4, marginTop: 1,
+                      color: "#3D3206", fontSize: 10, fontWeight: 700,
+                      fontFamily: "'JetBrains Mono',monospace",
+                      whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 190,
+                    }}>
+                      <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#1E7A3D", flexShrink: 0 }} />
+                      {displayEmail}
+                    </span>
+                  )}
                 </span>
+              </motion.button>
+
+              {/* "Chat with HR" (blue state) — same cell, fades in over the blue flood */}
+              <motion.div
+                animate={{ opacity: promptChat ? 1 : 0 }}
+                transition={{ duration: 0.25, delay: promptChat ? 0.18 : 0 }}
+                style={{
+                  gridArea: "1 / 1", display: "flex", flexDirection: "column",
+                  lineHeight: 1.15, paddingLeft: 4, paddingRight: 14, pointerEvents: "none",
+                }}
+              >
+                <span style={{ color: "#FFFFFF", fontSize: 14, fontWeight: 800, whiteSpace: "nowrap" }}>Chat with HR</span>
+                <span style={{ color: "#9FB4FF", fontSize: 9.5, fontWeight: 600, whiteSpace: "nowrap" }}>Need help? Tap to message us</span>
+              </motion.div>
+            </div>
+
+            {/* ── the logo circle: ALWAYS on the right, sits above the ink-blot ── */}
+            <button
+              onClick={(e) => { e.stopPropagation(); setChatOpen(true); setChatUnread(false); }}
+              title="Chat with HR"
+              className="ma-chat-btn"
+              style={{
+                position: "relative", zIndex: 2, marginRight: 8, marginLeft: 4, flexShrink: 0,
+                width: 44, height: 44, borderRadius: "50%",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                background: promptChat ? "rgba(255,255,255,0.12)" : "linear-gradient(145deg, #1E36C2, #0A1235)",
+                border: "1px solid rgba(96,165,250,0.55)",
+                boxShadow: promptChat ? "none" : "0 2px 10px rgba(30,54,194,0.5)",
+                cursor: "pointer", fontFamily: "inherit", padding: 0,
+                transition: "background 0.3s ease, box-shadow 0.3s ease",
+              }}
+            >
+              <motion.img
+                src={logo} alt="Chat with HR"
+                animate={promptChat ? { rotate: [0, -12, 12, -8, 8, 0] } : { rotate: 0 }}
+                transition={promptChat ? { duration: 0.9, repeat: Infinity, repeatDelay: 0.3 } : { duration: 0.2 }}
+                style={{ width: 31, height: 31, objectFit: "contain" }}
+              />
+              {chatUnread && (
+                <span style={{
+                  position: "absolute", top: -2, right: -2, width: 11, height: 11, borderRadius: "50%",
+                  background: "#F87171", border: "2px solid #0A1235",
+                }} />
               )}
-            </span>
-          </button>
+            </button>
+          </div>
         ) : (
-          <button
-            onClick={() => setPickerOpen(true)}
+          // NOT signed in → same animated yellow pill, but it invites "Sign in".
+          // It still morphs to the blue "Chat with HR" nudge; tapping either state
+          // starts the sign-in flow (chat needs a verified account first).
+          <div
             className="ma-fab"
-            title="Sign in to see your attendance"
+            onClick={() => setPickerOpen(true)}
             style={{
               position: "fixed", bottom: 18, right: 18, zIndex: 999,
-              display: "flex", alignItems: "center", gap: 8,
-              background: "linear-gradient(135deg,#111C4A,#0A1235)",
-              border: `1px solid ${YELLOW}55`, borderRadius: 50,
-              padding: "10px 18px", cursor: "pointer",
-              boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
-              transition: "transform 0.15s, box-shadow 0.15s",
-              fontFamily: "'Sora',sans-serif",
+              height: 56, width: "fit-content",
+              background: `linear-gradient(135deg, ${YELLOW}, #FFC400)`,
+              border: `1px solid ${YELLOW}`, borderRadius: 50,
+              boxShadow: promptChat ? "0 8px 28px rgba(30,54,194,0.55)" : `0 8px 24px ${YELLOW}55`,
+              fontFamily: "'Sora',sans-serif", overflow: "hidden", cursor: "pointer",
+              transition: "box-shadow 0.4s ease", display: "flex", alignItems: "center",
             }}
           >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
-              <path d="M15 3h4a2 2 0 012 2v14a2 2 0 01-2 2h-4M10 17l5-5-5-5M15 12H3" stroke={YELLOW} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-            <span style={{ color: YELLOW, fontSize: 12, fontWeight: 700 }}>Sign in</span>
-          </button>
+            {/* blue ink-blot flood (same as the signed-in pill) */}
+            <motion.div
+              initial={false}
+              animate={{ scale: promptChat ? 16 : 1 }}
+              transition={{ type: "spring", stiffness: 120, damping: 20 }}
+              style={{
+                position: "absolute", top: "50%", right: 8, width: 44, height: 44,
+                marginTop: -22, borderRadius: "50%", zIndex: 1,
+                background: "linear-gradient(145deg, #1E36C2, #0A1235)",
+                transformOrigin: "center", pointerEvents: "none",
+              }}
+            />
+
+            {/* text stack — "Sign in" and "Chat with HR" share one cell (max width) */}
+            <div style={{ position: "relative", zIndex: 2, display: "grid", alignItems: "center", paddingLeft: 16 }}>
+              {/* sign-in (yellow state) */}
+              <motion.div
+                animate={{ opacity: promptChat ? 0 : 1 }}
+                transition={{ duration: 0.2 }}
+                style={{ gridArea: "1 / 1", display: "flex", alignItems: "center", gap: 9, paddingRight: 14 }}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
+                  <path d="M15 3h4a2 2 0 012 2v14a2 2 0 01-2 2h-4M10 17l5-5-5-5M15 12H3" stroke="#1A1606" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+                <span style={{ display: "flex", flexDirection: "column", lineHeight: 1.2 }}>
+                  <span style={{ color: "#1A1606", fontSize: 13, fontWeight: 800, whiteSpace: "nowrap" }}>Sign in</span>
+                  <span style={{ color: "#3D3206", fontSize: 9.5, fontWeight: 700, whiteSpace: "nowrap" }}>to access your tools &amp; features</span>
+                </span>
+              </motion.div>
+
+              {/* "Chat with HR" (blue state) */}
+              <motion.div
+                animate={{ opacity: promptChat ? 1 : 0 }}
+                transition={{ duration: 0.25, delay: promptChat ? 0.18 : 0 }}
+                style={{ gridArea: "1 / 1", display: "flex", flexDirection: "column", lineHeight: 1.15, paddingLeft: 4, paddingRight: 14, pointerEvents: "none" }}
+              >
+                <span style={{ color: "#FFFFFF", fontSize: 14, fontWeight: 800, whiteSpace: "nowrap" }}>Chat with HR</span>
+                <span style={{ color: "#9FB4FF", fontSize: 9.5, fontWeight: 600, whiteSpace: "nowrap" }}>Sign in to message us</span>
+              </motion.div>
+            </div>
+
+            {/* logo circle on the right (same as signed-in pill) */}
+            <span
+              className="ma-chat-btn"
+              style={{
+                position: "relative", zIndex: 2, marginRight: 8, marginLeft: 4, flexShrink: 0,
+                width: 44, height: 44, borderRadius: "50%",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                background: promptChat ? "rgba(255,255,255,0.12)" : "linear-gradient(145deg, #1E36C2, #0A1235)",
+                border: "1px solid rgba(96,165,250,0.55)",
+                boxShadow: promptChat ? "none" : "0 2px 10px rgba(30,54,194,0.5)",
+                transition: "background 0.3s ease, box-shadow 0.3s ease",
+              }}
+            >
+              <motion.img
+                src={logo} alt=""
+                animate={promptChat ? { rotate: [0, -12, 12, -8, 8, 0] } : { rotate: 0 }}
+                transition={promptChat ? { duration: 0.9, repeat: Infinity, repeatDelay: 0.3 } : { duration: 0.2 }}
+                style={{ width: 31, height: 31, objectFit: "contain" }}
+              />
+            </span>
+          </div>
         )
+      )}
+
+      {/* HR chat panel — controlled by the name-pill chat segment */}
+      {empId && (
+        <SupportChat
+          open={chatOpen}
+          onClose={() => setChatOpen(false)}
+          empId={empId}
+          empName={storedName || empId}
+          userEmail={displayEmail || null}
+          ensureAuth={ensureChatAuth}
+          onActivity={refreshChatUnread}
+        />
       )}
     </>
   );

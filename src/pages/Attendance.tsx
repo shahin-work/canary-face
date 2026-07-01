@@ -752,10 +752,97 @@ async function fetchTodayInOffice() {
     }
   }
 
+  // ── Lightweight auto-refresh: re-read ONLY today's column for each employee and
+  //    merge it into the existing cards. Past days never change, so on an interval
+  //    we don't re-read the whole week/month — this reads ~N docs (today only)
+  //    instead of ~N×7, keeping us well under the Firebase daily read quota.
+  async function refreshTodayColumn() {
+    try {
+      const empSnap = await getDocs(collection(db, "employees")); // 1 query
+      const empById: Record<string, any> = {};
+      empSnap.docs.forEach(d => { const x = d.data() as any; empById[x.emp_id] = x; });
+
+      // one today-doc read per employee (documentId == today)
+      const todays = await Promise.all(
+        Object.keys(empById).map(async (empId) => {
+          try {
+            const snap = await getDoc(doc(db, empId, today));
+            return { empId, data: snap.exists() ? snap.data() : null };
+          } catch { return { empId, data: null }; }
+        })
+      );
+      const todayByEmp: Record<string, any> = {};
+      todays.forEach(t => { todayByEmp[t.empId] = t.data; });
+
+      // merge today's fresh data into each existing card without touching past days
+      setCards(prev => prev.map(card => {
+        if (!card.weekDays.some(d => d.date === today)) return card; // today not in view
+        const d = todayByEmp[card.emp_id] as { sessions: Session[]; extra_time?: string | null } | undefined;
+        const daySessions = applyAttendanceBonus(card.emp_id, today, d?.sessions);
+
+        let newToday: DayStatus;
+        if (daySessions.length > 0) {
+          const workSessions  = daySessions.filter((s: any) => !s.leave);
+          const leaveSessions = daySessions.filter((s: any) => s.leave);
+          if (leaveSessions.length > 0) {
+            const kind: "full" | "half" | "quarter" =
+              leaveSessions.some((s: any) => s.leave_kind === "full") ? "full"
+              : leaveSessions.some((s: any) => s.leave_kind === "quarter") ? "quarter" : "half";
+            newToday = { date: today, status: "leave", sessions: daySessions, leaveKind: kind,
+              workedHours: calcHours(workSessions, today), totalHours: calcHours(workSessions, today) };
+          } else {
+            const isWfh = workSessions.length > 0 && workSessions.every((s: any) => s.wfh === true);
+            newToday = { date: today, status: "present", sessions: daySessions,
+              totalHours: calcHours(workSessions, today), wfh: isWfh, extraTime: d?.extra_time ?? null };
+          }
+        } else {
+          newToday = { date: today, status: "absent" };
+        }
+
+        const weekDays = card.weekDays.map(dd => dd.date === today ? newToday : dd);
+        const presentDays = weekDays.filter(dd => dd.status === "present").length;
+        const totalHours = Math.round(weekDays.reduce((a, dd) => a + (dd.totalHours || 0), 0) * 10) / 10;
+        const last = newToday.sessions?.[newToday.sessions.length - 1];
+        const currentlyIn = newToday.status === "present" && !!last && !last.check_out;
+        return { ...card, weekDays, presentDays, totalHours,
+          extraTime: newToday.extraTime ?? null, currentlyIn,
+          todayStatus: newToday.status === "present" ? (currentlyIn ? "checked-in" : "present") : "absent" };
+      }));
+      setLastUpdated(Date.now());
+    } catch (e) {
+      if (isQuotaError(e)) setQuotaHit(true);
+      console.error("[refreshTodayColumn]", e);
+    }
+  }
+
   useEffect(() => {
     const dates = viewMode === "week" ? getWeekDates(weekOffset) : getMonthDates(monthOffset);
     fetchAll(dates);
   }, [viewMode, weekOffset, monthOffset]);
+
+  // ── Auto-refresh today's column every 10 min — ONLY when the tab is VISIBLE and
+  //    the user is not idle (no interaction for 5 min). Background tabs and walked-
+  //    away sessions make zero Firebase reads.
+  useEffect(() => {
+    if (isPhone) return;
+    const REFRESH_MS = 10 * 60 * 1000;
+    const IDLE_MS    = 5 * 60 * 1000;
+    let lastActive = Date.now();
+    const markActive = () => { lastActive = Date.now(); };
+    const events: (keyof WindowEventMap)[] = ["mousemove", "keydown", "click", "scroll", "touchstart"];
+    events.forEach(e => window.addEventListener(e, markActive, { passive: true }));
+
+    const id = setInterval(() => {
+      const visible = document.visibilityState === "visible";
+      const active  = Date.now() - lastActive < IDLE_MS;
+      if (visible && active && !gameOpen && !quotaHit) refreshTodayColumn();
+    }, REFRESH_MS);
+
+    return () => {
+      clearInterval(id);
+      events.forEach(e => window.removeEventListener(e, markActive));
+    };
+  }, [isPhone, today, gameOpen, quotaHit]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     fetchTodayInOffice();
@@ -1648,12 +1735,14 @@ async function fetchTodayInOffice() {
             <div className="att-marquee" ref={marqueeBoxRef} style={{
               flex: 1, minWidth: 180, marginLeft: "auto", overflow: "hidden",
               position: "relative", height: 18, display: "flex", alignItems: "center",
-              maskImage: "linear-gradient(90deg, transparent 0, #000 8%, #000 88%, transparent 100%)",
-              WebkitMaskImage: "linear-gradient(90deg, transparent 0, #000 8%, #000 88%, transparent 100%)",
+              maskImage: "linear-gradient(90deg, transparent 0, #000 4%, #000 96%, transparent 100%)",
+              WebkitMaskImage: "linear-gradient(90deg, transparent 0, #000 4%, #000 96%, transparent 100%)",
             }}>
               <div className="att-marquee-track" ref={marqueeTrackRef} style={{ display: "inline-flex", whiteSpace: "nowrap", willChange: "transform" }}>
                 {[0, 1].map(dup => (
-                  <span key={dup} style={{ display: "inline-flex", alignItems: "center", paddingLeft: MARQUEE_GAP }} aria-hidden={dup === 1}>
+                  // trailing gap (paddingRight) on each copy → the last item has
+                  // space after it before the loop wraps, so it's never clipped.
+                  <span key={dup} style={{ display: "inline-flex", alignItems: "center", paddingRight: MARQUEE_GAP }} aria-hidden={dup === 1}>
                     {marqueeItems.map((it, i) => {
                       const prev = marqueeItems[i - 1];
                       // bigger gap when switching between the DB group and the computed group

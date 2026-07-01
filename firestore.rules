@@ -65,6 +65,29 @@ service cloud.firestore {
       allow delete: if false;                    // never delete report history
     }
 
+    // ── chats (HR ↔ employee support) — AUTH-GATED ───────────────────────────
+    // One metadata doc per employee at chats/{empId}, with messages in the
+    // chats/{empId}/messages subcollection. Both require a signed-in, email-
+    // verified Google user. Messages are append-only and stamped with the verified
+    // sender email (never client-typed) — so authorship can't be forged. HR and
+    // employees both write here; every message is attributed to a real Google
+    // account. (HR is identified app-side by the allow-listed emails; at the rule
+    // level any verified user may post — same audit-grade model as leave/issues.)
+    match /chats/{empId} {
+      allow read: if true;                       // public read (portal is read-open)
+      // metadata doc (lastMessage, unread counts) — any verified user may upsert it
+      allow write: if isSignedIn() && emailVerified();
+
+      match /messages/{msgId} {
+        allow read: if true;
+        // new message must stamp the verified sender email = the token email
+        allow create: if isSignedIn() && emailVerified()
+                      && request.resource.data.senderEmail == tokenEmail();
+        // messages are immutable history — no edits, no deletes
+        allow update, delete: if false;
+      }
+    }
+
     // ── Open collections (public read, open write) — unchanged behaviour ──────
     match /employees/{doc}        { allow read, write: if true; }
     match /leaveRequests/{doc}    { allow read, write: if true; }
@@ -95,7 +118,7 @@ service cloud.firestore {
     // those paths.
     match /{empCollection}/{dayDoc} {
       allow write: if !(empCollection in [
-        'issues', 'employees', 'leaveRequests', 'regularizations', 'settings', 'mail_logs'
+        'issues', 'employees', 'leaveRequests', 'regularizations', 'settings', 'mail_logs', 'chats'
       ]);
     }
   }
