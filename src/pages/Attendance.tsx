@@ -1177,13 +1177,28 @@ async function fetchTodayInOffice() {
                 }
                 @media (max-width: 480px) {
                   .att-clock { display: none !important; }
-                  .att-headrow { padding: 5px 8px !important; }
-                  .att-toolbar { padding: 6px 8px !important; }
-                  /* On phones, hide the legend + search + filter to save space —
-                     the WEEK/MONTH toggle and period nav stay. */
+                  .att-headrow { padding: 6px 10px !important; row-gap: 8px !important; }
+                  .att-toolbar { padding: 6px 10px !important; row-gap: 8px !important; }
+
+                  /* hide the legend + search + filter on phones (save space) */
                   .att-legend  { display: none !important; }
                   .att-search  { display: none !important; }
                   .att-filter  { display: none !important; }
+
+                  /* Right group → one tidy block: stats badge fills the width, the
+                     action icons (regularize / report) sit in a neat row beneath. */
+                  .att-rightgroup { width: 100% !important; gap: 8px !important; align-items: stretch !important; }
+                  .att-stats {
+                    flex: 1 1 100% !important; justify-content: center !important;
+                    flex-wrap: nowrap !important; padding: 7px 12px !important;
+                  }
+                  /* the yellow action buttons wrap into an even row, not lonely lines */
+                  .att-rightgroup .adm-wrap { flex: 0 0 auto !important; }
+
+                  /* WEEK/MONTH + week-nav share ONE row (shrink the period label) */
+                  .att-toolbar        { flex-wrap: nowrap !important; gap: 8px !important; }
+                  .att-period-group   { flex: 1 1 auto !important; flex-wrap: nowrap !important; gap: 6px !important; min-width: 0 !important; }
+                  .att-period         { min-width: 0 !important; font-size: 11px !important; }
                 }
 
 
@@ -1619,7 +1634,7 @@ async function fetchTodayInOffice() {
           display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap",
           background: BG,
         }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <div className="att-period-group" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             <div style={{ display: "flex", background: SURF, border: `1px solid ${BORDER}`, borderRadius: 10, padding: 3, gap: 2 }}>
               {(["week", "month"] as const).map(m => (
                 <button key={m} className="mbtn"
@@ -1645,7 +1660,7 @@ async function fetchTodayInOffice() {
                   background: "transparent", color: YELLOW, fontSize: 17, cursor: "pointer",
                   display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800,
                 }}>‹</button>
-              <span style={{ color: TEXT, fontSize: 12, fontWeight: 500, minWidth: 210, textAlign: "center", padding: "0 4px" }}>
+              <span className="att-period" style={{ color: TEXT, fontSize: 12, fontWeight: 500, minWidth: 210, textAlign: "center", padding: "0 4px" }}>
                 {periodLabel}
               </span>
               <button className="nbtn" onClick={goFwd} disabled={!canGoNext}
