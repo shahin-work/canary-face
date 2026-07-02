@@ -123,24 +123,34 @@ function WeekBar({ day, isCheckedIn = false, today }: { day: DayStatus; isChecke
   const isFuture   = day.status === "future";
   const h          = day.totalHours ?? 0;
 
-  // A present day under 4 worked hours counts as Absent in the export banding —
-  // colour its tile red to match the "A" label shown on it.
+  // Attendance band by worked hours (mirrors the export / tile label):
+  //   ≥ 8h        → "P"    → FULL GREEN tile
+  //   4h to <8h   → "0.5P" → HALF green / HALF red tile (half day)
+  //   > 0h to <4h → "A"    → FULL RED tile (too few hours)
   const isUnder4 = isPresent && h > 0 && h < 4;
+  const isHalf   = isPresent && h >= 4 && h < 8;   // 0.5P → split tile
+
+  const GREEN_SOLID = "rgba(34, 197, 94, 0.92)";
+  const RED_SOLID   = "rgba(239, 68, 68, 0.90)";
 
   const bg =
     isUnder4
-      ? "rgba(239, 68, 68, 0.90)"   // same red as Leave / Absent tiles
+      ? RED_SOLID                                   // A → full red
       : day.wfh && day.status === "present"
-      ? "rgba(166, 38, 128, 0.74)"
-      : (isCheckedIn && isPresent && h === 0
-          ? "#15731B"
-          : barBg(day));
+      ? "rgba(166, 38, 128, 0.74)"                  // remote → pink
+      : (isCheckedIn && isPresent && h === 0)
+      ? "#15731B"                                   // checked in, 0h yet
+      : (isPresent && h >= 8)
+      ? GREEN_SOLID                                 // P → full green
+      : isHalf
+      ? GREEN_SOLID                                 // base green (red half drawn on top)
+      : barBg(day);
 
   const textColor = (() => {
-    if (isUnder4) return "#000";   // match the Leave tile's dark text on red
+    if (isUnder4) return "#000";   // dark text on red
     if (!isPresent) return "#001a00";
     if (isCheckedIn && h === 0) return "rgba(150,255,150,0.9)";
-    return h < 5 ? "rgba(150,255,150,0.85)" : "#001a00";
+    return "#001a00";
   })();
 
     const underEight = SHOW_RED_BORDER_UNDER_8 && isPresent && h > 0 && h < 8;
@@ -174,6 +184,10 @@ function WeekBar({ day, isCheckedIn = false, today }: { day: DayStatus; isChecke
           ))}
         </>
       )}
+      {/* half-day (0.5P): green left half, red right half */}
+      {isHalf && !isPartialLeave && (
+        <div style={{ position: "absolute", top: 0, right: 0, bottom: 0, width: "50%", background: RED_SOLID }} />
+      )}
       {isPresent && (isCheckedIn && h === 0) && (
         <span style={{ color: "rgba(150,255,150,0.9)", fontSize: 8, fontWeight: 800, letterSpacing: 0.3 }}>IN</span>
       )}
@@ -186,7 +200,11 @@ function WeekBar({ day, isCheckedIn = false, today }: { day: DayStatus; isChecke
         const isWfh = !!day.wfh;
         const band = h >= 8 ? (isWfh ? "R" : "P") : h >= 4 ? (isWfh ? "0.5R" : "0.5P") : "A";
         return (
-          <span style={{ display: "flex", flexDirection: "column", alignItems: "center", lineHeight: 1, color: textColor }}>
+          <span style={{
+            position: "relative", zIndex: 1,
+            display: "flex", flexDirection: "column", alignItems: "center", lineHeight: 1, color: textColor,
+            textShadow: isHalf ? "0 1px 3px rgba(0,0,0,0.35)" : "none",
+          }}>
             <span style={{ fontSize: 12.5, fontWeight: 900, fontFamily: "'JetBrains Mono',monospace", letterSpacing: -0.3 }}>
               {fmtHMShort(h)}
             </span>
