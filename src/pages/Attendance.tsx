@@ -1321,7 +1321,11 @@ async function fetchTodayInOffice() {
           cards + their badges pass cleanly behind this bar instead of bleeding through. */}
       <div style={{
         position: "sticky", top: 0, zIndex: 60,
-        background: BG, paddingTop: "env(safe-area-inset-top)",
+        // Cap the notch inset so the browser doesn't leave a big empty black band
+        // up top, while still clearing the notch on installed PWAs. Fill the space
+        // with the header's dark gradient (not plain black) so it looks intentional.
+        paddingTop: "min(env(safe-area-inset-top), 14px)",
+        background: "linear-gradient(180deg,rgba(10,18,64,0.98) 0%,rgba(6,13,46,0.95) 100%)",
       }}>
 
       {/* ══ HEADER ══ */}
