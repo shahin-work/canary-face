@@ -9,6 +9,7 @@ import emailjs from "@emailjs/browser";
 import { applyAttendanceBonus } from "../data/attendanceBonus";
 import { calcHours, fmtHM } from "../lib/hours";
 import HrChatPanel, { type ChatTarget } from "./HrChatPanel";
+import HrInstallButton from "./HrInstallButton";
 import { totalUnreadForHr, type ChatContext } from "../lib/chat";
 import logo from "../assets/react.png";
 
@@ -23,7 +24,7 @@ import logo from "../assets/react.png";
 // To add more HR users later, just add their Gmail addresses to this array.
 // ─────────────────────────────────────────────────────────────────────────────
 const HR_ALLOWED_EMAILS: string[] = [
-  "vandanakb0@gmail.com", "canaryvision.canarydigital@gmail.com",
+  "vandanakb0@gmail.com", "canarydigital.dev@gmail.com",
 ];
 const isHrEmail = (email: string | null | undefined): boolean =>
   !!email && HR_ALLOWED_EMAILS.map(e => e.toLowerCase()).includes(email.toLowerCase());
@@ -4808,6 +4809,8 @@ const stats = useMemo(() => {
             <span style={{display:"block",color:BLUE,fontSize:9,fontWeight:600,marginTop:1,letterSpacing:0.2}}>HR Administrator</span>
           </span>
         </button>
+
+        <HrInstallButton />
 
         <button onClick={refreshAll} disabled={refreshing} title="Refresh data" style={{
           display:"inline-flex",alignItems:"center",gap:6,
