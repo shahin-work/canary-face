@@ -1179,7 +1179,11 @@ async function fetchTodayInOffice() {
                   .att-clock { display: none !important; }
                   .att-headrow { padding: 5px 8px !important; }
                   .att-toolbar { padding: 6px 8px !important; }
-                  .att-legend  { padding: 0 8px 6px !important; }
+                  /* On phones, hide the legend + search + filter to save space —
+                     the WEEK/MONTH toggle and period nav stay. */
+                  .att-legend  { display: none !important; }
+                  .att-search  { display: none !important; }
+                  .att-filter  { display: none !important; }
                 }
 
 
@@ -1656,9 +1660,9 @@ async function fetchTodayInOffice() {
           </div>
 
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <div style={{ display: "flex", flexDirection: "column", gap: 3, width: "min(220px,100%)" }}>
+            <div className="att-search" style={{ display: "flex", flexDirection: "column", gap: 3, width: "min(220px,100%)" }}>
               {/* tiny last-updated stamp, attached just above the search box */}
-             
+
               <div style={{ position: "relative", width: "100%" }}>
                 <svg style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)" }}
                   width="12" height="12" viewBox="0 0 24 24" fill="none">
@@ -1676,7 +1680,7 @@ async function fetchTodayInOffice() {
                   onBlur={e => (e.currentTarget.style.borderColor = BORDER)} />
               </div>
             </div>
-            <FilterDropdown active={activeFilter} setActive={setActiveFilter} counts={filterCounts} />
+            <span className="att-filter"><FilterDropdown active={activeFilter} setActive={setActiveFilter} counts={filterCounts} /></span>
 
             {/* refresh — sits right after the filter; green theme + ~10s glow pulse */}
             <button
