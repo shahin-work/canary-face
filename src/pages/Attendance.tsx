@@ -494,6 +494,12 @@ export default function Attendance() {
   const [viewMode,     setViewMode]    = useState<ViewMode>("week");
   const [weekOffset,   setWeekOffset]  = useState(0);   // 0 = current week (today)
   const [monthOffset,  setMonthOffset] = useState(0);
+
+  // Phone shows WEEK only (the MONTH toggle is hidden on phone) — force week view
+  // so month data can never be stuck on-screen with no way to switch back.
+  useEffect(() => {
+    if (isPhone && viewMode !== "week") { setViewMode("week"); setMonthOffset(0); }
+  }, [isPhone, viewMode]);
   const [search,       setSearch]      = useState("");
   const [cards,        setCards]       = useState<EmployeeCardData[]>([]);
   const [loading,      setLoading]     = useState(true);
@@ -1185,17 +1191,26 @@ async function fetchTodayInOffice() {
                   .att-search  { display: none !important; }
                   .att-filter  { display: none !important; }
 
-                  /* Right group → one tidy block: stats badge fills the width, the
-                     action icons (regularize / report) sit in a neat row beneath. */
-                  .att-rightgroup { width: 100% !important; gap: 8px !important; align-items: stretch !important; }
-                  .att-stats {
-                    flex: 1 1 100% !important; justify-content: center !important;
-                    flex-wrap: nowrap !important; padding: 7px 12px !important;
+                  /* Right group → ONE row: the stats badge (all/in/out) and the
+                     three action buttons (regularize · leave · report) share the
+                     same line, wrapping gracefully only if truly out of room. */
+                  .att-rightgroup {
+                    width: 100% !important; gap: 6px !important;
+                    flex-wrap: wrap !important; align-items: center !important;
+                    justify-content: flex-start !important;
                   }
-                  /* the yellow action buttons wrap into an even row, not lonely lines */
+                  .att-stats {
+                    flex: 1 1 auto !important; justify-content: center !important;
+                    flex-wrap: nowrap !important; padding: 6px 10px !important;
+                  }
                   .att-rightgroup .adm-wrap { flex: 0 0 auto !important; }
+                  /* keep the yellow buttons compact (icon-only) so all three fit */
+                  .att-rightgroup .meetbtn { padding: 6px 9px !important; }
 
-                  /* WEEK/MONTH + week-nav share ONE row (shrink the period label) */
+                  /* WEEK-only on phone: hide the MONTH toggle */
+                  .mbtn-month { display: none !important; }
+
+                  /* WEEK toggle + week-nav share ONE row (shrink the period label) */
                   .att-toolbar        { flex-wrap: nowrap !important; gap: 8px !important; }
                   .att-period-group   { flex: 1 1 auto !important; flex-wrap: nowrap !important; gap: 6px !important; min-width: 0 !important; }
                   .att-period         { min-width: 0 !important; font-size: 11px !important; }
@@ -1637,7 +1652,7 @@ async function fetchTodayInOffice() {
           <div className="att-period-group" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             <div style={{ display: "flex", background: SURF, border: `1px solid ${BORDER}`, borderRadius: 10, padding: 3, gap: 2 }}>
               {(["week", "month"] as const).map(m => (
-                <button key={m} className="mbtn"
+                <button key={m} className={`mbtn mbtn-${m}`}
                   onClick={() => { setViewMode(m); setWeekOffset(0); setMonthOffset(0); }}
                   style={{
                     padding: "5px 14px", borderRadius: 7, border: "none", cursor: "pointer",
