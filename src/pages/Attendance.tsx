@@ -850,6 +850,28 @@ async function fetchTodayInOffice() {
     };
   }, [isPhone, today, gameOpen, quotaHit]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Refresh-on-focus: when the user returns to the tab (or refocuses the window)
+  //    after being away, pull ONLY today's column once — this is the "forgot to
+  //    click refresh after a while" fix. Fires only on actual focus, never polls.
+  //    Throttled so rapid tab flips don't spam Firebase.
+  useEffect(() => {
+    let lastFocusFetch = 0;
+    const onFocus = () => {
+      if (document.visibilityState !== "visible") return;
+      if (gameOpen || quotaHit) return;
+      const now = Date.now();
+      if (now - lastFocusFetch < 60_000) return; // at most once per minute
+      lastFocusFetch = now;
+      refreshTodayColumn();
+    };
+    document.addEventListener("visibilitychange", onFocus);
+    window.addEventListener("focus", onFocus);
+    return () => {
+      document.removeEventListener("visibilitychange", onFocus);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [today, gameOpen, quotaHit]); // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     fetchTodayInOffice();
     fetchNotices();

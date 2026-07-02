@@ -23,22 +23,10 @@ import logo from "../assets/react.png";
 // To add more HR users later, just add their Gmail addresses to this array.
 // ─────────────────────────────────────────────────────────────────────────────
 const HR_ALLOWED_EMAILS: string[] = [
-  "vandanakb0@gmail.com", "shahincanary@gmail.com",
+  "vandanakb0@gmail.com", "canaryvision.canarydigital@gmail.com",
 ];
 const isHrEmail = (email: string | null | undefined): boolean =>
   !!email && HR_ALLOWED_EMAILS.map(e => e.toLowerCase()).includes(email.toLowerCase());
-
-// ⚠️ TEMPORARY DEV BYPASS — remove before production.
-// When enabled, visiting the HR Panel with `?dev=1` in the URL (e.g. /hr?dev=1)
-// skips the Google login entirely and enters as a fake HR user. This is for local
-// testing ONLY — it offers zero security. Set HR_DEV_BYPASS to false (or delete
-// this block) to fully disable it.
-const HR_DEV_BYPASS = true;
-function devBypassActive(): boolean {
-  if (!HR_DEV_BYPASS) return false;
-  try { return new URLSearchParams(window.location.search).get("dev") === "1"; }
-  catch { return false; }
-}
 
 // Session lifetime. Once an HR user logs in, the session stays valid for this long
 // (a full working day) regardless of activity — they are NOT logged out for being
@@ -1061,15 +1049,6 @@ export default function HrPanel() {
     const timer = setTimeout(() => { logout(); }, remaining);
     return () => clearTimeout(timer);
   }, [user]);
-
-  // ⚠️ TEMPORARY DEV BYPASS — /hr?dev=1 enters without logging in. Remove for prod.
-  if (devBypassActive()) {
-    return <HrMain
-      hrName={hrName || "Dev"}
-      onChangeName={() => setEditing(true)}
-      onLogout={() => { window.location.href = window.location.pathname; }}
-    />;
-  }
 
   // While Firebase resolves the persisted session, avoid flashing the login screen.
   if (authResolving) {
@@ -4109,24 +4088,25 @@ function HrMain({ hrName, onLogout, onChangeName }: { hrName: string; onLogout: 
   const today = toDateStr(new Date());
   const week  = useMemo(() => getWeekByOffset(weekOffset), [weekOffset]);
 
-  useEffect(() => {
-    (async () => {
-      setLoadingEmps(true);
-      try {
-        const snap = await getDocs(collection(db, "employees"));
-        const list = snap.docs.map(d => d.data());
-        const order = ["CDAI","CDIN","CDCN"];
-        list.sort((a:any,b:any) => {
-          const ga = order.findIndex(g=>a.emp_id.startsWith(g));
-          const gb = order.findIndex(g=>b.emp_id.startsWith(g));
-          if(ga!==gb) return (ga<0?99:ga)-(gb<0?99:gb);
-          return (parseInt(a.emp_id.replace(/\D/g,""))||0)-(parseInt(b.emp_id.replace(/\D/g,""))||0);
-        });
-        setEmployees(list);
-      } catch (_) {}
-      finally { setLoadingEmps(false); }
-    })();
+  // Load the employees list. Reloading it also re-triggers the TODAY and WEEK
+  // fetch effects below (they depend on `employees`), so this refreshes everything.
+  const loadEmployees = useCallback(async () => {
+    setLoadingEmps(true);
+    try {
+      const snap = await getDocs(collection(db, "employees"));
+      const list = snap.docs.map(d => d.data());
+      const order = ["CDAI","CDIN","CDCN"];
+      list.sort((a:any,b:any) => {
+        const ga = order.findIndex(g=>a.emp_id.startsWith(g));
+        const gb = order.findIndex(g=>b.emp_id.startsWith(g));
+        if(ga!==gb) return (ga<0?99:ga)-(gb<0?99:gb);
+        return (parseInt(a.emp_id.replace(/\D/g,""))||0)-(parseInt(b.emp_id.replace(/\D/g,""))||0);
+      });
+      setEmployees(list);
+    } catch (_) {}
+    finally { setLoadingEmps(false); }
   }, []);
+  useEffect(() => { loadEmployees(); }, [loadEmployees]);
 
   // count pending regularization + leave requests → drives the blinking nav badges (poll every 30s)
   const refreshPending = useCallback(async () => {
@@ -4161,6 +4141,36 @@ function HrMain({ hrName, onLogout, onChangeName }: { hrName: string; onLogout: 
     // unread chat messages from employees (separate try — never block the others)
     try { setUnreadChats(await totalUnreadForHr()); } catch (_) {}
   }, []);
+
+  // ── Manual + focus refresh ────────────────────────────────────────────────
+  // Reloading employees cascades to the TODAY + WEEK fetch effects (they depend on
+  // `employees`), so this refreshes the whole panel. Used by the header Refresh
+  // button and by the refresh-on-focus listener below.
+  const [refreshing, setRefreshing] = useState(false);
+  const refreshAll = useCallback(async () => {
+    setRefreshing(true);
+    try { await Promise.all([loadEmployees(), refreshPending()]); }
+    finally { setTimeout(() => setRefreshing(false), 600); }
+  }, [loadEmployees, refreshPending]);
+
+  // Refresh when HR returns to the tab after being away (the "forgot to refresh"
+  // fix). Fires only on real focus, throttled to once/minute — never polls.
+  useEffect(() => {
+    let last = 0;
+    const onFocus = () => {
+      if (document.visibilityState !== "visible") return;
+      const now = Date.now();
+      if (now - last < 60_000) return;
+      last = now;
+      refreshAll();
+    };
+    document.addEventListener("visibilitychange", onFocus);
+    window.addEventListener("focus", onFocus);
+    return () => {
+      document.removeEventListener("visibilitychange", onFocus);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [refreshAll]);
 
   // open the Messages tab on a specific employee's thread, optionally tagged with
   // the module + request it was launched from (used by the card 💬 icons).
@@ -4657,6 +4667,7 @@ const stats = useMemo(() => {
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=JetBrains+Mono:wght@600;700&display=swap');
         *,*::before,*::after{box-sizing:border-box;}
+        @keyframes hr-spin { from { transform: rotate(0); } to { transform: rotate(360deg); } }
         ::-webkit-scrollbar{width:6px;height:6px;}
         ::-webkit-scrollbar-track{background:transparent;}
         ::-webkit-scrollbar-thumb{background:rgba(30,54,194,0.3);border-radius:3px;}
@@ -4796,6 +4807,19 @@ const stats = useMemo(() => {
             <span style={{display:"block",color:TEXT,fontSize:12,fontWeight:700,whiteSpace:"nowrap"}}>{hrName}</span>
             <span style={{display:"block",color:BLUE,fontSize:9,fontWeight:600,marginTop:1,letterSpacing:0.2}}>HR Administrator</span>
           </span>
+        </button>
+
+        <button onClick={refreshAll} disabled={refreshing} title="Refresh data" style={{
+          display:"inline-flex",alignItems:"center",gap:6,
+          background:"rgba(74,222,128,0.08)",border:`1px solid ${GREEN}44`,
+          borderRadius:9,color:GREEN,fontSize:10.5,fontWeight:700,padding:"8px 12px",
+          cursor:refreshing?"wait":"pointer",fontFamily:"'Sora',sans-serif",whiteSpace:"nowrap",
+        }}>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
+            style={{ animation: refreshing ? "hr-spin 0.8s linear infinite" : "none" }}>
+            <path d="M21 12a9 9 0 11-2.64-6.36M21 3v6h-6" stroke={GREEN} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+          {refreshing ? "Refreshing…" : "Refresh"}
         </button>
 
         <button onClick={onLogout} title="Log out" style={{

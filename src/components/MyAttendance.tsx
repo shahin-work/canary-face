@@ -1001,7 +1001,7 @@ export default function MyAttendance() {
   const [pickerOpen, setPickerOpen]   = useState(false);
   const [summaryOpen, setSummaryOpen] = useState(false);
   const [chatOpen, setChatOpen]       = useState(false);   // HR chat panel
-  const [chatUnread, setChatUnread]   = useState(false);   // unread HR reply dot
+  const [chatUnread, setChatUnread]     = useState(0);      // # of unread HR replies
   const [promptChat, setPromptChat]   = useState(false);   // pill morphs to "Chat with HR" on a loop
   // true when the picker was opened via "change email" → force a fresh Google
   // sign-in (account chooser) so the user can switch to a different Gmail.
@@ -1198,10 +1198,10 @@ export default function MyAttendance() {
 
   // ── HR chat: poll for an unread reply (only when signed in + identified) ──
   const refreshChatUnread = useCallback(async () => {
-    if (!googleUser || !empId) { setChatUnread(false); return; }
+    if (!googleUser || !empId) { setChatUnread(0); return; }
     try {
       const meta = await getThreadMeta(empId);
-      setChatUnread(!!meta && meta.unreadForEmployee > 0);
+      setChatUnread(meta ? (meta.unreadForEmployee || 0) : 0);
     } catch { /* ignore */ }
   }, [googleUser, empId]);
 
@@ -1348,7 +1348,7 @@ export default function MyAttendance() {
               transition: "box-shadow 0.4s ease",
               display: "flex", alignItems: "center",
             }}
-            onClick={promptChat ? () => { setChatOpen(true); setChatUnread(false); setPromptChat(false); } : undefined}
+            onClick={promptChat ? () => { setChatOpen(true); setChatUnread(0); setPromptChat(false); } : undefined}
           >
             {/* ── BLUE ink-blot: a circle over the right-side logo that scales up to
                   flood the whole pill when promptChat, and shrinks back otherwise ── */}
@@ -1419,8 +1419,8 @@ export default function MyAttendance() {
 
             {/* ── the logo circle: ALWAYS on the right, sits above the ink-blot ── */}
             <button
-              onClick={(e) => { e.stopPropagation(); setChatOpen(true); setChatUnread(false); }}
-              title="Chat with HR"
+              onClick={(e) => { e.stopPropagation(); setChatOpen(true); setChatUnread(0); }}
+              title={chatUnread > 0 ? `Chat with HR · ${chatUnread} new message${chatUnread === 1 ? "" : "s"}` : "Chat with HR"}
               className="ma-chat-btn"
               style={{
                 position: "relative", zIndex: 2, marginRight: 8, marginLeft: 4, flexShrink: 0,
@@ -1439,11 +1439,16 @@ export default function MyAttendance() {
                 transition={promptChat ? { duration: 0.9, repeat: Infinity, repeatDelay: 0.3 } : { duration: 0.2 }}
                 style={{ width: 31, height: 31, objectFit: "contain" }}
               />
-              {chatUnread && (
+              {/* unread count badge — # of new HR messages */}
+              {chatUnread > 0 && (
                 <span style={{
-                  position: "absolute", top: -2, right: -2, width: 11, height: 11, borderRadius: "50%",
-                  background: "#F87171", border: "2px solid #0A1235",
-                }} />
+                  position: "absolute", top: -5, right: -5, minWidth: 18, height: 18, padding: "0 5px",
+                  borderRadius: 9, background: "linear-gradient(145deg, #4ADE80, #22C55E)",
+                  border: "2px solid #0A1235", boxShadow: "0 2px 6px rgba(34,197,94,0.5)",
+                  color: "#06210F", fontSize: 10, fontWeight: 900, lineHeight: 1,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  fontFamily: "'Sora',sans-serif",
+                }}>{chatUnread > 9 ? "9+" : chatUnread}</span>
               )}
             </button>
           </div>
