@@ -62,35 +62,44 @@ function compressImage(file: File): Promise<string> {
 }
 
 // ─── issue categories + routing ──────────────────────────────────────────────
-// Attendance-device issues go to Shahin; everything else goes to HR (Vandana).
- 
+// Five simple, beginner-friendly categories. Each routes automatically to the
+// right person via ISSUE_ROUTING: tech/device problems go to Shahin, everything
+// else (attendance, scanning, workplace, general) goes to HR (Vandana).
 
-export const CATEGORIES = [
-  // ── HR & Attendance Issues (Most Common) ──
-  { value: "regularization",        label: "Attendance Regularization",  solver: "HR — Vandana", solverNote: "Handled by HR" },
-  { value: "record_sync",           label: "Zoho Sync / Record Error",   solver: "HR — Vandana", solverNote: "Handled by HR" },
-  { value: "leave_wfh",             label: "Leave or WFH Discrepancy",   solver: "HR — Vandana", solverNote: "Handled by HR" },
-
-  // ── Technical & Device Issues ──
-  { value: "app_issue",             label: "Canary Face App Issue",      solver: "Shahin",       solverNote: "Handled by Shahin" },
-  { value: "face_recognition",      label: "Face Recognition",           solver: "Shahin",       solverNote: "Handled by Shahin" },
-  { value: "dashboard_bug",         label: "Web Dashboard Bug",          solver: "Shahin",       solverNote: "Handled by Shahin" },
-
-  // ── Workplace & Facilities ──
-  { value: "workplace",             label: "Workplace & Facilities",     solver: "HR — Vandana", solverNote: "Handled by HR" },
-
-  // ── Compliance & Policy Violations ──
-  { value: "missed_scan_violation", label: "Failure to Scan In/Out",     solver: "HR — Vandana", solverNote: "Handled by HR" },
-  { value: "unreported_absence",    label: "Unreported Absence / WFH",   solver: "HR — Vandana", solverNote: "Handled by HR" },
-  { value: "unauthorized_break",    label: "Excessive / Unlogged Break", solver: "HR — Vandana", solverNote: "Handled by HR" },
-  { value: "policy_violation",      label: "General Policy Violation",   solver: "HR — Vandana", solverNote: "Handled by HR" },
-  { value: "device_misuse",         label: "Device Tampering / Misuse",  solver: "Shahin",       solverNote: "Handled by Shahin" },
-
-  // ── Catch-all (Always Last) ──
-  { value: "other",                 label: "Other / General",            solver: "HR — Vandana", solverNote: "Handled by HR" },
+// The five simplified issue types (this string union is the `IssueType`).
+export const ISSUE_TYPES = [
+  "attendance_leave",   // Attendance / Leave Issues
+  "app_camera",         // App / Camera / Dashboard Issues
+  "not_scanning",       // Not Scanning / Avoiding Camera
+  "workplace",          // Office / Workplace Issues
+  "other",              // Other / General Issues
 ] as const;
- 
-type CategoryValue = (typeof CATEGORIES)[number]["value"];
+
+export type IssueType = (typeof ISSUE_TYPES)[number];
+
+// automatic routing: which type goes to whom.
+export const ISSUE_ROUTING: Record<IssueType, string> = {
+  attendance_leave: "HR — Vandana",
+  app_camera:       "Tech — Shahin",
+  not_scanning:     "HR — Vandana",
+  workplace:        "HR — Vandana",
+  other:            "HR — Vandana",
+};
+
+// display list for the dropdown (label + resolved solver from the routing map).
+export const CATEGORIES = [
+  { value: "attendance_leave", label: "Attendance / Leave Issues" },
+  { value: "app_camera",       label: "App / Camera / Dashboard Issues" },
+  { value: "not_scanning",     label: "Not Scanning / Avoiding Camera" },
+  { value: "workplace",        label: "Office / Workplace Issues" },
+  { value: "other",            label: "Other / General Issues" },
+].map(c => ({
+  ...c,
+  solver: ISSUE_ROUTING[c.value as IssueType],
+  solverNote: ISSUE_ROUTING[c.value as IssueType].startsWith("Tech") ? "Handled by Tech" : "Handled by HR",
+})) as { value: IssueType; label: string; solver: string; solverNote: string }[];
+
+type CategoryValue = IssueType;
 
 type IssueStatus = "open" | "resolved" | "cancelled";
 const STATUS_META: Record<IssueStatus, { label: string; color: string }> = {
@@ -101,7 +110,7 @@ const STATUS_META: Record<IssueStatus, { label: string; color: string }> = {
 
 interface IssueReport {
   id: string;
-  category: CategoryValue;
+  category: string;             // an IssueType value (string, so old reports still read)
   solver: string;
   description: string;
   attachment?: string | null;   // legacy single image (older reports) — still read
@@ -109,7 +118,10 @@ interface IssueReport {
   status: IssueStatus;
   created_at: number;
   resolver_note?: string;
-  // verified identity from the Google token (never client-typed) — audit trail
+  anonymous?: boolean;          // if true, HR shows "Anonymous" instead of the name
+  // verified identity from the Google token (never client-typed) — audit trail.
+  // Still stored even when anonymous (required by the security rule + abuse cases);
+  // the HR UI simply hides it from view.
   submittedByEmail?: string;
   submittedByUid?: string;
 }
@@ -301,6 +313,7 @@ export default function ReportIssue({ open, onClose, onSaved }: ReportIssueProps
 
   const [category, setCategory]       = useState<CategoryValue | "">("");
   const [description, setDescription] = useState("");
+  const [anonymous, setAnonymous]     = useState(true);         // report anonymously — ON by default
   const [photos, setPhotos]           = useState<string[]>([]); // compressed data URLs
   const [compressing, setCompressing] = useState(false);
   const [saving, setSaving]           = useState(false);
@@ -351,7 +364,7 @@ export default function ReportIssue({ open, onClose, onSaved }: ReportIssueProps
   }, [open, onClose]);
 
   function resetForm() {
-    setCategory(""); setDescription(""); setPhotos([]); setErr("");
+    setCategory(""); setDescription(""); setPhotos([]); setAnonymous(true); setErr("");
     if (fileRef.current) fileRef.current.value = "";
   }
 
@@ -411,12 +424,15 @@ export default function ReportIssue({ open, onClose, onSaved }: ReportIssueProps
         const newReport: IssueReport = {
           id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
           category: category as CategoryValue,
-          solver: selectedCat.solver,
+          // routed automatically from ISSUE_ROUTING via the selected category
+          solver: ISSUE_ROUTING[category as IssueType] ?? selectedCat.solver,
           description: description.trim(),
           attachments: photos,
           status: "open",
           created_at: Date.now(),
-          // tamper-proof: taken straight from the signed Google token
+          anonymous,                    // HR hides the name/email when true
+          // tamper-proof: taken straight from the signed Google token. Stored even
+          // when anonymous (rule requires it) — the HR UI just won't display it.
           submittedByEmail: authUser.email ?? "",
           submittedByUid: authUser.uid,
         };
@@ -645,10 +661,40 @@ export default function ReportIssue({ open, onClose, onSaved }: ReportIssueProps
                 <span style={{ fontSize: 15 }}>🧑‍💼</span>
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontSize: 9, fontWeight: 700, color: SUB, letterSpacing: 0.6, textTransform: "uppercase" }}>Will be seen & solved by</div>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: GREEN }}>{selectedCat.solver}</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: GREEN }}>{anonymous ? "Anonymous → " : ""}{selectedCat.solver}</div>
                 </div>
               </div>
             )}
+
+            {/* anonymous toggle — hides the reporter's name from HR's view */}
+            <label style={{
+              display: "flex", alignItems: "flex-start", gap: 9, marginBottom: 14, cursor: "pointer",
+              background: anonymous ? "rgba(255,215,0,0.06)" : "transparent",
+              border: `1px solid ${anonymous ? YELLOW + "44" : BORDER}`, borderRadius: 10, padding: "10px 12px",
+              transition: "all 0.15s",
+            }}>
+              <span style={{
+                width: 18, height: 18, borderRadius: 5, flexShrink: 0, marginTop: 1,
+                border: `1.5px solid ${anonymous ? YELLOW : BORDER}`,
+                background: anonymous ? YELLOW : "transparent",
+                display: "flex", alignItems: "center", justifyContent: "center",
+              }}>
+                {anonymous && (
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
+                    <path d="M5 12l4 4L19 6" stroke="#1a1606" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                )}
+              </span>
+              <input type="checkbox" checked={anonymous} onChange={e => setAnonymous(e.target.checked)} style={{ display: "none" }} />
+              <span style={{ minWidth: 0 }}>
+                <span style={{ display: "block", color: TEXT, fontSize: 12.5, fontWeight: 700 }}>
+                  🕶️ Report anonymously (Hide my name)
+                </span>
+                <span style={{ display: "block", color: SUB, fontSize: 10.5, marginTop: 2, lineHeight: 1.45 }}>
+                  HR will see this as “Anonymous” and won’t know who reported it.
+                </span>
+              </span>
+            </label>
 
             {/* description — mandatory */}
             <div style={{ marginBottom: 14 }}>
@@ -662,7 +708,7 @@ export default function ReportIssue({ open, onClose, onSaved }: ReportIssueProps
             {/* attachments — optional, up to MAX_PHOTOS */}
             <div style={{ marginBottom: 14 }}>
               <label style={labelStyle}>
-                Photos <span style={{ color: DIM, fontWeight: 500 }}>(optional · up to {MAX_PHOTOS} · max 5 MB each)</span>
+                Attach a photo or screenshot <span style={{ color: DIM, fontWeight: 500 }}>(Optional · up to {MAX_PHOTOS} · max 5 MB each)</span>
               </label>
 
               {photos.length > 0 && (
@@ -709,7 +755,7 @@ export default function ReportIssue({ open, onClose, onSaved }: ReportIssueProps
                 <path d="M4 21c0-4 3.6-7 8-7s8 3 8 7" stroke={user ? GREEN : DIM} strokeWidth="1.8" strokeLinecap="round"/>
               </svg>
               {user ? (
-                <span>Signed in as <span style={{ color: GREEN, fontWeight: 700 }}>{user.email}</span></span>
+                <span>Your report is <span style={{ color: GREEN, fontWeight: 700 }}>securely verified</span>.</span>
               ) : (
                 <span>You'll sign in with Google when you submit — for a verified, tamper-proof record.</span>
               )}

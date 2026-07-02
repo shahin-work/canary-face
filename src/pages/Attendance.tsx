@@ -826,29 +826,8 @@ async function fetchTodayInOffice() {
     fetchAll(dates);
   }, [viewMode, weekOffset, monthOffset]);
 
-  // ── Auto-refresh today's column every 10 min — ONLY when the tab is VISIBLE and
-  //    the user is not idle (no interaction for 5 min). Background tabs and walked-
-  //    away sessions make zero Firebase reads.
-  useEffect(() => {
-    if (isPhone) return;
-    const REFRESH_MS = 10 * 60 * 1000;
-    const IDLE_MS    = 5 * 60 * 1000;
-    let lastActive = Date.now();
-    const markActive = () => { lastActive = Date.now(); };
-    const events: (keyof WindowEventMap)[] = ["mousemove", "keydown", "click", "scroll", "touchstart"];
-    events.forEach(e => window.addEventListener(e, markActive, { passive: true }));
-
-    const id = setInterval(() => {
-      const visible = document.visibilityState === "visible";
-      const active  = Date.now() - lastActive < IDLE_MS;
-      if (visible && active && !gameOpen && !quotaHit) refreshTodayColumn();
-    }, REFRESH_MS);
-
-    return () => {
-      clearInterval(id);
-      events.forEach(e => window.removeEventListener(e, markActive));
-    };
-  }, [isPhone, today, gameOpen, quotaHit]); // eslint-disable-line react-hooks/exhaustive-deps
+  // (No interval polling — the dashboard refreshes only on tab re-focus and on the
+  //  manual Refresh button, to keep Firebase reads minimal.)
 
   // ── Refresh-on-focus: when the user returns to the tab (or refocuses the window)
   //    after being away, pull ONLY today's column once — this is the "forgot to
@@ -1421,7 +1400,7 @@ async function fetchTodayInOffice() {
                     background: refreshing ? YELLOW : "#4ADE80",
                     boxShadow: `0 0 4px ${refreshing ? YELLOW : "#4ADE80"}`,
                   }} />
-                  Updated {updatedLabel}
+                  Last Updated {updatedLabel}
                 </span>
               </p>
             </div>

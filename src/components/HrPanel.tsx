@@ -14,25 +14,12 @@ import { totalUnreadForHr, type ChatContext } from "../lib/chat";
 import logo from "../assets/react.png";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// HR PANEL ACCESS — Google login allow-list.
-//
-// Only the Google accounts listed here can open the HR Panel. Sign-in uses the
-// shared Firebase Google provider; the verified email from the signed token is
-// matched against this list (case-insensitive). Anyone else is rejected and
-// signed straight back out.
-//
-// To add more HR users later, just add their Gmail addresses to this array.
-// ─────────────────────────────────────────────────────────────────────────────
 const HR_ALLOWED_EMAILS: string[] = [
   "vandanakb0@gmail.com", "canarydigital.dev@gmail.com",
 ];
 const isHrEmail = (email: string | null | undefined): boolean =>
   !!email && HR_ALLOWED_EMAILS.map(e => e.toLowerCase()).includes(email.toLowerCase());
 
-// Session lifetime. Once an HR user logs in, the session stays valid for this long
-// (a full working day) regardless of activity — they are NOT logged out for being
-// idle. After it expires, the next visit asks them to sign in again. Firebase keeps
-// the session across page refreshes; we only enforce this daily cap on top of that.
 const HR_SESSION_MS  = 12 * 60 * 60 * 1000; // 12 hours
 const HR_LOGIN_AT_KEY = "hr_login_at";      // epoch ms of the current login
 
@@ -3660,6 +3647,7 @@ interface IssueReportHr {
   status: IssueStatusHr;
   created_at: number;
   resolver_note?: string;
+  anonymous?: boolean;          // reporter chose to hide their identity from HR
   submittedByEmail?: string;
   submittedByUid?: string;
 }
@@ -3901,20 +3889,26 @@ function IssuesPanel({
                 background: SURF2, border: `1px solid ${BORDER}`, borderRadius: 13, padding: "14px 16px",
                 display: "flex", alignItems: "center", gap: 18,
               }}>
-                {/* ── identity (left) ── */}
+                {/* ── identity (left) — hidden when the report is anonymous ── */}
                 <div style={{ display: "flex", alignItems: "center", gap: 10, width: 210, flexShrink: 0, minWidth: 0 }}>
                   <span style={{
                     width: 36, height: 36, borderRadius: "50%", flexShrink: 0, overflow: "hidden", background: BG,
                     border: `1.5px solid ${BORDER}`, display: "flex", alignItems: "center", justifyContent: "center",
-                    fontSize: 11, fontWeight: 700, color: SUB,
+                    fontSize: 15, fontWeight: 700, color: SUB,
                   }}>
-                    {emp?.profile_image
+                    {row.anonymous
+                      ? "🕶️"
+                      : emp?.profile_image
                       ? <img src={emp.profile_image} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                      : initials(row.emp_name)}
+                      : <span style={{ fontSize: 11 }}>{initials(row.emp_name)}</span>}
                   </span>
                   <div style={{ minWidth: 0 }}>
-                    <div style={{ color: TEXT, fontSize: 12.5, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{row.emp_name}</div>
-                    <div style={{ color: DIM, fontSize: 9.5, fontFamily: "'JetBrains Mono',monospace" }}>{row.emp_id}</div>
+                    <div style={{ color: row.anonymous ? SUB : TEXT, fontSize: 12.5, fontWeight: 700, fontStyle: row.anonymous ? "italic" : "normal", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                      {row.anonymous ? "Anonymous" : row.emp_name}
+                    </div>
+                    <div style={{ color: DIM, fontSize: 9.5, fontFamily: "'JetBrains Mono',monospace" }}>
+                      {row.anonymous ? "identity hidden" : row.emp_id}
+                    </div>
                   </div>
                 </div>
 
@@ -3978,8 +3972,11 @@ function IssuesPanel({
                     border: `1px solid ${meta.color}40`, borderRadius: 20, padding: "3px 10px", whiteSpace: "nowrap",
                   }}>{meta.label}</span>
 
-                {/* message this employee about this issue */}
-                <ChatIconButton onClick={() => onOpenChat(row.emp_id, row.emp_name, "issue", row.id)} />
+                {/* message this employee about this issue — hidden for anonymous
+                    reports (contacting them would reveal who reported). */}
+                {!row.anonymous && (
+                  <ChatIconButton onClick={() => onOpenChat(row.emp_id, row.emp_name, "issue", row.id)} />
+                )}
 
                 {/* actions */}
                 {noteFor === row.id ? (
@@ -4669,6 +4666,9 @@ const stats = useMemo(() => {
         @import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=JetBrains+Mono:wght@600;700&display=swap');
         *,*::before,*::after{box-sizing:border-box;}
         @keyframes hr-spin { from { transform: rotate(0); } to { transform: rotate(360deg); } }
+        @keyframes hr-chat-pop { from { opacity:0; transform: translateY(14px) scale(0.94); } to { opacity:1; transform:none; } }
+        @keyframes hr-chat-badge-pulse { 0%,100%{ transform: scale(1); } 50%{ transform: scale(1.18); } }
+        .hr-chat-badge { animation: hr-chat-badge-pulse 1.4s ease-in-out infinite; }
         ::-webkit-scrollbar{width:6px;height:6px;}
         ::-webkit-scrollbar-track{background:transparent;}
         ::-webkit-scrollbar-thumb{background:rgba(30,54,194,0.3);border-radius:3px;}
@@ -5367,6 +5367,50 @@ const stats = useMemo(() => {
           <MailComingSoon />
         )}
       </div>
+
+      {/* ── Floating unread-messages pill — shows ONLY when employees have sent
+            unread messages and HR isn't already on the Messages tab. Click → chat. ── */}
+      {unreadChats > 0 && nav !== "chat" && (
+        <button
+          onClick={() => setNav("chat")}
+          title={`${unreadChats} unread message${unreadChats === 1 ? "" : "s"} from employees`}
+          style={{
+            position: "fixed", right: 22, bottom: 22, zIndex: 9500,
+            display: "flex", alignItems: "center", gap: 10,
+            background: "linear-gradient(135deg, #1E36C2, #0A1235)",
+            border: `1px solid ${BLUE}66`, borderRadius: 30,
+            padding: "12px 18px 12px 14px", cursor: "pointer",
+            boxShadow: "0 10px 30px rgba(30,54,194,0.5)",
+            fontFamily: "'Sora',sans-serif",
+            animation: "hr-chat-pop 0.28s cubic-bezier(0.34,1.56,0.64,1)",
+          }}
+        >
+          <span style={{ position: "relative", display: "flex" }}>
+            <span style={{
+              width: 38, height: 38, borderRadius: "50%", background: `${BLUE}22`,
+              border: `1px solid ${BLUE}55`, display: "flex", alignItems: "center", justifyContent: "center",
+            }}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                <path d="M21 11.5a8.5 8.5 0 01-12.3 7.6L3 21l1.9-5.7A8.5 8.5 0 1121 11.5z"
+                  stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </span>
+            {/* the count badge */}
+            <span className="hr-chat-badge" style={{
+              position: "absolute", top: -6, right: -6, minWidth: 22, height: 22, padding: "0 6px",
+              borderRadius: 11, background: "linear-gradient(145deg, #F87171, #DC2626)",
+              border: "2px solid #0A1235", color: "#fff", fontSize: 12, fontWeight: 900, lineHeight: 1,
+              display: "flex", alignItems: "center", justifyContent: "center",
+            }}>{unreadChats > 9 ? "9+" : unreadChats}</span>
+          </span>
+          <span style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", lineHeight: 1.2 }}>
+            <span style={{ color: "#fff", fontSize: 13, fontWeight: 800, whiteSpace: "nowrap" }}>New messages</span>
+            <span style={{ color: "#9FB4FF", fontSize: 10, fontWeight: 600, whiteSpace: "nowrap" }}>
+              {unreadChats} unread · tap to open
+            </span>
+          </span>
+        </button>
+      )}
     </div>
   );
 }

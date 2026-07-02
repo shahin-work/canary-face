@@ -1239,6 +1239,8 @@ export default function MyAttendance() {
         @keyframes ma-scale { from{opacity:0;transform:translateY(8px) scale(0.98)} to{opacity:1;transform:translateY(0) scale(1)} }
         @keyframes ma-sk { 0%,100%{opacity:.35} 50%{opacity:.6} }
         @keyframes ma-pulse { 0%,100%{opacity:0.7;transform:translateY(-50%) scale(1)} 50%{opacity:1;transform:translateY(-50%) scale(1.3)} }
+        @keyframes chat-badge-pulse { 0%,100%{transform:scale(1)} 50%{transform:scale(1.18)} }
+        .chat-unread-badge { animation: chat-badge-pulse 1.4s ease-in-out infinite; }
         @keyframes ma-live-bar-glow {
           0%,100% { filter: drop-shadow(0 0 3px ${YELLOW}66); }
           50%     { filter: drop-shadow(0 0 9px ${YELLOW}); }
@@ -1439,13 +1441,15 @@ export default function MyAttendance() {
                 transition={promptChat ? { duration: 0.9, repeat: Infinity, repeatDelay: 0.3 } : { duration: 0.2 }}
                 style={{ width: 31, height: 31, objectFit: "contain" }}
               />
-              {/* unread count badge — # of new HR messages */}
+              {/* unread count badge — # of new HR messages. Bigger + pulsing so it
+                  catches the eye. Positioned INSIDE the icon's top-right (the pill
+                  clips overflow for the morph animation). */}
               {chatUnread > 0 && (
-                <span style={{
-                  position: "absolute", top: -5, right: -5, minWidth: 18, height: 18, padding: "0 5px",
-                  borderRadius: 9, background: "linear-gradient(145deg, #4ADE80, #22C55E)",
-                  border: "2px solid #0A1235", boxShadow: "0 2px 6px rgba(34,197,94,0.5)",
-                  color: "#06210F", fontSize: 10, fontWeight: 900, lineHeight: 1,
+                <span className="chat-unread-badge" style={{
+                  position: "absolute", top: -2, right: -2, minWidth: 22, height: 22, padding: "0 6px",
+                  borderRadius: 11, background: "linear-gradient(145deg, #4ADE80, #16A34A)",
+                  border: "2px solid #0A1235", boxShadow: "0 2px 8px rgba(34,197,94,0.6)",
+                  color: "#052912", fontSize: 12.5, fontWeight: 900, lineHeight: 1,
                   display: "flex", alignItems: "center", justifyContent: "center",
                   fontFamily: "'Sora',sans-serif",
                 }}>{chatUnread > 9 ? "9+" : chatUnread}</span>
