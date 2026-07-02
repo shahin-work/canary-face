@@ -123,23 +123,31 @@ function WeekBar({ day, isCheckedIn = false, today }: { day: DayStatus; isChecke
   const isFuture   = day.status === "future";
   const h          = day.totalHours ?? 0;
 
-  // Attendance band by worked hours (mirrors the export / tile label):
-  //   ≥ 8h        → "P"    → FULL GREEN tile
-  //   4h to <8h   → "0.5P" → HALF green / HALF red tile (half day)
-  //   > 0h to <4h → "A"    → FULL RED tile (too few hours)
-  const isUnder4 = isPresent && h > 0 && h < 4;
-  const isHalf   = isPresent && h >= 4 && h < 8;   // 0.5P → split tile
+  // Attendance band by worked hours (mirrors the export / tile label) — ONLY for
+  // finished PAST days. TODAY is still in progress, so it's always shown green (a
+  // person working since morning must not be flagged red/half just because it's
+  // early). Banding: ≥8h → "P" green · 4–<8h → "0.5P" split · >0–<4h → "A" red.
+  const isUnder4 = isPresent && !isToday && h > 0 && h < 4;
+  const isHalf   = isPresent && !isToday && h >= 4 && h < 8;   // 0.5P → split tile
 
   const GREEN_SOLID = "rgba(34, 197, 94, 0.92)";
   const RED_SOLID   = "rgba(239, 68, 68, 0.90)";
 
+  // TODAY with no check-in yet → neutral "yet to check in" (NOT red absent) — the
+  // day isn't over, they may still come in.
+  const isTodayNoCheckin = isToday && isAbsent;
+
   const bg =
-    isUnder4
-      ? RED_SOLID                                   // A → full red
+    isTodayNoCheckin
+      ? "rgba(99,102,241,0.12)"                     // neutral / awaiting (not red)
+      : isUnder4
+      ? RED_SOLID                                   // A → full red (past days only)
       : day.wfh && day.status === "present"
       ? "rgba(166, 38, 128, 0.74)"                  // remote → pink
       : (isCheckedIn && isPresent && h === 0)
       ? "#15731B"                                   // checked in, 0h yet
+      : (isPresent && isToday)
+      ? GREEN_SOLID                                 // today, in progress → green
       : (isPresent && h >= 8)
       ? GREEN_SOLID                                 // P → full green
       : isHalf
@@ -153,7 +161,8 @@ function WeekBar({ day, isCheckedIn = false, today }: { day: DayStatus; isChecke
     return "#001a00";
   })();
 
-    const underEight = SHOW_RED_BORDER_UNDER_8 && isPresent && h > 0 && h < 8;
+    // red "under 8h" ring — past days only (today is still in progress)
+    const underEight = SHOW_RED_BORDER_UNDER_8 && isPresent && !isToday && h > 0 && h < 8;
 
 
     // partial leave (leave + worked) → split the tile red (leave slots) / green (rest), by time-of-day
@@ -192,13 +201,13 @@ function WeekBar({ day, isCheckedIn = false, today }: { day: DayStatus; isChecke
         <span style={{ color: "rgba(150,255,150,0.9)", fontSize: 8, fontWeight: 800, letterSpacing: 0.3 }}>IN</span>
       )}
       {isPresent && h > 0 && (() => {
-        // Same banding as the Excel export (raw worked hours, time as H.MM), but
-        // the time is ALWAYS shown under the band on every tile:
-        //   ≥ 8h        → "P"    over the time
-        //   4h to <8h   → "0.5P" over the time
-        //   < 4h        → "A"    over the time (too few hours)
+        // Banding (P / 0.5P / A) applies ONLY to finished PAST days — the hours are
+        // final then. TODAY is still in progress, so we never mark it A/0.5P from
+        // partial hours; it just shows the time so far + a live "IN" label.
         const isWfh = !!day.wfh;
-        const band = h >= 8 ? (isWfh ? "R" : "P") : h >= 4 ? (isWfh ? "0.5R" : "0.5P") : "A";
+        const band = isToday
+          ? "IN"
+          : h >= 8 ? (isWfh ? "R" : "P") : h >= 4 ? (isWfh ? "0.5R" : "0.5P") : "A";
         return (
           <span style={{
             position: "relative", zIndex: 1,
@@ -212,8 +221,8 @@ function WeekBar({ day, isCheckedIn = false, today }: { day: DayStatus; isChecke
           </span>
         );
       })()}
-      {isAbsent && (
-        <span style={{ color: "#ff6b6b", fontSize: 8, fontWeight: 800 }}></span>
+      {isAbsent && isTodayNoCheckin && (
+        <span style={{ color: "rgba(165,180,252,0.9)", fontSize: 8.5, fontWeight: 800, letterSpacing: 0.4 }}>• • •</span>
       )}
       {isLeave && (() => {
         // available work hours for this leave type (8h work day − leave portion):
